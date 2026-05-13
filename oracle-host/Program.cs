@@ -103,6 +103,7 @@ internal sealed class Dispatcher
     private readonly ConstructorInfo _rngCtorNamed;
     private readonly MethodInfo _stringHelperHash;
     private readonly MethodInfo _stringHelperSnake;
+    private readonly MethodInfo _listExtStableShuffle;
     private readonly MethodInfo _nextIntSingle;
     private readonly MethodInfo _nextIntRange;
     private readonly MethodInfo _nextBool;
@@ -128,6 +129,7 @@ internal sealed class Dispatcher
         ConstructorInfo ctorNamed,
         MethodInfo stringHelperHash,
         MethodInfo stringHelperSnake,
+        MethodInfo listExtStableShuffle,
         MethodInfo nextIntSingle,
         MethodInfo nextIntRange,
         MethodInfo nextBool,
@@ -152,6 +154,7 @@ internal sealed class Dispatcher
         _rngCtorNamed = ctorNamed;
         _stringHelperHash = stringHelperHash;
         _stringHelperSnake = stringHelperSnake;
+        _listExtStableShuffle = listExtStableShuffle;
         _nextIntSingle = nextIntSingle;
         _nextIntRange = nextIntRange;
         _nextBool = nextBool;
@@ -192,6 +195,11 @@ internal sealed class Dispatcher
             BindingFlags.Public | BindingFlags.Static)
             ?? throw new InvalidOperationException("StringHelper.SnakeCase not found");
 
+        var listExtType = asm.GetType("MegaCrit.Sts2.Core.Extensions.ListExtensions",
+            throwOnError: true)!;
+        var listExtStableShuffle = listExtType.GetMethods()
+            .First(m => m.Name == "StableShuffle" && m.IsGenericMethod);
+
         var methods = rngType.GetMethods();
         MethodInfo Find(string name, int arity, Type? firstParam = null) =>
             methods.First(m => m.Name == name
@@ -229,7 +237,7 @@ internal sealed class Dispatcher
             ?? throw new InvalidOperationException("Seed property not found");
 
         return new Dispatcher(rngType, ctor, ctorNamed,
-            stringHelperHash, stringHelperSnake,
+            stringHelperHash, stringHelperSnake, listExtStableShuffle,
             nextIntSingle, nextIntRange,
             nextBool, nextDoubleSingle, nextDoubleRange,
             nextFloatSingle, nextFloatRange, nextUIntSingle, nextUIntRange,
@@ -277,6 +285,18 @@ internal sealed class Dispatcher
                 var s = p["str"]!.GetValue<string>();
                 var v = (string)_stringHelperSnake.Invoke(null, new object[] { s })!;
                 return Ok(JsonValue.Create(v));
+            }
+
+            case "stable_shuffle":
+            {
+                var inst = GetInstance(p);
+                var arr = p["list"]!.AsArray()
+                    .Select(n => n!.GetValue<int>()).ToList();
+                var ssInt = _listExtStableShuffle.MakeGenericMethod(typeof(int));
+                ssInt.Invoke(null, new object[] { arr, inst });
+                var result = new JsonArray();
+                foreach (var v in arr) result.Add(v);
+                return Ok(result);
             }
 
             case "rng_next_int":

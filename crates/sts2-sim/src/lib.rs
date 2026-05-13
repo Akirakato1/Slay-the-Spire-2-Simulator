@@ -4,5 +4,7 @@
 //! the oracle diff tests in the `sts2-sim-oracle-tests` crate.
 
 pub mod hash;
+pub mod map;
 pub mod rng;
 pub mod rng_set;
+pub mod shuffle;
