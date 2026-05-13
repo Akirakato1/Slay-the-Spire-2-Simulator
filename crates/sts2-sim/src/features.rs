@@ -44,7 +44,8 @@
 //! one-hots (Strike, Defend, Curse, …).
 
 use crate::card::{CardData, CardRarity, CardType, TargetType};
-use crate::combat::CardInstance;
+use crate::combat::{CardInstance, Creature, CreatureKind, PowerInstance};
+use crate::relic::{RelicData, RelicRarity};
 
 /// Schema version. Bump when the feature layout below changes.
 pub const OBSERVATION_SCHEMA_VERSION: u32 = 1;
@@ -216,6 +217,161 @@ fn effective_var(card: &CardData, var_kind: &str, upgrade_level: i32) -> Option<
     Some(base + delta_sum * upgrade_level as f64)
 }
 
+// ---------- Relic features (Phase 1.2) --------------------------------
+
+/// Relic feature vector size. Smaller than cards — no target/upgrade.
+pub const RELIC_FEATURE_DIM: usize = 21;
+
+#[derive(Clone, Copy, Debug)]
+pub struct RelicFeatures {
+    pub values: [f32; RELIC_FEATURE_DIM],
+}
+
+impl RelicFeatures {
+    pub fn as_slice(&self) -> &[f32] {
+        &self.values
+    }
+}
+
+// Layout:
+//   0..8:  RelicRarity one-hot (None / Starter / Common / Uncommon / Rare /
+//          Shop / Event / Ancient)
+//   8..17: Pool one-hot (Ironclad / Silent / Defect / Regent / Necrobinder /
+//          Shared / Event / Deprecated / Fallback). Multi-pool relics
+//          (LastingCandy ∈ Event ∩ Shared) set all that apply.
+//   17:    has_canonical_vars
+//   18:    canonical_var_count (raw)
+//   19:    first_var_base_value (heuristic; many relics have one numeric
+//          knob like BurningBlood's Heal=6)
+//   20:    reserved for v2
+const IDX_RELIC_RARITY_BASE: usize = 0; // 8 slots
+const IDX_RELIC_POOL_BASE: usize = 8; // 9 slots
+const IDX_RELIC_HAS_VARS: usize = 17;
+const IDX_RELIC_VAR_COUNT: usize = 18;
+const IDX_RELIC_FIRST_VAR: usize = 19;
+// Index 20 reserved.
+
+pub fn relic_features(relic: &RelicData) -> RelicFeatures {
+    let mut v = [0.0f32; RELIC_FEATURE_DIM];
+
+    one_hot(&mut v, IDX_RELIC_RARITY_BASE, relic_rarity_index(relic.rarity));
+
+    // Pool multi-hot — relics can span pools.
+    for pool in &relic.pools {
+        if let Some(idx) = pool_index(pool) {
+            v[IDX_RELIC_POOL_BASE + idx] = 1.0;
+        }
+    }
+
+    v[IDX_RELIC_HAS_VARS] = bool_f32(!relic.canonical_vars.is_empty());
+    v[IDX_RELIC_VAR_COUNT] = relic.canonical_vars.len() as f32;
+    if let Some(first) = relic.canonical_vars.first().and_then(|cv| cv.base_value) {
+        v[IDX_RELIC_FIRST_VAR] = first as f32;
+    }
+
+    RelicFeatures { values: v }
+}
+
+fn relic_rarity_index(r: RelicRarity) -> usize {
+    match r {
+        RelicRarity::None => 0,
+        RelicRarity::Starter => 1,
+        RelicRarity::Common => 2,
+        RelicRarity::Uncommon => 3,
+        RelicRarity::Rare => 4,
+        RelicRarity::Shop => 5,
+        RelicRarity::Event => 6,
+        RelicRarity::Ancient => 7,
+    }
+}
+
+fn pool_index(pool: &str) -> Option<usize> {
+    match pool {
+        "Ironclad" => Some(0),
+        "Silent" => Some(1),
+        "Defect" => Some(2),
+        "Regent" => Some(3),
+        "Necrobinder" => Some(4),
+        "Shared" => Some(5),
+        "Event" => Some(6),
+        "Deprecated" => Some(7),
+        "Fallback" => Some(8),
+        _ => None,
+    }
+}
+
+// ---------- Enemy / creature state features (Phase 1.3) --------------
+
+/// Per-creature state feature vector. Used for enemies (and player
+/// creatures for the value head's hp-preservation reward).
+pub const CREATURE_STATE_FEATURE_DIM: usize = 14;
+
+#[derive(Clone, Copy, Debug)]
+pub struct CreatureStateFeatures {
+    pub values: [f32; CREATURE_STATE_FEATURE_DIM],
+}
+
+impl CreatureStateFeatures {
+    pub fn as_slice(&self) -> &[f32] {
+        &self.values
+    }
+}
+
+// Layout:
+//   0: is_player (1.0 if CreatureKind::Player, else 0.0)
+//   1: alive (current_hp > 0)
+//   2: current_hp / max(1, max_hp) — normalized
+//   3: max_hp (raw — agent learns its own scale)
+//   4: block (raw)
+//   5: strength_amount (StrengthPower, signed)
+//   6: vulnerable_stack (VulnerablePower)
+//   7: weak_stack (WeakPower)
+//   8: poison_stack (PoisonPower)
+//   9: frail_stack (FrailPower)
+//  10: intangible_stack
+//  11: dexterity_stack
+//  12: artifact_stack
+//  13: power_count_total (cardinality of `powers` for ones we don't
+//      have a dedicated slot for; reserved for v2 expansion)
+const IDX_CREATURE_IS_PLAYER: usize = 0;
+const IDX_CREATURE_ALIVE: usize = 1;
+const IDX_CREATURE_HP_FRAC: usize = 2;
+const IDX_CREATURE_MAX_HP: usize = 3;
+const IDX_CREATURE_BLOCK: usize = 4;
+const IDX_CREATURE_STRENGTH: usize = 5;
+const IDX_CREATURE_VULNERABLE: usize = 6;
+const IDX_CREATURE_WEAK: usize = 7;
+const IDX_CREATURE_POISON: usize = 8;
+const IDX_CREATURE_FRAIL: usize = 9;
+const IDX_CREATURE_INTANGIBLE: usize = 10;
+const IDX_CREATURE_DEXTERITY: usize = 11;
+const IDX_CREATURE_ARTIFACT: usize = 12;
+const IDX_CREATURE_POWER_COUNT: usize = 13;
+
+pub fn creature_state_features(c: &Creature) -> CreatureStateFeatures {
+    let mut v = [0.0f32; CREATURE_STATE_FEATURE_DIM];
+    v[IDX_CREATURE_IS_PLAYER] = bool_f32(c.kind == CreatureKind::Player);
+    v[IDX_CREATURE_ALIVE] = bool_f32(c.current_hp > 0);
+    let max_hp = c.max_hp.max(1) as f32;
+    v[IDX_CREATURE_HP_FRAC] = c.current_hp as f32 / max_hp;
+    v[IDX_CREATURE_MAX_HP] = c.max_hp as f32;
+    v[IDX_CREATURE_BLOCK] = c.block as f32;
+    v[IDX_CREATURE_STRENGTH] = power_amount(&c.powers, "StrengthPower") as f32;
+    v[IDX_CREATURE_VULNERABLE] = power_amount(&c.powers, "VulnerablePower") as f32;
+    v[IDX_CREATURE_WEAK] = power_amount(&c.powers, "WeakPower") as f32;
+    v[IDX_CREATURE_POISON] = power_amount(&c.powers, "PoisonPower") as f32;
+    v[IDX_CREATURE_FRAIL] = power_amount(&c.powers, "FrailPower") as f32;
+    v[IDX_CREATURE_INTANGIBLE] = power_amount(&c.powers, "IntangiblePower") as f32;
+    v[IDX_CREATURE_DEXTERITY] = power_amount(&c.powers, "DexterityPower") as f32;
+    v[IDX_CREATURE_ARTIFACT] = power_amount(&c.powers, "ArtifactPower") as f32;
+    v[IDX_CREATURE_POWER_COUNT] = c.powers.len() as f32;
+    CreatureStateFeatures { values: v }
+}
+
+fn power_amount(powers: &[PowerInstance], id: &str) -> i32 {
+    powers.iter().find(|p| p.id == id).map(|p| p.amount).unwrap_or(0)
+}
+
 fn var_matches(v: &crate::card::CardVar, var_kind: &str) -> bool {
     if v.kind == var_kind {
         return true;
@@ -354,6 +510,153 @@ mod tests {
         let inst2 = CardInstance::from_card(strike, 0);
         let f2 = card_features(strike, Some(&inst2));
         assert_eq!(f2.values[IDX_HAS_ENCHANTMENT], 0.0);
+    }
+
+    // ---------- Relic feature tests -----------------------------------
+
+    #[test]
+    fn relic_feature_dim_is_21() {
+        assert_eq!(RELIC_FEATURE_DIM, 21);
+    }
+
+    #[test]
+    fn burning_blood_features() {
+        let bb = crate::relic::by_id("BurningBlood").unwrap();
+        let f = relic_features(bb);
+        // Starter rarity (index 1).
+        assert_eq!(f.values[IDX_RELIC_RARITY_BASE + 1], 1.0);
+        // Pool = Ironclad (index 0 within pool block).
+        assert_eq!(f.values[IDX_RELIC_POOL_BASE + 0], 1.0);
+        // Has canonical vars; first var is Heal=6.
+        assert_eq!(f.values[IDX_RELIC_HAS_VARS], 1.0);
+        assert_eq!(f.values[IDX_RELIC_VAR_COUNT], 1.0);
+        assert_eq!(f.values[IDX_RELIC_FIRST_VAR], 6.0);
+    }
+
+    #[test]
+    fn anchor_pool_is_shared() {
+        let a = crate::relic::by_id("Anchor").unwrap();
+        let f = relic_features(a);
+        // Common rarity (index 2).
+        assert_eq!(f.values[IDX_RELIC_RARITY_BASE + 2], 1.0);
+        // Pool = Shared (index 5).
+        assert_eq!(f.values[IDX_RELIC_POOL_BASE + 5], 1.0);
+        // Block 10 is the canonical var.
+        assert_eq!(f.values[IDX_RELIC_FIRST_VAR], 10.0);
+    }
+
+    #[test]
+    fn lasting_candy_is_multi_pool() {
+        let lc = crate::relic::by_id("LastingCandy").unwrap();
+        let f = relic_features(lc);
+        // Event AND Shared both set.
+        assert_eq!(f.values[IDX_RELIC_POOL_BASE + 5], 1.0); // Shared
+        assert_eq!(f.values[IDX_RELIC_POOL_BASE + 6], 1.0); // Event
+    }
+
+    #[test]
+    fn every_relic_produces_finite_feature_vector() {
+        for relic in crate::relic::ALL_RELICS.iter() {
+            let f = relic_features(relic);
+            for (i, x) in f.values.iter().enumerate() {
+                assert!(
+                    x.is_finite(),
+                    "relic {} index {} is not finite: {}",
+                    relic.id, i, x
+                );
+            }
+        }
+    }
+
+    // ---------- Creature state feature tests --------------------------
+
+    #[test]
+    fn creature_state_feature_dim_is_14() {
+        assert_eq!(CREATURE_STATE_FEATURE_DIM, 14);
+    }
+
+    #[test]
+    fn fresh_axebot_state_features() {
+        use crate::combat::{
+            deck_from_ids, CombatSide, CombatState, PlayerSetup,
+        };
+        use crate::{character, encounter};
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let enc = encounter::by_id("AxebotsNormal").unwrap();
+        let deck = deck_from_ids(&ironclad.starting_deck);
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80,
+            max_hp: 80,
+            deck,
+            relics: ironclad.starting_relics.clone(),
+        };
+        let cs = CombatState::start(enc, vec![setup], Vec::new());
+        let axebot = &cs.enemies[0];
+        let f = creature_state_features(axebot);
+        assert_eq!(f.values[IDX_CREATURE_IS_PLAYER], 0.0);
+        assert_eq!(f.values[IDX_CREATURE_ALIVE], 1.0);
+        // Fresh axebot at full HP → hp_frac = 1.0.
+        assert!((f.values[IDX_CREATURE_HP_FRAC] - 1.0).abs() < 1e-6);
+        assert_eq!(f.values[IDX_CREATURE_MAX_HP], 44.0);
+        assert_eq!(f.values[IDX_CREATURE_BLOCK], 0.0);
+        assert_eq!(f.values[IDX_CREATURE_POWER_COUNT], 0.0);
+        // Suppress unused
+        let _ = CombatSide::Player;
+    }
+
+    #[test]
+    fn creature_powers_populate_dedicated_slots() {
+        use crate::combat::{
+            deck_from_ids, CombatSide, CombatState, PlayerSetup,
+        };
+        use crate::{character, encounter};
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let enc = encounter::by_id("AxebotsNormal").unwrap();
+        let deck = deck_from_ids(&ironclad.starting_deck);
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80,
+            max_hp: 80,
+            deck,
+            relics: ironclad.starting_relics.clone(),
+        };
+        let mut cs = CombatState::start(enc, vec![setup], Vec::new());
+        cs.apply_power(CombatSide::Enemy, 0, "StrengthPower", 3);
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 2);
+        cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 5);
+
+        let f = creature_state_features(&cs.enemies[0]);
+        assert_eq!(f.values[IDX_CREATURE_STRENGTH], 3.0);
+        assert_eq!(f.values[IDX_CREATURE_VULNERABLE], 2.0);
+        assert_eq!(f.values[IDX_CREATURE_POISON], 5.0);
+        assert_eq!(f.values[IDX_CREATURE_POWER_COUNT], 3.0);
+        // Powers we don't track in dedicated slots → zero.
+        assert_eq!(f.values[IDX_CREATURE_FRAIL], 0.0);
+        assert_eq!(f.values[IDX_CREATURE_INTANGIBLE], 0.0);
+    }
+
+    #[test]
+    fn dead_creature_alive_flag_zero() {
+        use crate::combat::{
+            deck_from_ids, CombatState, PlayerSetup,
+        };
+        use crate::{character, encounter};
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let enc = encounter::by_id("AxebotsNormal").unwrap();
+        let deck = deck_from_ids(&ironclad.starting_deck);
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80,
+            max_hp: 80,
+            deck,
+            relics: ironclad.starting_relics.clone(),
+        };
+        let mut cs = CombatState::start(enc, vec![setup], Vec::new());
+        cs.enemies[0].current_hp = 0;
+        let f = creature_state_features(&cs.enemies[0]);
+        assert_eq!(f.values[IDX_CREATURE_ALIVE], 0.0);
+        assert_eq!(f.values[IDX_CREATURE_HP_FRAC], 0.0);
     }
 
     #[test]
