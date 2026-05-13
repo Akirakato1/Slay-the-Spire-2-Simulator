@@ -6,6 +6,7 @@
 pub mod act;
 pub mod hash;
 pub mod map;
+pub mod path_pruning;
 pub mod rng;
 pub mod rng_set;
 pub mod shuffle;

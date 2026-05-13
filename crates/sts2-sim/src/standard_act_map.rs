@@ -19,7 +19,7 @@
 use std::collections::HashSet;
 
 use crate::act::ActModel;
-use crate::map::{MapCoord, MapPoint, MapPointType, MapPointTypeCounts};
+use crate::map::{CoordSet, MapCoord, MapPoint, MapPointType, MapPointTypeCounts};
 use crate::rng::Rng;
 use crate::shuffle::{stable_shuffle, unstable_shuffle};
 
@@ -93,8 +93,7 @@ impl StandardActMap {
         sam.generate_map();
         sam.assign_point_types();
         if enable_pruning {
-            // M-D will land MapPathPruning::prune_and_repair here.
-            // unimplemented!("MapPathPruning is part of map port chunk M-D");
+            crate::path_pruning::prune_and_repair(&mut sam);
         }
         sam.center_grid();
         sam.spread_adjacent_map_points();
@@ -110,6 +109,79 @@ impl StandardActMap {
     pub fn second_boss(&self) -> Option<&MapPoint> { self.second_boss.as_ref() }
     pub fn rng_counter(&self) -> i32 { self.rng.counter() }
     pub fn start_map_points(&self) -> &HashSet<MapCoord> { &self.start_map_points }
+
+    /// Accessors used by `path_pruning` (kept `pub(crate)` to avoid widening
+    /// the public API any further than necessary).
+    pub(crate) fn point_type_counts_clone(&self) -> MapPointTypeCounts {
+        self.point_type_counts.clone()
+    }
+    pub(crate) fn with_rng<R>(&mut self, f: impl FnOnce(&mut Rng) -> R) -> R {
+        f(&mut self.rng)
+    }
+    pub(crate) fn get_point_mut_pub(
+        &mut self, col: i32, row: i32,
+    ) -> Option<&mut MapPoint> {
+        self.get_point_mut(col, row)
+    }
+    /// `ActMap.IsInMap(mapPoint)`. Bound-checks the grid, OR returns true
+    /// if the point is Ancient or Boss (specials live off-grid).
+    pub(crate) fn is_in_map(&self, coord: MapCoord) -> bool {
+        match self.get_point(coord.col, coord.row) {
+            Some(p) => {
+                matches!(p.point_type, MapPointType::Ancient | MapPointType::Boss)
+                    || ((0..self.cols).contains(&coord.col)
+                        && (0..self.rows).contains(&coord.row)
+                        && self.grid[coord.col as usize][coord.row as usize].is_some())
+            }
+            None => false,
+        }
+    }
+    /// `MapPathPruning.IsRemoved` — true if the in-grid cell is None.
+    pub(crate) fn is_removed(&self, coord: MapCoord) -> bool {
+        if (0..self.cols).contains(&coord.col) && (0..self.rows).contains(&coord.row) {
+            self.grid[coord.col as usize][coord.row as usize].is_none()
+        } else {
+            // Off-grid means it's a special (boss / starting / second_boss),
+            // never removed.
+            false
+        }
+    }
+    /// `MapPathPruning.RemovePoint`. Drops the point from the grid, removes
+    /// it from start_map_points, and clears all bidirectional links.
+    pub(crate) fn remove_point(&mut self, coord: MapCoord) {
+        // Only in-grid points are ever removed by the pruner.
+        if !((0..self.cols).contains(&coord.col)
+            && (0..self.rows).contains(&coord.row))
+        {
+            return;
+        }
+        let Some(removed) = self.grid[coord.col as usize][coord.row as usize].take()
+        else { return };
+        self.start_map_points.remove(&coord);
+        let child_coords: Vec<MapCoord> = removed.children.iter().copied().collect();
+        let parent_coords: Vec<MapCoord> = removed.parents.iter().copied().collect();
+        for cc in child_coords {
+            if let Some(c) = self.get_point_mut(cc.col, cc.row) {
+                c.parents.remove(&coord);
+            }
+        }
+        for pc in parent_coords {
+            if let Some(p) = self.get_point_mut(pc.col, pc.row) {
+                p.children.remove(&coord);
+            }
+        }
+    }
+    /// Cut the parent → child edge, bidirectional.
+    pub(crate) fn remove_child_link(
+        &mut self, parent_coord: MapCoord, child_coord: MapCoord,
+    ) {
+        if let Some(p) = self.get_point_mut(parent_coord.col, parent_coord.row) {
+            p.children.remove(&child_coord);
+        }
+        if let Some(c) = self.get_point_mut(child_coord.col, child_coord.row) {
+            c.parents.remove(&parent_coord);
+        }
+    }
 
     /// All grid `MapPoint`s in (col-then-row) order, excluding `None` cells
     /// and excluding the boss/starting/second-boss specials.
@@ -557,9 +629,23 @@ impl StandardActMap {
         if shift == 0 {
             return;
         }
+        // Only in-grid points actually shift columns; the boss / starting /
+        // second_boss specials stay put. When rewriting parent/child sets we
+        // must apply the shift only to in-grid coords, otherwise we end up
+        // with dangling references to (cols/2 + shift, 0) instead of the
+        // actual starting coord (which never moved).
+        let rows = self.rows;
         let remap = |c: MapCoord| MapCoord::new(c.col + shift, c.row);
-        let remap_set = |s: &HashSet<MapCoord>| -> HashSet<MapCoord> {
-            s.iter().map(|&c| remap(c)).collect()
+        let remap_set = |s: &CoordSet| -> CoordSet {
+            s.iter()
+                .map(|&c| {
+                    if c.row > 0 && c.row < rows {
+                        remap(c)
+                    } else {
+                        c
+                    }
+                })
+                .collect()
         };
 
         // Rebuild the grid in shifted positions; cells that fall off the

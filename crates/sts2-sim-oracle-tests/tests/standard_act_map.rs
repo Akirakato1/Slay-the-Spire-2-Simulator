@@ -79,8 +79,18 @@ fn compare_one(
     rust_act: &dyn ActModel,
     seed: u32,
 ) {
+    compare_one_with_pruning(oracle, act_name, rust_act, seed, false);
+}
+
+fn compare_one_with_pruning(
+    oracle: &mut Oracle,
+    act_name: &str,
+    rust_act: &dyn ActModel,
+    seed: u32,
+    enable_pruning: bool,
+) {
     let rust_rng = Rng::new(seed, 0);
-    let rust_map = StandardActMap::new(rust_rng, rust_act, false, false, false, None, false);
+    let rust_map = StandardActMap::new(rust_rng, rust_act, false, false, false, None, enable_pruning);
 
     let rng_handle = new_rng_handle(oracle, seed, 0);
     let resp = oracle.call(
@@ -91,7 +101,7 @@ fn compare_one(
             "is_multiplayer": false,
             "replace_treasure_with_elites": false,
             "has_second_boss": false,
-            "enable_pruning": false,
+            "enable_pruning": enable_pruning,
         }),
     ).unwrap();
 
@@ -176,5 +186,45 @@ fn underdocks_map_matches_for_random_seeds() {
     let mut d = Driver::new(0x91_82_73_64_55_46_37_28);
     for _ in 0..20 {
         compare_one(&mut oracle, "Underdocks", &Underdocks, d.next_u32());
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn overgrowth_map_matches_with_pruning() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0x77_88_99_AA_BB_CC_DD_EE);
+    for _ in 0..20 {
+        compare_one_with_pruning(&mut oracle, "Overgrowth", &Overgrowth, d.next_u32(), true);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn hive_map_matches_with_pruning() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0x12_34_56_78_9A_BC_DE_F0);
+    for _ in 0..20 {
+        compare_one_with_pruning(&mut oracle, "Hive", &Hive, d.next_u32(), true);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn glory_map_matches_with_pruning() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0xFE_DC_BA_98_76_54_32_10);
+    for _ in 0..20 {
+        compare_one_with_pruning(&mut oracle, "Glory", &Glory, d.next_u32(), true);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn underdocks_map_matches_with_pruning() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0x55_55_AA_AA_33_33_CC_CC);
+    for _ in 0..20 {
+        compare_one_with_pruning(&mut oracle, "Underdocks", &Underdocks, d.next_u32(), true);
     }
 }

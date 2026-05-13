@@ -7,8 +7,65 @@
 //! lives in later chunks of the map port.
 
 use std::collections::HashSet;
+use std::ops::Deref;
 
 use crate::rng::Rng;
+
+/// Insertion-ordered set of `MapCoord`s, used for `MapPoint`'s `parents`
+/// and `children`. Mirrors how C#'s `HashSet<MapPoint>` iterates on small
+/// sets that never rehash — the internal slots array is filled in
+/// insertion order and iterated in that order, so Vec-insertion-order
+/// here matches C# call-for-call. Deref makes the common immutable API
+/// (iter, len, is_empty, contains, first, ...) work directly.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CoordSet(Vec<MapCoord>);
+
+impl CoordSet {
+    pub fn new() -> Self { Self(Vec::new()) }
+
+    /// Insert if not already present. Returns true iff the coord was added.
+    pub fn insert(&mut self, coord: MapCoord) -> bool {
+        if self.0.contains(&coord) {
+            false
+        } else {
+            self.0.push(coord);
+            true
+        }
+    }
+
+    /// Remove the coord if present (preserves the order of remaining
+    /// elements). Returns true iff removed.
+    pub fn remove(&mut self, coord: &MapCoord) -> bool {
+        match self.0.iter().position(|c| c == coord) {
+            Some(idx) => {
+                self.0.remove(idx);
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+impl Deref for CoordSet {
+    type Target = [MapCoord];
+    fn deref(&self) -> &Self::Target { &self.0 }
+}
+
+impl<'a> IntoIterator for &'a CoordSet {
+    type Item = &'a MapCoord;
+    type IntoIter = std::slice::Iter<'a, MapCoord>;
+    fn into_iter(self) -> Self::IntoIter { self.0.iter() }
+}
+
+impl FromIterator<MapCoord> for CoordSet {
+    fn from_iter<T: IntoIterator<Item = MapCoord>>(iter: T) -> Self {
+        let mut s = Self::new();
+        for c in iter {
+            s.insert(c);
+        }
+        s
+    }
+}
 
 /// `MegaCrit.Sts2.Core.Map.MapCoord`. Plain `(col, row)` pair.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -70,8 +127,8 @@ pub struct MapPoint {
     pub coord: MapCoord,
     pub point_type: MapPointType,
     pub can_be_modified: bool,
-    pub parents: HashSet<MapCoord>,
-    pub children: HashSet<MapCoord>,
+    pub parents: CoordSet,
+    pub children: CoordSet,
 }
 
 impl MapPoint {
@@ -80,8 +137,8 @@ impl MapPoint {
             coord: MapCoord::new(col, row),
             point_type: MapPointType::Unassigned,
             can_be_modified: true,
-            parents: HashSet::new(),
-            children: HashSet::new(),
+            parents: CoordSet::new(),
+            children: CoordSet::new(),
         }
     }
 
