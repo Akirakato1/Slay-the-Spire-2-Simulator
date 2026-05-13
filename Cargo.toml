@@ -16,6 +16,7 @@ members = [
     "tools/extract_powers",
     "tools/extract_relics",
     "tools/extractors_common",
+    "tools/run_analyzer",
 ]
 
 [workspace.package]

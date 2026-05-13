@@ -1,0 +1,17 @@
+[package]
+name = "run-analyzer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Scaffold of the StS2 analysis tool: takes a .run file path and emits structured per-floor metadata. Standalone binary that will eventually graduate to its own repo (Slay-the-Spire-2-Analysis-Tool) and grow agent-query integration."
+
+[[bin]]
+name = "run-analyzer"
+path = "src/main.rs"
+
+[dependencies]
+sts2-sim = { path = "../../crates/sts2-sim" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
