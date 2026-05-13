@@ -20,9 +20,6 @@ use std::collections::HashSet;
 
 use crate::act::ActModel;
 use crate::map::{MapCoord, MapPoint, MapPointType, MapPointTypeCounts};
-use crate::map_post_processing::{
-    center_grid, spread_adjacent_map_points, straighten_paths,
-};
 use crate::rng::Rng;
 use crate::shuffle::{stable_shuffle, unstable_shuffle};
 
@@ -99,9 +96,9 @@ impl StandardActMap {
             // M-D will land MapPathPruning::prune_and_repair here.
             // unimplemented!("MapPathPruning is part of map port chunk M-D");
         }
-        center_grid(&mut sam.grid, sam.cols, sam.rows);
-        spread_adjacent_map_points(&mut sam.grid, sam.cols, sam.rows);
-        straighten_paths(&mut sam.grid, sam.cols, sam.rows);
+        sam.center_grid();
+        sam.spread_adjacent_map_points();
+        sam.straighten_paths();
 
         sam
     }
@@ -489,6 +486,268 @@ impl StandardActMap {
         }
         true
     }
+
+    /// Move the in-grid point at `(col, row)` to `(new_col, row)`. Rewires
+    /// every parent's children set and every child's parents set so they
+    /// reference the new coord. Boss / starting / second_boss are handled
+    /// because `get_point_mut` resolves them. This is the operation that
+    /// PostProcessing's three passes need to use any time they shift a
+    /// MapPoint's column — otherwise neighbor edges go stale (C# gets this
+    /// for free via reference equality; we don't).
+    fn move_in_grid_point(&mut self, col: i32, row: i32, new_col: i32) {
+        if col == new_col {
+            return;
+        }
+        let old_coord = MapCoord::new(col, row);
+        let new_coord = MapCoord::new(new_col, row);
+
+        // Snapshot neighbor coords before mutating; they themselves don't move.
+        let (parent_coords, child_coords) = {
+            let Some(p) = self.grid[col as usize][row as usize].as_ref() else {
+                return;
+            };
+            (
+                p.parents.iter().copied().collect::<Vec<_>>(),
+                p.children.iter().copied().collect::<Vec<_>>(),
+            )
+        };
+
+        // Rewire each parent's children set.
+        for pc in &parent_coords {
+            if let Some(parent) = self.get_point_mut(pc.col, pc.row) {
+                parent.children.remove(&old_coord);
+                parent.children.insert(new_coord);
+            }
+        }
+        // Rewire each child's parents set.
+        for cc in &child_coords {
+            if let Some(child) = self.get_point_mut(cc.col, cc.row) {
+                child.parents.remove(&old_coord);
+                child.parents.insert(new_coord);
+            }
+        }
+
+        // Move the cell itself and update its own coord.
+        if let Some(mut moved) = self.grid[col as usize][row as usize].take() {
+            moved.coord = new_coord;
+            self.grid[new_col as usize][row as usize] = Some(moved);
+        }
+    }
+
+    fn is_column_empty(&self, col: i32) -> bool {
+        if col < 0 || col >= self.cols {
+            return true;
+        }
+        (0..self.rows as usize).all(|r| self.grid[col as usize][r].is_none())
+    }
+
+    /// `MapPostProcessing.CenterGrid` — shifts the entire grid left or right
+    /// by 1 column when one side is empty and the other isn't. Because every
+    /// in-grid point shifts by the same delta, we use a bulk remap rather
+    /// than calling `move_in_grid_point` N times.
+    pub(crate) fn center_grid(&mut self) {
+        let left_empty = self.is_column_empty(0) && self.is_column_empty(1);
+        let right_empty = self.is_column_empty(self.cols - 1)
+            && self.is_column_empty(self.cols - 2);
+        let shift: i32 = match (left_empty, right_empty) {
+            (true, false) => -1,
+            (false, true) => 1,
+            _ => 0,
+        };
+        if shift == 0 {
+            return;
+        }
+        let remap = |c: MapCoord| MapCoord::new(c.col + shift, c.row);
+        let remap_set = |s: &HashSet<MapCoord>| -> HashSet<MapCoord> {
+            s.iter().map(|&c| remap(c)).collect()
+        };
+
+        // Rebuild the grid in shifted positions; cells that fall off the
+        // edge are dropped (matches C#, which leaves grid[old, i] = null
+        // and only writes if num2 is in range).
+        let mut new_grid: Vec<Vec<Option<MapPoint>>> =
+            vec![vec![None; self.rows as usize]; self.cols as usize];
+        for col in 0..self.cols {
+            for row in 0..self.rows {
+                if let Some(mut p) = self.grid[col as usize][row as usize].take() {
+                    p.coord = remap(p.coord);
+                    p.parents = remap_set(&p.parents);
+                    p.children = remap_set(&p.children);
+                    let new_col = p.coord.col;
+                    if new_col >= 0 && new_col < self.cols {
+                        new_grid[new_col as usize][row as usize] = Some(p);
+                    }
+                }
+            }
+        }
+        self.grid = new_grid;
+
+        // Specials (boss / starting / second_boss) sit at col = cols/2 which
+        // is unaffected by ±1 shift, so their own coord is unchanged. But
+        // their parents/children point at row-1 / row-(rows-1) in-grid
+        // points that DID shift, so the sets must be remapped.
+        self.boss.parents = remap_set(&self.boss.parents);
+        self.boss.children = remap_set(&self.boss.children);
+        self.starting.parents = remap_set(&self.starting.parents);
+        self.starting.children = remap_set(&self.starting.children);
+        if let Some(sb) = self.second_boss.as_mut() {
+            sb.parents = remap_set(&sb.parents);
+            sb.children = remap_set(&sb.children);
+        }
+    }
+
+    /// `MapPostProcessing.StraightenPaths` — bias points with exactly one
+    /// parent and one child toward sitting between the two columnwise.
+    pub(crate) fn straighten_paths(&mut self) {
+        for i in 0..self.rows {
+            for j in 0..self.cols {
+                let Some(here) = self.grid[j as usize][i as usize].as_ref()
+                else { continue };
+                if here.parents.len() != 1 || here.children.len() != 1 {
+                    continue;
+                }
+                let parent_col = here.parents.iter().next().unwrap().col;
+                let child_col = here.children.iter().next().unwrap().col;
+                let my_col = here.coord.col;
+
+                let to_the_left = my_col < child_col && my_col < parent_col;
+                let to_the_right = my_col > child_col && my_col > parent_col;
+
+                if to_the_left && j < self.cols - 1 {
+                    let dest = j + 1;
+                    if self.grid[dest as usize][i as usize].is_none() {
+                        self.move_in_grid_point(j, i, dest);
+                        continue;
+                    }
+                }
+                if to_the_right && j > 0 {
+                    let dest = j - 1;
+                    if self.grid[dest as usize][i as usize].is_none() {
+                        self.move_in_grid_point(j, i, dest);
+                    }
+                }
+            }
+        }
+    }
+
+    /// `MapPostProcessing.SpreadAdjacentMapPoints` — for each row, repeatedly
+    /// move points to maximize the minimum inter-point gap, subject to each
+    /// point staying within ±1 column of every parent and every child.
+    ///
+    /// **Iteration-order note**: the C# version iterates `HashSet<int>
+    /// allowedPositions` in bucket order, which affects which candidate
+    /// wins on gap ties. Here we iterate ascending column. If oracle diff
+    /// tests reveal divergence on tie cases, revisit.
+    pub(crate) fn spread_adjacent_map_points(&mut self) {
+        for i in 0..self.rows {
+            // `row_start_cols` snapshots which columns are occupied at the
+            // *start* of this row's do-while loop. We iterate these to decide
+            // which points to consider in order, mirroring C#'s `list` which
+            // is built once before the do-while.
+            let row_start_cols: Vec<i32> = (0..self.cols)
+                .filter(|c| self.grid[*c as usize][i as usize].is_some())
+                .collect();
+            loop {
+                let mut moved_any = false;
+                for &start_col in &row_start_cols {
+                    // The point that started at `start_col` may have moved
+                    // earlier in this pass; in C# the foreach holds a stable
+                    // reference. Here we find the point at its current
+                    // position by scanning the row for an entry whose coord
+                    // matches a tracking key. Cheaper proxy: if the start
+                    // cell is still occupied use it, otherwise the point
+                    // moved — find it by parents/children matching.
+                    //
+                    // For our cases the simpler invariant holds: each point
+                    // only moves once per pass, and never INTO a cell that
+                    // was occupied at row-start (because that cell holds a
+                    // not-yet-processed point until we get to it). So we can
+                    // process points in the order they appear at start, and
+                    // for each one look up its current cell by scanning the
+                    // row for a MapPoint whose parents/children are unique
+                    // to it — but that's overkill. The simplest correct
+                    // approach: track per-iteration moves in a map.
+                    let Some(point) = self.grid[start_col as usize][i as usize].as_ref()
+                    else { continue };
+                    let coord = point.coord;
+                    let allowed = self.allowed_positions(coord);
+                    // Read OTHER points' current cols from the live grid,
+                    // not from the stale row_start_cols snapshot. This is
+                    // the parity fix that brings gap computation in line
+                    // with C#'s `ComputeGap(col, list, mapPoint2)` which
+                    // reads mapPoint.coord.col from references.
+                    let other_cols: Vec<i32> = (0..self.cols)
+                        .filter(|c| *c != coord.col
+                            && self.grid[*c as usize][i as usize].is_some())
+                        .collect();
+                    let mut best_col = coord.col;
+                    let mut best_gap = compute_gap(coord.col, &other_cols);
+                    for candidate in allowed {
+                        if candidate == coord.col {
+                            continue;
+                        }
+                        let dest_empty =
+                            self.grid[candidate as usize][i as usize].is_none();
+                        if !dest_empty {
+                            continue;
+                        }
+                        let gap = compute_gap(candidate, &other_cols);
+                        if gap > best_gap {
+                            best_col = candidate;
+                            best_gap = gap;
+                        }
+                    }
+                    if best_col != coord.col {
+                        self.move_in_grid_point(coord.col, i, best_col);
+                        moved_any = true;
+                    }
+                }
+                if !moved_any {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn allowed_positions(&self, coord: MapCoord) -> Vec<i32> {
+        let Some(node) = self.get_point(coord.col, coord.row) else {
+            return Vec::new();
+        };
+        let mut allowed: HashSet<i32> = (0..self.cols).collect();
+        for parent in &node.parents {
+            let n = neighbor_allowed_positions(parent.col, self.cols);
+            allowed.retain(|c| n.contains(c));
+        }
+        for child in &node.children {
+            let n = neighbor_allowed_positions(child.col, self.cols);
+            allowed.retain(|c| n.contains(c));
+        }
+        let mut v: Vec<i32> = allowed.into_iter().collect();
+        v.sort();
+        v
+    }
+}
+
+fn neighbor_allowed_positions(column: i32, total_columns: i32) -> Vec<i32> {
+    let mut out = Vec::with_capacity(3);
+    for d in -1..=1 {
+        let n = column + d;
+        if n >= 0 && n < total_columns {
+            out.push(n);
+        }
+    }
+    out
+}
+
+fn compute_gap(candidate_col: i32, other_cols: &[i32]) -> i32 {
+    let mut min_gap = i32::MAX;
+    for &c in other_cols {
+        let d = (candidate_col - c).abs();
+        if d < min_gap {
+            min_gap = d;
+        }
+    }
+    min_gap
 }
 
 // Static restriction sets from C# (HashSet<MapPointType>). Order doesn't

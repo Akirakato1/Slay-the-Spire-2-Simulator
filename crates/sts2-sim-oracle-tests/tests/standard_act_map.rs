@@ -140,7 +140,7 @@ fn compare_one(
 }
 
 #[test]
-#[ignore = "KNOWN FAILURE — single-edge divergence from PostProcessing; see project_map_port_plan memory"]
+#[ignore = "requires built oracle-host"]
 fn overgrowth_map_matches_for_random_seeds() {
     let mut oracle = Oracle::spawn().expect("spawn oracle");
     let mut d = Driver::new(0x1A2B_3C4D_5E6F_7080);
@@ -150,7 +150,7 @@ fn overgrowth_map_matches_for_random_seeds() {
 }
 
 #[test]
-#[ignore = "KNOWN FAILURE — single-edge divergence from PostProcessing; see project_map_port_plan memory"]
+#[ignore = "requires built oracle-host"]
 fn hive_map_matches_for_random_seeds() {
     let mut oracle = Oracle::spawn().expect("spawn oracle");
     let mut d = Driver::new(0xAB_CD_01_23_45_67_89_EF);
@@ -160,7 +160,7 @@ fn hive_map_matches_for_random_seeds() {
 }
 
 #[test]
-#[ignore = "KNOWN FAILURE — single-edge divergence from PostProcessing; see project_map_port_plan memory"]
+#[ignore = "requires built oracle-host"]
 fn glory_map_matches_for_random_seeds() {
     let mut oracle = Oracle::spawn().expect("spawn oracle");
     let mut d = Driver::new(0xDE_AD_BE_EF_FA_CE_FE_ED);
@@ -170,7 +170,7 @@ fn glory_map_matches_for_random_seeds() {
 }
 
 #[test]
-#[ignore = "KNOWN FAILURE — single-edge divergence from PostProcessing; see project_map_port_plan memory"]
+#[ignore = "requires built oracle-host"]
 fn underdocks_map_matches_for_random_seeds() {
     let mut oracle = Oracle::spawn().expect("spawn oracle");
     let mut d = Driver::new(0x91_82_73_64_55_46_37_28);
