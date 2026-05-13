@@ -1,0 +1,25 @@
+# Rust
+/target/
+**/target/
+*.rs.bk
+
+# .NET
+[Bb]in/
+[Oo]bj/
+*.user
+.vs/
+
+# IDE
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/launch.json
+
+# Editor
+*.swp
+*~
+
+# Python (future sts2-sim-py crate)
+__pycache__/
+*.pyc
+.venv/

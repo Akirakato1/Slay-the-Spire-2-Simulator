@@ -1,0 +1,13 @@
+[package]
+name = "sts2-sim-oracle-tests"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Diff tests for sts2-sim vs the C# oracle host (real-game DLL)."
+
+[dependencies]
+sts2-sim = { path = "../sts2-sim" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
