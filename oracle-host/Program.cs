@@ -100,6 +100,9 @@ internal sealed class Dispatcher
 
     private readonly Type _rngType;
     private readonly ConstructorInfo _rngCtor;
+    private readonly ConstructorInfo _rngCtorNamed;
+    private readonly MethodInfo _stringHelperHash;
+    private readonly MethodInfo _stringHelperSnake;
     private readonly MethodInfo _nextIntSingle;
     private readonly MethodInfo _nextIntRange;
     private readonly MethodInfo _nextBool;
@@ -122,6 +125,9 @@ internal sealed class Dispatcher
     private Dispatcher(
         Type rngType,
         ConstructorInfo ctor,
+        ConstructorInfo ctorNamed,
+        MethodInfo stringHelperHash,
+        MethodInfo stringHelperSnake,
         MethodInfo nextIntSingle,
         MethodInfo nextIntRange,
         MethodInfo nextBool,
@@ -143,6 +149,9 @@ internal sealed class Dispatcher
     {
         _rngType = rngType;
         _rngCtor = ctor;
+        _rngCtorNamed = ctorNamed;
+        _stringHelperHash = stringHelperHash;
+        _stringHelperSnake = stringHelperSnake;
         _nextIntSingle = nextIntSingle;
         _nextIntRange = nextIntRange;
         _nextBool = nextBool;
@@ -171,6 +180,17 @@ internal sealed class Dispatcher
 
         var ctor = rngType.GetConstructor(new[] { typeof(uint), typeof(int) })
             ?? throw new InvalidOperationException("Rng(uint, int) ctor not found");
+        var ctorNamed = rngType.GetConstructor(new[] { typeof(uint), typeof(string) })
+            ?? throw new InvalidOperationException("Rng(uint, string) ctor not found");
+
+        var stringHelperType = asm.GetType("MegaCrit.Sts2.Core.Helpers.StringHelper",
+            throwOnError: true)!;
+        var stringHelperHash = stringHelperType.GetMethod("GetDeterministicHashCode",
+            BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("StringHelper.GetDeterministicHashCode not found");
+        var stringHelperSnake = stringHelperType.GetMethod("SnakeCase",
+            BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("StringHelper.SnakeCase not found");
 
         var methods = rngType.GetMethods();
         MethodInfo Find(string name, int arity, Type? firstParam = null) =>
@@ -208,7 +228,9 @@ internal sealed class Dispatcher
         var seed = rngType.GetProperty("Seed")
             ?? throw new InvalidOperationException("Seed property not found");
 
-        return new Dispatcher(rngType, ctor, nextIntSingle, nextIntRange,
+        return new Dispatcher(rngType, ctor, ctorNamed,
+            stringHelperHash, stringHelperSnake,
+            nextIntSingle, nextIntRange,
             nextBool, nextDoubleSingle, nextDoubleRange,
             nextFloatSingle, nextFloatRange, nextUIntSingle, nextUIntRange,
             nextGaussianDouble, nextGaussianFloat, nextGaussianInt,
@@ -231,6 +253,30 @@ internal sealed class Dispatcher
                 var handle = _nextHandle++;
                 _instances[handle] = inst!;
                 return Ok(JsonValue.Create(handle));
+            }
+
+            case "rng_new_named":
+            {
+                var seed = (uint)p["seed"]!.GetValue<long>();
+                var name = p["name"]!.GetValue<string>();
+                var inst = _rngCtorNamed.Invoke(new object[] { seed, name });
+                var handle = _nextHandle++;
+                _instances[handle] = inst!;
+                return Ok(JsonValue.Create(handle));
+            }
+
+            case "hash_string":
+            {
+                var s = p["str"]!.GetValue<string>();
+                var v = (int)_stringHelperHash.Invoke(null, new object[] { s })!;
+                return Ok(JsonValue.Create(v));
+            }
+
+            case "snake_case":
+            {
+                var s = p["str"]!.GetValue<string>();
+                var v = (string)_stringHelperSnake.Invoke(null, new object[] { s })!;
+                return Ok(JsonValue.Create(v));
             }
 
             case "rng_next_int":

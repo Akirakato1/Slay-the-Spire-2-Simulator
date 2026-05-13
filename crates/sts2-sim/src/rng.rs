@@ -9,6 +9,8 @@
 //! Every method here is diff-tested against the live game DLL via the
 //! `sts2-sim-oracle-tests` crate. Don't edit without re-running those tests.
 
+use crate::hash::deterministic_hash_code;
+
 const MBIG: i32 = i32::MAX; // 2_147_483_647
 const MSEED: i32 = 161_803_398;
 
@@ -39,6 +41,15 @@ impl Rng {
         rng.initialize_from_seed(seed_i32);
         rng.fast_forward_counter(counter);
         rng
+    }
+
+    /// Convenience constructor mirroring the C# `new Rng(uint seed, string name)`:
+    /// `new Rng(seed + (uint)GetDeterministicHashCode(name), 0)`. Every named
+    /// stream in the game (RunRngSet, PlayerRngSet, ad-hoc per-event,
+    /// per-relic, etc.) is constructed via this overload.
+    pub fn new_named(base_seed: u32, name: &str) -> Self {
+        let hashed = deterministic_hash_code(name) as u32;
+        Self::new(base_seed.wrapping_add(hashed), 0)
     }
 
     pub fn seed(&self) -> u32 {
