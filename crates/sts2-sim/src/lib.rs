@@ -10,6 +10,7 @@ pub mod character;
 pub mod combat;
 pub mod enchantment;
 pub mod encounter;
+pub mod env;
 pub mod event;
 pub mod hash;
 pub mod map;
