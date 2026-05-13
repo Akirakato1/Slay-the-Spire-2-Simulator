@@ -352,6 +352,127 @@ impl CombatState {
         };
         ps.discard.cards.append(&mut ps.hand.cards);
     }
+
+    // ---------- Damage / block / HP primitives ----------------------------
+    //
+    // These are the bare arithmetic that the C# damage pipeline wraps in
+    // hooks (ModifyDamageAdditive, ModifyDamageMultiplicative, Intangible
+    // flooring, AfterDamageTaken, ...). The behavior port plumbs those
+    // hooks; these primitives stay the same.
+
+    /// Apply `amount` damage to one creature. Block absorbs first; remainder
+    /// drops `current_hp` to a floor of 0. Returns `DamageOutcome`
+    /// describing how the damage split for callers / hook listeners.
+    pub fn apply_damage(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        amount: i32,
+    ) -> DamageOutcome {
+        let Some(target) = creature_mut(self, side, target_idx) else {
+            return DamageOutcome::default();
+        };
+        damage_creature(target, amount)
+    }
+
+    /// Heal a creature; saturates at `max_hp`.
+    pub fn heal(&mut self, side: CombatSide, target_idx: usize, amount: i32) -> i32 {
+        let Some(target) = creature_mut(self, side, target_idx) else {
+            return 0;
+        };
+        let before = target.current_hp;
+        target.current_hp = (target.current_hp + amount.max(0)).min(target.max_hp);
+        target.current_hp - before
+    }
+
+    /// Reduce HP without going through block. Used by self-damage cards,
+    /// Pact's End, etc. Floors at 0.
+    pub fn lose_hp(&mut self, side: CombatSide, target_idx: usize, amount: i32) -> i32 {
+        let Some(target) = creature_mut(self, side, target_idx) else {
+            return 0;
+        };
+        let actual = amount.max(0).min(target.current_hp);
+        target.current_hp -= actual;
+        actual
+    }
+
+    /// Permanent max-HP change. Clamps `current_hp` down if max drops below
+    /// it. Negative `delta` reduces, positive adds. Returns the actual
+    /// delta applied (max_hp won't go below 1).
+    pub fn change_max_hp(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        delta: i32,
+    ) -> i32 {
+        let Some(target) = creature_mut(self, side, target_idx) else {
+            return 0;
+        };
+        let new_max = (target.max_hp + delta).max(1);
+        let actual = new_max - target.max_hp;
+        target.max_hp = new_max;
+        if target.current_hp > target.max_hp {
+            target.current_hp = target.max_hp;
+        }
+        actual
+    }
+
+    /// Add `amount` block to a creature. Floors at 0 (no negative block).
+    pub fn gain_block(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        amount: i32,
+    ) -> i32 {
+        let Some(target) = creature_mut(self, side, target_idx) else {
+            return 0;
+        };
+        let actual = amount.max(0);
+        target.block += actual;
+        actual
+    }
+}
+
+/// Outcome of a single `apply_damage` call. Useful for combat-log replay
+/// and for upstream hooks that need to know whether HP actually moved.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub struct DamageOutcome {
+    /// Damage absorbed by block.
+    pub blocked: i32,
+    /// Damage that bypassed block and hit HP.
+    pub hp_lost: i32,
+    /// True if this damage instance reduced HP to 0.
+    pub fatal: bool,
+}
+
+fn creature_mut(
+    cs: &mut CombatState,
+    side: CombatSide,
+    idx: usize,
+) -> Option<&mut Creature> {
+    match side {
+        CombatSide::Player => cs.allies.get_mut(idx),
+        CombatSide::Enemy => cs.enemies.get_mut(idx),
+        CombatSide::None => None,
+    }
+}
+
+fn damage_creature(target: &mut Creature, amount: i32) -> DamageOutcome {
+    if amount <= 0 {
+        return DamageOutcome::default();
+    }
+    let blocked = amount.min(target.block);
+    target.block -= blocked;
+    let mut hp_lost = amount - blocked;
+    if hp_lost > target.current_hp {
+        hp_lost = target.current_hp;
+    }
+    target.current_hp -= hp_lost;
+    DamageOutcome {
+        blocked,
+        hp_lost,
+        fatal: target.current_hp == 0,
+    }
 }
 
 /// Input bundle for setting up one player creature at combat start. The
@@ -645,5 +766,98 @@ mod tests {
         let ps = cs.allies[0].player.as_ref().unwrap();
         assert!(ps.hand.is_empty());
         assert_eq!(ps.discard.len(), 5);
+    }
+
+    // ---------- Damage primitive tests -----------------------------------
+
+    #[test]
+    fn damage_below_block_only_reduces_block() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].block = 10;
+        let outcome = cs.apply_damage(CombatSide::Enemy, 0, 6);
+        assert_eq!(outcome.blocked, 6);
+        assert_eq!(outcome.hp_lost, 0);
+        assert!(!outcome.fatal);
+        assert_eq!(cs.enemies[0].block, 4);
+        let max_hp = cs.enemies[0].max_hp;
+        assert_eq!(cs.enemies[0].current_hp, max_hp);
+    }
+
+    #[test]
+    fn damage_exceeding_block_chips_hp() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].block = 5;
+        let max_hp = cs.enemies[0].max_hp;
+        let outcome = cs.apply_damage(CombatSide::Enemy, 0, 12);
+        assert_eq!(outcome.blocked, 5);
+        assert_eq!(outcome.hp_lost, 7);
+        assert!(!outcome.fatal);
+        assert_eq!(cs.enemies[0].block, 0);
+        assert_eq!(cs.enemies[0].current_hp, max_hp - 7);
+    }
+
+    #[test]
+    fn lethal_damage_saturates_at_zero_hp_and_marks_fatal() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 4;
+        let outcome = cs.apply_damage(CombatSide::Enemy, 0, 100);
+        assert_eq!(outcome.hp_lost, 4);
+        assert!(outcome.fatal);
+        assert_eq!(cs.enemies[0].current_hp, 0);
+    }
+
+    #[test]
+    fn zero_and_negative_damage_are_noops() {
+        let mut cs = ironclad_combat();
+        let before_hp = cs.enemies[0].current_hp;
+        assert_eq!(cs.apply_damage(CombatSide::Enemy, 0, 0), DamageOutcome::default());
+        assert_eq!(cs.apply_damage(CombatSide::Enemy, 0, -5), DamageOutcome::default());
+        assert_eq!(cs.enemies[0].current_hp, before_hp);
+    }
+
+    #[test]
+    fn heal_saturates_at_max_hp() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].current_hp = 50;
+        let healed = cs.heal(CombatSide::Player, 0, 200);
+        assert_eq!(healed, 30); // 50 -> 80 cap
+        assert_eq!(cs.allies[0].current_hp, 80);
+    }
+
+    #[test]
+    fn lose_hp_bypasses_block() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].block = 20;
+        let lost = cs.lose_hp(CombatSide::Player, 0, 7);
+        assert_eq!(lost, 7);
+        assert_eq!(cs.allies[0].block, 20);
+        assert_eq!(cs.allies[0].current_hp, 73);
+    }
+
+    #[test]
+    fn change_max_hp_clamps_current() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].current_hp = 80;
+        // Drop max_hp by 30 → current must follow down.
+        let delta = cs.change_max_hp(CombatSide::Player, 0, -30);
+        assert_eq!(delta, -30);
+        assert_eq!(cs.allies[0].max_hp, 50);
+        assert_eq!(cs.allies[0].current_hp, 50);
+
+        // Gain max_hp back; current stays (does not auto-heal).
+        let delta = cs.change_max_hp(CombatSide::Player, 0, 20);
+        assert_eq!(delta, 20);
+        assert_eq!(cs.allies[0].max_hp, 70);
+        assert_eq!(cs.allies[0].current_hp, 50);
+    }
+
+    #[test]
+    fn gain_block_adds() {
+        let mut cs = ironclad_combat();
+        cs.gain_block(CombatSide::Player, 0, 5);
+        cs.gain_block(CombatSide::Player, 0, 3);
+        assert_eq!(cs.allies[0].block, 8);
+        cs.gain_block(CombatSide::Player, 0, -10);
+        assert_eq!(cs.allies[0].block, 8);
     }
 }
