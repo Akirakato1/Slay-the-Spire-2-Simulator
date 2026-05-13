@@ -10,6 +10,7 @@ members = [
     "tools/extract_encounters",
     "tools/extract_events",
     "tools/extract_modifiers",
+    "tools/extract_monsters",
     "tools/extract_orbs",
     "tools/extract_potions",
     "tools/extract_powers",

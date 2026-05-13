@@ -1,0 +1,787 @@
+[
+  {
+    "id": "Architect",
+    "min_hp_base": 9999,
+    "max_hp_base": 9999
+  },
+  {
+    "id": "AssassinRubyRaider",
+    "min_hp_base": 18,
+    "max_hp_base": 23,
+    "min_hp_ascended": 19,
+    "max_hp_ascended": 24
+  },
+  {
+    "id": "AxeRubyRaider",
+    "min_hp_base": 20,
+    "max_hp_base": 22,
+    "min_hp_ascended": 21,
+    "max_hp_ascended": 23
+  },
+  {
+    "id": "Axebot",
+    "min_hp_base": 40,
+    "max_hp_base": 44,
+    "min_hp_ascended": 42,
+    "max_hp_ascended": 46
+  },
+  {
+    "id": "BattleFriendV1",
+    "min_hp_base": 75,
+    "max_hp_base": 75
+  },
+  {
+    "id": "BattleFriendV2",
+    "min_hp_base": 150,
+    "max_hp_base": 150
+  },
+  {
+    "id": "BattleFriendV3",
+    "min_hp_base": 300,
+    "max_hp_base": 300
+  },
+  {
+    "id": "BigDummy",
+    "min_hp_base": 9999,
+    "max_hp_base": 9999
+  },
+  {
+    "id": "BowlbugEgg",
+    "min_hp_base": 21,
+    "max_hp_base": 22,
+    "min_hp_ascended": 23,
+    "max_hp_ascended": 24
+  },
+  {
+    "id": "BowlbugNectar",
+    "min_hp_base": 35,
+    "max_hp_base": 38,
+    "min_hp_ascended": 36,
+    "max_hp_ascended": 39
+  },
+  {
+    "id": "BowlbugRock",
+    "min_hp_base": 45,
+    "max_hp_base": 48,
+    "min_hp_ascended": 46,
+    "max_hp_ascended": 49
+  },
+  {
+    "id": "BowlbugSilk",
+    "min_hp_base": 40,
+    "max_hp_base": 43,
+    "min_hp_ascended": 41,
+    "max_hp_ascended": 44
+  },
+  {
+    "id": "BruteRubyRaider",
+    "min_hp_base": 30,
+    "max_hp_base": 33,
+    "min_hp_ascended": 31,
+    "max_hp_ascended": 34
+  },
+  {
+    "id": "BygoneEffigy",
+    "min_hp_base": 127,
+    "max_hp_base": 127,
+    "min_hp_ascended": 132,
+    "max_hp_ascended": 132
+  },
+  {
+    "id": "Byrdonis",
+    "min_hp_base": 81,
+    "max_hp_base": 84,
+    "min_hp_ascended": 90,
+    "max_hp_ascended": 90
+  },
+  {
+    "id": "Byrdpip",
+    "min_hp_base": 9999,
+    "max_hp_base": 9999
+  },
+  {
+    "id": "CalcifiedCultist",
+    "min_hp_base": 38,
+    "max_hp_base": 41,
+    "min_hp_ascended": 39,
+    "max_hp_ascended": 42
+  },
+  {
+    "id": "CeremonialBeast",
+    "min_hp_base": 252,
+    "max_hp_base": 252,
+    "min_hp_ascended": 262,
+    "max_hp_ascended": 262
+  },
+  {
+    "id": "Chomper",
+    "min_hp_base": 60,
+    "max_hp_base": 64,
+    "min_hp_ascended": 63,
+    "max_hp_ascended": 67
+  },
+  {
+    "id": "CorpseSlug",
+    "min_hp_base": 25,
+    "max_hp_base": 27,
+    "min_hp_ascended": 27,
+    "max_hp_ascended": 29
+  },
+  {
+    "id": "CrossbowRubyRaider",
+    "min_hp_base": 18,
+    "max_hp_base": 21,
+    "min_hp_ascended": 19,
+    "max_hp_ascended": 22
+  },
+  {
+    "id": "Crusher",
+    "min_hp_base": 209,
+    "max_hp_base": 209,
+    "min_hp_ascended": 219,
+    "max_hp_ascended": 219
+  },
+  {
+    "id": "CubexConstruct",
+    "min_hp_base": 65,
+    "max_hp_base": 65,
+    "min_hp_ascended": 70,
+    "max_hp_ascended": 70
+  },
+  {
+    "id": "DampCultist",
+    "min_hp_base": 51,
+    "max_hp_base": 53,
+    "min_hp_ascended": 52,
+    "max_hp_ascended": 54
+  },
+  {
+    "id": "DecimillipedeSegment",
+    "min_hp_base": 40,
+    "max_hp_base": 46,
+    "min_hp_ascended": 46,
+    "max_hp_ascended": 52
+  },
+  {
+    "id": "DeprecatedMonster",
+    "min_hp_base": 0,
+    "max_hp_base": 0
+  },
+  {
+    "id": "DevotedSculptor",
+    "min_hp_base": 162,
+    "max_hp_base": 162,
+    "min_hp_ascended": 172,
+    "max_hp_ascended": 172
+  },
+  {
+    "id": "Doormaker",
+    "min_hp_base": 489,
+    "max_hp_base": 489,
+    "min_hp_ascended": 512,
+    "max_hp_ascended": 512
+  },
+  {
+    "id": "Entomancer",
+    "min_hp_base": 145,
+    "max_hp_base": 145,
+    "min_hp_ascended": 155,
+    "max_hp_ascended": 155
+  },
+  {
+    "id": "Exoskeleton",
+    "min_hp_base": 24,
+    "max_hp_base": 28,
+    "min_hp_ascended": 25,
+    "max_hp_ascended": 29
+  },
+  {
+    "id": "EyeWithTeeth",
+    "min_hp_base": 6,
+    "max_hp_base": 6
+  },
+  {
+    "id": "Fabricator",
+    "min_hp_base": 150,
+    "max_hp_base": 150,
+    "min_hp_ascended": 155,
+    "max_hp_ascended": 155
+  },
+  {
+    "id": "FakeMerchantMonster",
+    "min_hp_base": 165,
+    "max_hp_base": 165,
+    "min_hp_ascended": 175,
+    "max_hp_ascended": 175
+  },
+  {
+    "id": "FatGremlin",
+    "min_hp_base": 13,
+    "max_hp_base": 17,
+    "min_hp_ascended": 14,
+    "max_hp_ascended": 18
+  },
+  {
+    "id": "FlailKnight",
+    "min_hp_base": 101,
+    "max_hp_base": 101,
+    "min_hp_ascended": 108,
+    "max_hp_ascended": 108
+  },
+  {
+    "id": "Flyconid",
+    "min_hp_base": 47,
+    "max_hp_base": 49,
+    "min_hp_ascended": 51,
+    "max_hp_ascended": 53
+  },
+  {
+    "id": "Fogmog",
+    "min_hp_base": 74,
+    "max_hp_base": 74,
+    "min_hp_ascended": 78,
+    "max_hp_ascended": 78
+  },
+  {
+    "id": "FossilStalker",
+    "min_hp_base": 51,
+    "max_hp_base": 53,
+    "min_hp_ascended": 54,
+    "max_hp_ascended": 56
+  },
+  {
+    "id": "FrogKnight",
+    "min_hp_base": 191,
+    "max_hp_base": 191,
+    "min_hp_ascended": 199,
+    "max_hp_ascended": 199
+  },
+  {
+    "id": "FuzzyWurmCrawler",
+    "min_hp_base": 55,
+    "max_hp_base": 57,
+    "min_hp_ascended": 58,
+    "max_hp_ascended": 59
+  },
+  {
+    "id": "GasBomb",
+    "min_hp_base": 7,
+    "max_hp_base": 7,
+    "min_hp_ascended": 8,
+    "max_hp_ascended": 8
+  },
+  {
+    "id": "GlobeHead",
+    "min_hp_base": 148,
+    "max_hp_base": 148,
+    "min_hp_ascended": 158,
+    "max_hp_ascended": 158
+  },
+  {
+    "id": "GremlinMerc",
+    "min_hp_base": 47,
+    "max_hp_base": 49,
+    "min_hp_ascended": 51,
+    "max_hp_ascended": 53
+  },
+  {
+    "id": "Guardbot",
+    "min_hp_base": 16,
+    "max_hp_base": 20,
+    "min_hp_ascended": 17,
+    "max_hp_ascended": 21
+  },
+  {
+    "id": "HauntedShip",
+    "min_hp_base": 63,
+    "max_hp_base": 63,
+    "min_hp_ascended": 67,
+    "max_hp_ascended": 67
+  },
+  {
+    "id": "HunterKiller",
+    "min_hp_base": 121,
+    "max_hp_base": 121,
+    "min_hp_ascended": 126,
+    "max_hp_ascended": 126
+  },
+  {
+    "id": "InfestedPrism",
+    "min_hp_base": 200,
+    "max_hp_base": 200,
+    "min_hp_ascended": 215,
+    "max_hp_ascended": 215
+  },
+  {
+    "id": "Inklet",
+    "min_hp_base": 11,
+    "max_hp_base": 17,
+    "min_hp_ascended": 12,
+    "max_hp_ascended": 18
+  },
+  {
+    "id": "KinFollower",
+    "min_hp_base": 58,
+    "max_hp_base": 59,
+    "min_hp_ascended": 62,
+    "max_hp_ascended": 63
+  },
+  {
+    "id": "KinPriest",
+    "min_hp_base": 190,
+    "max_hp_base": 190,
+    "min_hp_ascended": 199,
+    "max_hp_ascended": 199
+  },
+  {
+    "id": "KnowledgeDemon",
+    "min_hp_base": 379,
+    "max_hp_base": 379,
+    "min_hp_ascended": 399,
+    "max_hp_ascended": 399
+  },
+  {
+    "id": "LagavulinMatriarch",
+    "min_hp_base": 222,
+    "max_hp_base": 222,
+    "min_hp_ascended": 233,
+    "max_hp_ascended": 233
+  },
+  {
+    "id": "LeafSlimeM",
+    "min_hp_base": 32,
+    "max_hp_base": 35,
+    "min_hp_ascended": 33,
+    "max_hp_ascended": 36
+  },
+  {
+    "id": "LeafSlimeS",
+    "min_hp_base": 11,
+    "max_hp_base": 15,
+    "min_hp_ascended": 12,
+    "max_hp_ascended": 16
+  },
+  {
+    "id": "LivingFog",
+    "min_hp_base": 80,
+    "max_hp_base": 80,
+    "min_hp_ascended": 82,
+    "max_hp_ascended": 82
+  },
+  {
+    "id": "LivingShield",
+    "min_hp_base": 55,
+    "max_hp_base": 55,
+    "min_hp_ascended": 65,
+    "max_hp_ascended": 65
+  },
+  {
+    "id": "LouseProgenitor",
+    "min_hp_base": 134,
+    "max_hp_base": 136,
+    "min_hp_ascended": 138,
+    "max_hp_ascended": 141
+  },
+  {
+    "id": "MagiKnight",
+    "min_hp_base": 82,
+    "max_hp_base": 82,
+    "min_hp_ascended": 89,
+    "max_hp_ascended": 89
+  },
+  {
+    "id": "Mawler",
+    "min_hp_base": 72,
+    "max_hp_base": 72,
+    "min_hp_ascended": 76,
+    "max_hp_ascended": 76
+  },
+  {
+    "id": "MechaKnight",
+    "min_hp_base": 300,
+    "max_hp_base": 300,
+    "min_hp_ascended": 320,
+    "max_hp_ascended": 320
+  },
+  {
+    "id": "MultiAttackMoveMonster",
+    "min_hp_base": 999,
+    "max_hp_base": 999
+  },
+  {
+    "id": "Myte",
+    "min_hp_base": 61,
+    "max_hp_base": 67,
+    "min_hp_ascended": 64,
+    "max_hp_ascended": 69
+  },
+  {
+    "id": "Nibbit",
+    "min_hp_base": 42,
+    "max_hp_base": 46,
+    "min_hp_ascended": 44,
+    "max_hp_ascended": 48
+  },
+  {
+    "id": "Noisebot",
+    "min_hp_base": 18,
+    "max_hp_base": 23,
+    "min_hp_ascended": 19,
+    "max_hp_ascended": 24
+  },
+  {
+    "id": "OneHpMonster",
+    "min_hp_base": 1,
+    "max_hp_base": 1
+  },
+  {
+    "id": "Osty",
+    "min_hp_base": 1,
+    "max_hp_base": 1
+  },
+  {
+    "id": "Ovicopter",
+    "min_hp_base": 124,
+    "max_hp_base": 130,
+    "min_hp_ascended": 126,
+    "max_hp_ascended": 132
+  },
+  {
+    "id": "OwlMagistrate",
+    "min_hp_base": 234,
+    "max_hp_base": 234,
+    "min_hp_ascended": 243,
+    "max_hp_ascended": 243
+  },
+  {
+    "id": "PaelsLegion",
+    "min_hp_base": 9999,
+    "max_hp_base": 9999
+  },
+  {
+    "id": "Parafright",
+    "min_hp_base": 21,
+    "max_hp_base": 21
+  },
+  {
+    "id": "PhantasmalGardener",
+    "min_hp_base": 26,
+    "max_hp_base": 31,
+    "min_hp_ascended": 27,
+    "max_hp_ascended": 32
+  },
+  {
+    "id": "PhrogParasite",
+    "min_hp_base": 61,
+    "max_hp_base": 64,
+    "min_hp_ascended": 66,
+    "max_hp_ascended": 68
+  },
+  {
+    "id": "PunchConstruct",
+    "min_hp_base": 55,
+    "max_hp_base": 55,
+    "min_hp_ascended": 60,
+    "max_hp_ascended": 60
+  },
+  {
+    "id": "Queen",
+    "min_hp_base": 400,
+    "max_hp_base": 400,
+    "min_hp_ascended": 419,
+    "max_hp_ascended": 419
+  },
+  {
+    "id": "Rocket",
+    "min_hp_base": 199,
+    "max_hp_base": 199,
+    "min_hp_ascended": 209,
+    "max_hp_ascended": 209
+  },
+  {
+    "id": "ScrollOfBiting",
+    "min_hp_base": 31,
+    "max_hp_base": 38,
+    "min_hp_ascended": 32,
+    "max_hp_ascended": 39
+  },
+  {
+    "id": "Seapunk",
+    "min_hp_base": 44,
+    "max_hp_base": 46,
+    "min_hp_ascended": 47,
+    "max_hp_ascended": 49
+  },
+  {
+    "id": "SewerClam",
+    "min_hp_base": 56,
+    "max_hp_base": 56,
+    "min_hp_ascended": 58,
+    "max_hp_ascended": 58
+  },
+  {
+    "id": "ShrinkerBeetle",
+    "min_hp_base": 38,
+    "max_hp_base": 40,
+    "min_hp_ascended": 40,
+    "max_hp_ascended": 42
+  },
+  {
+    "id": "SingleAttackMoveMonster",
+    "min_hp_base": 999,
+    "max_hp_base": 999
+  },
+  {
+    "id": "SkulkingColony",
+    "min_hp_base": 70,
+    "max_hp_base": 70,
+    "min_hp_ascended": 75,
+    "max_hp_ascended": 75
+  },
+  {
+    "id": "SlimedBerserker",
+    "min_hp_base": 266,
+    "max_hp_base": 266,
+    "min_hp_ascended": 276,
+    "max_hp_ascended": 276
+  },
+  {
+    "id": "SlitheringStrangler",
+    "min_hp_base": 53,
+    "max_hp_base": 55,
+    "min_hp_ascended": 54,
+    "max_hp_ascended": 56
+  },
+  {
+    "id": "SludgeSpinner",
+    "min_hp_base": 37,
+    "max_hp_base": 39,
+    "min_hp_ascended": 41,
+    "max_hp_ascended": 42
+  },
+  {
+    "id": "SlumberingBeetle",
+    "min_hp_base": 86,
+    "max_hp_base": 86,
+    "min_hp_ascended": 89,
+    "max_hp_ascended": 89
+  },
+  {
+    "id": "SnappingJaxfruit",
+    "min_hp_base": 31,
+    "max_hp_base": 33,
+    "min_hp_ascended": 34,
+    "max_hp_ascended": 36
+  },
+  {
+    "id": "SneakyGremlin",
+    "min_hp_base": 10,
+    "max_hp_base": 14,
+    "min_hp_ascended": 11,
+    "max_hp_ascended": 15
+  },
+  {
+    "id": "SoulFysh",
+    "min_hp_base": 211,
+    "max_hp_base": 211,
+    "min_hp_ascended": 221,
+    "max_hp_ascended": 221
+  },
+  {
+    "id": "SoulNexus",
+    "min_hp_base": 234,
+    "max_hp_base": 234,
+    "min_hp_ascended": 254,
+    "max_hp_ascended": 254
+  },
+  {
+    "id": "SpectralKnight",
+    "min_hp_base": 93,
+    "max_hp_base": 93,
+    "min_hp_ascended": 97,
+    "max_hp_ascended": 97
+  },
+  {
+    "id": "SpinyToad",
+    "min_hp_base": 116,
+    "max_hp_base": 119,
+    "min_hp_ascended": 121,
+    "max_hp_ascended": 124
+  },
+  {
+    "id": "Stabbot",
+    "min_hp_base": 18,
+    "max_hp_base": 23,
+    "min_hp_ascended": 19,
+    "max_hp_ascended": 24
+  },
+  {
+    "id": "TenHpMonster",
+    "min_hp_base": 10,
+    "max_hp_base": 10
+  },
+  {
+    "id": "TerrorEel",
+    "min_hp_base": 140,
+    "max_hp_base": 140,
+    "min_hp_ascended": 150,
+    "max_hp_ascended": 150
+  },
+  {
+    "id": "TestSubject",
+    "min_hp_base": null,
+    "max_hp_base": null
+  },
+  {
+    "id": "TheAdversaryMkOne",
+    "min_hp_base": 100,
+    "max_hp_base": 100
+  },
+  {
+    "id": "TheAdversaryMkThree",
+    "min_hp_base": 300,
+    "max_hp_base": 300,
+    "min_hp_ascended": 300,
+    "max_hp_ascended": 300
+  },
+  {
+    "id": "TheAdversaryMkTwo",
+    "min_hp_base": 200,
+    "max_hp_base": 200,
+    "min_hp_ascended": 200,
+    "max_hp_ascended": 200
+  },
+  {
+    "id": "TheForgotten",
+    "min_hp_base": 106,
+    "max_hp_base": 106,
+    "min_hp_ascended": 111,
+    "max_hp_ascended": 111
+  },
+  {
+    "id": "TheInsatiable",
+    "min_hp_base": 321,
+    "max_hp_base": 321,
+    "min_hp_ascended": 341,
+    "max_hp_ascended": 341
+  },
+  {
+    "id": "TheLost",
+    "min_hp_base": 93,
+    "max_hp_base": 93,
+    "min_hp_ascended": 99,
+    "max_hp_ascended": 99
+  },
+  {
+    "id": "TheObscura",
+    "min_hp_base": 123,
+    "max_hp_base": 123,
+    "min_hp_ascended": 129,
+    "max_hp_ascended": 129
+  },
+  {
+    "id": "ThievingHopper",
+    "min_hp_base": 79,
+    "max_hp_base": 79,
+    "min_hp_ascended": 84,
+    "max_hp_ascended": 84
+  },
+  {
+    "id": "Toadpole",
+    "min_hp_base": 21,
+    "max_hp_base": 25,
+    "min_hp_ascended": 22,
+    "max_hp_ascended": 26
+  },
+  {
+    "id": "TorchHeadAmalgam",
+    "min_hp_base": 199,
+    "max_hp_base": 199,
+    "min_hp_ascended": 211,
+    "max_hp_ascended": 211
+  },
+  {
+    "id": "ToughEgg",
+    "min_hp_base": 14,
+    "max_hp_base": 18,
+    "min_hp_ascended": 15,
+    "max_hp_ascended": 19
+  },
+  {
+    "id": "TrackerRubyRaider",
+    "min_hp_base": 21,
+    "max_hp_base": 25,
+    "min_hp_ascended": 22,
+    "max_hp_ascended": 26
+  },
+  {
+    "id": "Tunneler",
+    "min_hp_base": 87,
+    "max_hp_base": 87,
+    "min_hp_ascended": 92,
+    "max_hp_ascended": 92
+  },
+  {
+    "id": "TurretOperator",
+    "min_hp_base": 41,
+    "max_hp_base": 41,
+    "min_hp_ascended": 51,
+    "max_hp_ascended": 51
+  },
+  {
+    "id": "TwigSlimeM",
+    "min_hp_base": 26,
+    "max_hp_base": 28,
+    "min_hp_ascended": 27,
+    "max_hp_ascended": 29
+  },
+  {
+    "id": "TwigSlimeS",
+    "min_hp_base": 7,
+    "max_hp_base": 11,
+    "min_hp_ascended": 8,
+    "max_hp_ascended": 12
+  },
+  {
+    "id": "TwoTailedRat",
+    "min_hp_base": 17,
+    "max_hp_base": 21,
+    "min_hp_ascended": 18,
+    "max_hp_ascended": 22
+  },
+  {
+    "id": "Vantom",
+    "min_hp_base": 173,
+    "max_hp_base": 173,
+    "min_hp_ascended": 183,
+    "max_hp_ascended": 183
+  },
+  {
+    "id": "VineShambler",
+    "min_hp_base": 61,
+    "max_hp_base": 61,
+    "min_hp_ascended": 64,
+    "max_hp_ascended": 64
+  },
+  {
+    "id": "WaterfallGiant",
+    "min_hp_base": 240,
+    "max_hp_base": 240,
+    "min_hp_ascended": 250,
+    "max_hp_ascended": 250
+  },
+  {
+    "id": "Wriggler",
+    "min_hp_base": 17,
+    "max_hp_base": 21,
+    "min_hp_ascended": 18,
+    "max_hp_ascended": 22
+  },
+  {
+    "id": "Zapbot",
+    "min_hp_base": 18,
+    "max_hp_base": 23,
+    "min_hp_ascended": 19,
+    "max_hp_ascended": 24
+  }
+]
