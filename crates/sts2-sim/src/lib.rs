@@ -8,6 +8,7 @@ pub mod affliction;
 pub mod card;
 pub mod character;
 pub mod enchantment;
+pub mod encounter;
 pub mod event;
 pub mod hash;
 pub mod map;

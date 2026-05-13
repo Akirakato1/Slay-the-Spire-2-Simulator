@@ -1,0 +1,1089 @@
+[
+  {
+    "id": "AxebotsNormal",
+    "room_type": "Monster",
+    "slots": [
+      "front",
+      "back"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "Axebot",
+        "slot": "front"
+      },
+      {
+        "monster": "Axebot",
+        "slot": "back"
+      }
+    ],
+    "possible_monsters": [
+      "Axebot"
+    ]
+  },
+  {
+    "id": "BattlewornDummyEventEncounter",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "BattleFriendV1",
+      "BattleFriendV2",
+      "BattleFriendV3"
+    ]
+  },
+  {
+    "id": "BowlbugsNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "BowlbugEgg",
+      "BowlbugNectar",
+      "BowlbugRock",
+      "BowlbugSilk"
+    ]
+  },
+  {
+    "id": "BowlbugsWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [
+      {
+        "monster": "BowlbugRock",
+        "slot": "odd"
+      }
+    ],
+    "possible_monsters": [
+      "BowlbugEgg",
+      "BowlbugNectar",
+      "BowlbugRock"
+    ]
+  },
+  {
+    "id": "BygoneEffigyElite",
+    "room_type": "Elite",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "BygoneEffigy"
+    ]
+  },
+  {
+    "id": "ByrdonisElite",
+    "room_type": "Elite",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Byrdonis"
+    ]
+  },
+  {
+    "id": "CeremonialBeastBoss",
+    "room_type": "Boss",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "CeremonialBeast"
+    ]
+  },
+  {
+    "id": "ChompersNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Chomper"
+    ]
+  },
+  {
+    "id": "ConstructMenagerieNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "CubexConstruct",
+      "PunchConstruct"
+    ]
+  },
+  {
+    "id": "CorpseSlugsNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "CorpseSlug"
+    ]
+  },
+  {
+    "id": "CorpseSlugsWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "CorpseSlug"
+    ]
+  },
+  {
+    "id": "CubexConstructNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "CubexConstruct"
+    ]
+  },
+  {
+    "id": "CultistsNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "CalcifiedCultist",
+      "DampCultist"
+    ]
+  },
+  {
+    "id": "DecimillipedeElite",
+    "room_type": "Elite",
+    "slots": [
+      "segment1",
+      "segment2",
+      "segment3"
+    ],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "DecimillipedeSegmentBack",
+      "DecimillipedeSegmentFront",
+      "DecimillipedeSegmentMiddle"
+    ]
+  },
+  {
+    "id": "DenseVegetationEventEncounter",
+    "room_type": "Monster",
+    "slots": [
+      "wriggler1",
+      "wriggler2",
+      "wriggler3",
+      "wriggler4"
+    ],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Wriggler"
+    ]
+  },
+  {
+    "id": "DeprecatedEncounter",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": []
+  },
+  {
+    "id": "DevotedSculptorWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "DevotedSculptor"
+    ]
+  },
+  {
+    "id": "DoormakerBoss",
+    "room_type": "Boss",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Doormaker"
+    ]
+  },
+  {
+    "id": "EntomancerElite",
+    "room_type": "Elite",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Entomancer"
+    ]
+  },
+  {
+    "id": "ExoskeletonsNormal",
+    "room_type": "Monster",
+    "slots": [
+      "first",
+      "second",
+      "third",
+      "fourth"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "Exoskeleton",
+        "slot": "first"
+      },
+      {
+        "monster": "Exoskeleton",
+        "slot": "second"
+      },
+      {
+        "monster": "Exoskeleton",
+        "slot": "third"
+      },
+      {
+        "monster": "Exoskeleton",
+        "slot": "fourth"
+      }
+    ],
+    "possible_monsters": [
+      "Exoskeleton"
+    ]
+  },
+  {
+    "id": "ExoskeletonsWeak",
+    "room_type": "Monster",
+    "slots": [
+      "first",
+      "second",
+      "third"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "Exoskeleton",
+        "slot": "first"
+      },
+      {
+        "monster": "Exoskeleton",
+        "slot": "second"
+      },
+      {
+        "monster": "Exoskeleton",
+        "slot": "third"
+      }
+    ],
+    "possible_monsters": [
+      "Exoskeleton"
+    ]
+  },
+  {
+    "id": "FabricatorNormal",
+    "room_type": "Monster",
+    "slots": [
+      "bot1",
+      "bot2",
+      "fabricator",
+      "bot3",
+      "bot4"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "Fabricator",
+        "slot": "fabricator"
+      }
+    ],
+    "possible_monsters": [
+      "Fabricator"
+    ]
+  },
+  {
+    "id": "FakeMerchantEventEncounter",
+    "room_type": "Monster",
+    "slots": [
+      "merchant"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "FakeMerchantMonster",
+        "slot": "merchant"
+      }
+    ],
+    "possible_monsters": [
+      "FakeMerchantMonster"
+    ]
+  },
+  {
+    "id": "FlyconidNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Flyconid",
+      "LeafSlimeM",
+      "TwigSlimeM"
+    ]
+  },
+  {
+    "id": "FogmogNormal",
+    "room_type": "Monster",
+    "slots": [
+      "illusion",
+      "fogmog"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "Fogmog",
+        "slot": "fogmog"
+      }
+    ],
+    "possible_monsters": [
+      "EyeWithTeeth",
+      "Fogmog"
+    ]
+  },
+  {
+    "id": "FossilStalkerNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "FossilStalker"
+    ]
+  },
+  {
+    "id": "FrogKnightNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "FrogKnight"
+    ]
+  },
+  {
+    "id": "FuzzyWurmCrawlerWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "FuzzyWurmCrawler"
+    ]
+  },
+  {
+    "id": "GlobeHeadNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "GlobeHead"
+    ]
+  },
+  {
+    "id": "GremlinMercNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [
+      {
+        "monster": "GremlinMerc",
+        "slot": "merc"
+      }
+    ],
+    "possible_monsters": [
+      "FatGremlin",
+      "GremlinMerc",
+      "SneakyGremlin"
+    ]
+  },
+  {
+    "id": "HauntedShipNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "HauntedShip"
+    ]
+  },
+  {
+    "id": "HunterKillerNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "HunterKiller"
+    ]
+  },
+  {
+    "id": "InfestedPrismsElite",
+    "room_type": "Elite",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "InfestedPrism"
+    ]
+  },
+  {
+    "id": "InkletsNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Inklet"
+    ]
+  },
+  {
+    "id": "KaiserCrabBoss",
+    "room_type": "Boss",
+    "slots": [
+      "crusher",
+      "rocket"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "Crusher",
+        "slot": "crusher"
+      },
+      {
+        "monster": "Rocket",
+        "slot": "rocket"
+      }
+    ],
+    "possible_monsters": [
+      "Crusher",
+      "Rocket"
+    ]
+  },
+  {
+    "id": "KnightsElite",
+    "room_type": "Elite",
+    "slots": [],
+    "canonical_monsters": [
+      {
+        "monster": "FlailKnight",
+        "slot": "first"
+      },
+      {
+        "monster": "SpectralKnight",
+        "slot": "second"
+      },
+      {
+        "monster": "MagiKnight",
+        "slot": "third"
+      }
+    ],
+    "possible_monsters": [
+      "FlailKnight",
+      "MagiKnight",
+      "SpectralKnight"
+    ]
+  },
+  {
+    "id": "KnowledgeDemonBoss",
+    "room_type": "Boss",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "KnowledgeDemon"
+    ]
+  },
+  {
+    "id": "LagavulinMatriarchBoss",
+    "room_type": "Boss",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "LagavulinMatriarch"
+    ]
+  },
+  {
+    "id": "LivingFogNormal",
+    "room_type": "Monster",
+    "slots": [
+      "bomb1",
+      "bomb2",
+      "bomb3",
+      "bomb4",
+      "bomb5",
+      "livingFog"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "LivingFog",
+        "slot": "livingFog"
+      }
+    ],
+    "possible_monsters": [
+      "GasBomb",
+      "LivingFog"
+    ]
+  },
+  {
+    "id": "LouseProgenitorNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "LouseProgenitor"
+    ]
+  },
+  {
+    "id": "MawlerNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Mawler"
+    ]
+  },
+  {
+    "id": "MechaKnightElite",
+    "room_type": "Elite",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "MechaKnight"
+    ]
+  },
+  {
+    "id": "MysteriousKnightEventEncounter",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "MysteriousKnight"
+    ]
+  },
+  {
+    "id": "MytesNormal",
+    "room_type": "Monster",
+    "slots": [
+      "first",
+      "second"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "Myte",
+        "slot": "first"
+      },
+      {
+        "monster": "Myte",
+        "slot": "second"
+      }
+    ],
+    "possible_monsters": [
+      "Myte"
+    ]
+  },
+  {
+    "id": "NibbitsNormal",
+    "room_type": "Monster",
+    "slots": [
+      "front",
+      "back"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "Nibbit",
+        "slot": "back"
+      }
+    ],
+    "possible_monsters": [
+      "Nibbit"
+    ]
+  },
+  {
+    "id": "NibbitsWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Nibbit"
+    ]
+  },
+  {
+    "id": "OvergrowthCrawlers",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "FuzzyWurmCrawler",
+      "ShrinkerBeetle"
+    ]
+  },
+  {
+    "id": "OvicopterNormal",
+    "room_type": "Monster",
+    "slots": [
+      "egg1",
+      "egg2",
+      "egg3",
+      "egg4",
+      "egg5",
+      "ovicopter"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "Ovicopter",
+        "slot": "ovicopter"
+      }
+    ],
+    "possible_monsters": [
+      "Ovicopter",
+      "ToughEgg"
+    ]
+  },
+  {
+    "id": "OwlMagistrateNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "OwlMagistrate"
+    ]
+  },
+  {
+    "id": "PhantasmalGardenersElite",
+    "room_type": "Elite",
+    "slots": [
+      "first",
+      "second",
+      "third",
+      "fourth"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "PhantasmalGardener",
+        "slot": "first"
+      },
+      {
+        "monster": "PhantasmalGardener",
+        "slot": "second"
+      },
+      {
+        "monster": "PhantasmalGardener",
+        "slot": "third"
+      },
+      {
+        "monster": "PhantasmalGardener",
+        "slot": "fourth"
+      }
+    ],
+    "possible_monsters": [
+      "PhantasmalGardener"
+    ]
+  },
+  {
+    "id": "PhrogParasiteElite",
+    "room_type": "Elite",
+    "slots": [
+      "phrog",
+      "wriggler1",
+      "wriggler2",
+      "wriggler3",
+      "wriggler4"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "PhrogParasite",
+        "slot": "phrog"
+      }
+    ],
+    "possible_monsters": [
+      "PhrogParasite",
+      "Wriggler"
+    ]
+  },
+  {
+    "id": "PunchConstructNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "PunchConstruct"
+    ]
+  },
+  {
+    "id": "PunchOffEventEncounter",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "PunchConstruct"
+    ]
+  },
+  {
+    "id": "QueenBoss",
+    "room_type": "Boss",
+    "slots": [
+      "amalgam",
+      "queen"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "TorchHeadAmalgam",
+        "slot": "amalgam"
+      },
+      {
+        "monster": "Queen",
+        "slot": "queen"
+      }
+    ],
+    "possible_monsters": [
+      "Queen",
+      "TorchHeadAmalgam"
+    ]
+  },
+  {
+    "id": "RubyRaidersNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "AssassinRubyRaider",
+      "AxeRubyRaider",
+      "BruteRubyRaider",
+      "CrossbowRubyRaider",
+      "TrackerRubyRaider"
+    ]
+  },
+  {
+    "id": "ScrollsOfBitingNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "ScrollOfBiting"
+    ]
+  },
+  {
+    "id": "ScrollsOfBitingWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "ScrollOfBiting"
+    ]
+  },
+  {
+    "id": "SeapunkNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "CalcifiedCultist",
+      "Seapunk"
+    ]
+  },
+  {
+    "id": "SeapunkWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Seapunk"
+    ]
+  },
+  {
+    "id": "SewerClamNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "SewerClam"
+    ]
+  },
+  {
+    "id": "ShrinkerBeetleWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "ShrinkerBeetle"
+    ]
+  },
+  {
+    "id": "SkulkingColonyElite",
+    "room_type": "Elite",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "SkulkingColony"
+    ]
+  },
+  {
+    "id": "SlimedBerserkerNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "SlimedBerserker"
+    ]
+  },
+  {
+    "id": "SlimesNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "LeafSlimeM",
+      "LeafSlimeS",
+      "TwigSlimeM",
+      "TwigSlimeS"
+    ]
+  },
+  {
+    "id": "SlimesWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "LeafSlimeM",
+      "LeafSlimeS",
+      "TwigSlimeM",
+      "TwigSlimeS"
+    ]
+  },
+  {
+    "id": "SlitheringStranglerNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "LeafSlimeM",
+      "LeafSlimeS",
+      "SlitheringStrangler",
+      "SnappingJaxfruit",
+      "TwigSlimeM",
+      "TwigSlimeS"
+    ]
+  },
+  {
+    "id": "SludgeSpinnerWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "SludgeSpinner"
+    ]
+  },
+  {
+    "id": "SlumberingBeetleNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [
+      {
+        "monster": "BowlbugRock",
+        "slot": "first"
+      },
+      {
+        "monster": "BowlbugSilk",
+        "slot": "second"
+      },
+      {
+        "monster": "SlumberingBeetle",
+        "slot": "third"
+      }
+    ],
+    "possible_monsters": [
+      "BowlbugRock",
+      "BowlbugSilk",
+      "SlumberingBeetle"
+    ]
+  },
+  {
+    "id": "SnappingJaxfruitNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Flyconid",
+      "SnappingJaxfruit"
+    ]
+  },
+  {
+    "id": "SoulFyshBoss",
+    "room_type": "Boss",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "SoulFysh"
+    ]
+  },
+  {
+    "id": "SoulNexusElite",
+    "room_type": "Elite",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "SoulNexus"
+    ]
+  },
+  {
+    "id": "SpinyToadNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "SpinyToad"
+    ]
+  },
+  {
+    "id": "TerrorEelElite",
+    "room_type": "Elite",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "TerrorEel"
+    ]
+  },
+  {
+    "id": "TestSubjectBoss",
+    "room_type": "Boss",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "TestSubject"
+    ]
+  },
+  {
+    "id": "TheArchitectEventEncounter",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Architect"
+    ]
+  },
+  {
+    "id": "TheInsatiableBoss",
+    "room_type": "Boss",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "TheInsatiable"
+    ]
+  },
+  {
+    "id": "TheKinBoss",
+    "room_type": "Boss",
+    "slots": [
+      "slot1",
+      "slot2",
+      "leaderSlot"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "KinFollower",
+        "slot": "slot2"
+      },
+      {
+        "monster": "KinPriest",
+        "slot": "leaderSlot"
+      }
+    ],
+    "possible_monsters": [
+      "KinFollower",
+      "KinPriest"
+    ]
+  },
+  {
+    "id": "TheLostAndForgottenNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "TheForgotten",
+      "TheLost"
+    ]
+  },
+  {
+    "id": "TheObscuraNormal",
+    "room_type": "Monster",
+    "slots": [
+      "illusion",
+      "obscura"
+    ],
+    "canonical_monsters": [
+      {
+        "monster": "TheObscura",
+        "slot": "obscura"
+      }
+    ],
+    "possible_monsters": [
+      "TheObscura"
+    ]
+  },
+  {
+    "id": "ThievingHopperWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "ThievingHopper"
+    ]
+  },
+  {
+    "id": "ToadpolesWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Toadpole"
+    ]
+  },
+  {
+    "id": "TunnelerNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Chomper",
+      "Tunneler"
+    ]
+  },
+  {
+    "id": "TunnelerWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Tunneler"
+    ]
+  },
+  {
+    "id": "TurretOperatorWeak",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "LivingShield",
+      "TurretOperator"
+    ]
+  },
+  {
+    "id": "TwoTailedRatsNormal",
+    "room_type": "Monster",
+    "slots": [
+      "first",
+      "second",
+      "third",
+      "fourth",
+      "fifth"
+    ],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "TwoTailedRat"
+    ]
+  },
+  {
+    "id": "VantomBoss",
+    "room_type": "Boss",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "Vantom"
+    ]
+  },
+  {
+    "id": "VineShamblerNormal",
+    "room_type": "Monster",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "VineShambler"
+    ]
+  },
+  {
+    "id": "WaterfallGiantBoss",
+    "room_type": "Boss",
+    "slots": [],
+    "canonical_monsters": [],
+    "possible_monsters": [
+      "WaterfallGiant"
+    ]
+  }
+]
