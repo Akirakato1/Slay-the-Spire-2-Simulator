@@ -1,0 +1,1165 @@
+[
+  {
+    "id": "AbyssalBaths",
+    "is_shared": false,
+    "initial_option_labels": [
+      "ABYSSAL_BATHS.pages.INITIAL.options.IMMERSE",
+      "ABYSSAL_BATHS.pages.INITIAL.options.ABSTAIN"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Damage",
+        "base_value": 3.0,
+        "value_prop": "Unblockable"
+      },
+      {
+        "kind": "Heal",
+        "base_value": 10.0
+      }
+    ]
+  },
+  {
+    "id": "Amalgamator",
+    "is_shared": false,
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "AromaOfChaos",
+    "is_shared": false,
+    "initial_option_labels": [
+      "AROMA_OF_CHAOS.pages.INITIAL.options.LET_GO",
+      "AROMA_OF_CHAOS.pages.INITIAL.options.MAINTAIN_CONTROL"
+    ]
+  },
+  {
+    "id": "BattlewornDummy",
+    "is_shared": true,
+    "initial_option_labels": [
+      "BATTLEWORN_DUMMY.pages.INITIAL.options.SETTING_1",
+      "BATTLEWORN_DUMMY.pages.INITIAL.options.SETTING_2",
+      "BATTLEWORN_DUMMY.pages.INITIAL.options.SETTING_3"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic"
+      },
+      {
+        "kind": "Dynamic"
+      },
+      {
+        "kind": "Dynamic"
+      }
+    ]
+  },
+  {
+    "id": "BrainLeech",
+    "is_shared": false,
+    "initial_option_labels": [
+      "BRAIN_LEECH.pages.INITIAL.options.SHARE_KNOWLEDGE",
+      "BRAIN_LEECH.pages.INITIAL.options.RIP"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "key": "RipHpLoss",
+        "base_value": 5.0,
+        "value_prop": "Unblockable"
+      },
+      {
+        "kind": "Int",
+        "key": "RewardCount",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Int",
+        "key": "CardChoiceCount",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Int",
+        "key": "FromCardChoiceCount",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "Bugslayer",
+    "is_shared": false,
+    "initial_option_labels": [
+      "BUGSLAYER.pages.INITIAL.options.EXTERMINATION",
+      "BUGSLAYER.pages.INITIAL.options.SQUASH"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "ByrdonisNest",
+    "is_shared": false,
+    "initial_option_labels": [
+      "BYRDONIS_NEST.pages.INITIAL.options.EAT",
+      "BYRDONIS_NEST.pages.INITIAL.options.TAKE"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 7.0
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "ColorfulPhilosophers",
+    "is_shared": false,
+    "initial_option_labels": [
+      "COLORFUL_PHILOSOPHERS.pages.INITIAL.options."
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "ColossalFlower",
+    "is_shared": false,
+    "canonical_vars": [
+      {
+        "kind": "Gold"
+      },
+      {
+        "kind": "Gold"
+      },
+      {
+        "kind": "Gold"
+      }
+    ]
+  },
+  {
+    "id": "CrystalSphere",
+    "is_shared": false,
+    "initial_option_labels": [
+      "CRYSTAL_SPHERE.pages.INITIAL.options.UNCOVER_FUTURE",
+      "CRYSTAL_SPHERE.pages.INITIAL.options.PAYMENT_PLAN"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "UncoverFutureCost",
+        "base_value": 50.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "UncoverFutureProphesizeCount",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "PaymentPlanCount",
+        "base_value": 6.0
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "DenseVegetation",
+    "is_shared": true,
+    "initial_option_labels": [
+      "DENSE_VEGETATION.pages.INITIAL.options.TRUDGE_ON",
+      "DENSE_VEGETATION.pages.INITIAL.options.REST"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 0.0
+      },
+      {
+        "kind": "Heal",
+        "base_value": 0.0
+      },
+      {
+        "kind": "HpLoss",
+        "base_value": 8.0
+      }
+    ]
+  },
+  {
+    "id": "DeprecatedEvent",
+    "is_shared": false
+  },
+  {
+    "id": "DollRoom",
+    "is_shared": false,
+    "initial_option_labels": [
+      "DOLL_ROOM.pages.INITIAL.options.RANDOM",
+      "DOLL_ROOM.pages.INITIAL.options.TAKE_SOME_TIME",
+      "DOLL_ROOM.pages.INITIAL.options.EXAMINE"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "key": "TakeTimeHpLoss",
+        "base_value": 5.0,
+        "value_prop": "Unblockable"
+      },
+      {
+        "kind": "Damage",
+        "key": "ExamineHpLoss",
+        "base_value": 15.0,
+        "value_prop": "Unblockable"
+      }
+    ]
+  },
+  {
+    "id": "DoorsOfLightAndDark",
+    "is_shared": false,
+    "initial_option_labels": [
+      "DOORS_OF_LIGHT_AND_DARK.pages.INITIAL.options.LIGHT",
+      "DOORS_OF_LIGHT_AND_DARK.pages.INITIAL.options.DARK"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "DrowningBeacon",
+    "is_shared": false,
+    "initial_option_labels": [
+      "DROWNING_BEACON.pages.INITIAL.options.BOTTLE",
+      "DROWNING_BEACON.pages.INITIAL.options.CLIMB"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "HpLoss",
+        "base_value": 13.0
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "EndlessConveyor",
+    "is_shared": false,
+    "initial_option_labels": [
+      "ENDLESS_CONVEYOR.pages.INITIAL.options.OBSERVE_CHEF"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 40.0
+      },
+      {
+        "kind": "Gold",
+        "key": "GoldenFyshGold",
+        "base_value": 75.0
+      },
+      {
+        "kind": "Heal",
+        "key": "ClamRollHeal",
+        "base_value": 10.0
+      },
+      {
+        "kind": "MaxHp",
+        "key": "CaviarMaxHp",
+        "base_value": 4.0
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "FakeMerchant",
+    "is_shared": true
+  },
+  {
+    "id": "FieldOfManSizedHoles",
+    "is_shared": false,
+    "initial_option_labels": [
+      "FIELD_OF_MAN_SIZED_HOLES.pages.INITIAL.options.RESIST",
+      "FIELD_OF_MAN_SIZED_HOLES.pages.INITIAL.options.ENTER_YOUR_HOLE"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 75.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "GraveOfTheForgotten",
+    "is_shared": false,
+    "initial_option_labels": [
+      "GRAVE_OF_THE_FORGOTTEN.pages.INITIAL.options.CONFRONT",
+      "GRAVE_OF_THE_FORGOTTEN.pages.INITIAL.options.CONFRONT_LOCKED",
+      "GRAVE_OF_THE_FORGOTTEN.pages.INITIAL.options.ACCEPT"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "HungryForMushrooms",
+    "is_shared": false
+  },
+  {
+    "id": "InfestedAutomaton",
+    "is_shared": false,
+    "initial_option_labels": [
+      "INFESTED_AUTOMATON.pages.INITIAL.options.STUDY",
+      "INFESTED_AUTOMATON.pages.INITIAL.options.TOUCH_CORE"
+    ]
+  },
+  {
+    "id": "JungleMazeAdventure",
+    "is_shared": true,
+    "initial_option_labels": [
+      "JUNGLE_MAZE_ADVENTURE.pages.INITIAL.options.SOLO_QUEST",
+      "JUNGLE_MAZE_ADVENTURE.pages.INITIAL.options.JOIN_FORCES"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "SoloGold",
+        "base_value": 150.0
+      },
+      {
+        "kind": "Damage",
+        "key": "SoloHp",
+        "base_value": 18.0,
+        "value_prop": "Unblockable"
+      },
+      {
+        "kind": "Dynamic",
+        "key": "JoinForcesGold",
+        "base_value": 50.0
+      }
+    ]
+  },
+  {
+    "id": "LostWisp",
+    "is_shared": false,
+    "initial_option_labels": [
+      "LOST_WISP.pages.INITIAL.options.SEARCH"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 60.0
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "LuminousChoir",
+    "is_shared": false,
+    "initial_option_labels": [
+      "LUMINOUS_CHOIR.pages.INITIAL.options.REACH_INTO_THE_FLESH",
+      "LUMINOUS_CHOIR.pages.INITIAL.options.OFFER_TRIBUTE",
+      "LUMINOUS_CHOIR.pages.INITIAL.options.OFFER_TRIBUTE_LOCKED"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 149.0
+      }
+    ]
+  },
+  {
+    "id": "MorphicGrove",
+    "is_shared": true,
+    "initial_option_labels": [
+      "MORPHIC_GROVE.pages.INITIAL.options.GROUP",
+      "MORPHIC_GROVE.pages.INITIAL.options.LONER"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "PotionCourier",
+    "is_shared": false,
+    "initial_option_labels": [
+      "POTION_COURIER.pages.INITIAL.options.GRAB_POTIONS",
+      "POTION_COURIER.pages.INITIAL.options.RANSACK"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "FoulPotions",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "PunchOff",
+    "is_shared": true,
+    "initial_option_labels": [
+      "PUNCH_OFF.pages.INITIAL.options.NAB",
+      "PUNCH_OFF.pages.INITIAL.options.I_CAN_TAKE_THEM"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 0.0
+      }
+    ]
+  },
+  {
+    "id": "RanwidTheElder",
+    "is_shared": false,
+    "initial_option_labels": [
+      "RANWID_THE_ELDER.pages.INITIAL.options.POTION_LOCKED",
+      "RANWID_THE_ELDER.pages.INITIAL.options.GOLD",
+      "RANWID_THE_ELDER.pages.INITIAL.options.RELIC_LOCKED"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 100.0
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "Reflections",
+    "is_shared": false,
+    "initial_option_labels": [
+      "REFLECTIONS.pages.INITIAL.options.TOUCH_A_MIRROR",
+      "REFLECTIONS.pages.INITIAL.options.SHATTER"
+    ]
+  },
+  {
+    "id": "RelicTrader",
+    "is_shared": false,
+    "initial_option_labels": [
+      "RELIC_TRADER.pages.INITIAL.options.TOP",
+      "RELIC_TRADER.pages.INITIAL.options.MIDDLE",
+      "RELIC_TRADER.pages.INITIAL.options.BOTTOM",
+      "PROCEED"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "RoomFullOfCheese",
+    "is_shared": false,
+    "initial_option_labels": [
+      "ROOM_FULL_OF_CHEESE.pages.INITIAL.options.GORGE",
+      "ROOM_FULL_OF_CHEESE.pages.INITIAL.options.SEARCH"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 14.0,
+        "value_prop": "Unblockable"
+      }
+    ]
+  },
+  {
+    "id": "RoundTeaParty",
+    "is_shared": false,
+    "initial_option_labels": [
+      "ROUND_TEA_PARTY.pages.INITIAL.options.ENJOY_TEA",
+      "ROUND_TEA_PARTY.pages.INITIAL.options.PICK_FIGHT"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 11.0,
+        "value_prop": "Unblockable"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "SapphireSeed",
+    "is_shared": false,
+    "initial_option_labels": [
+      "SAPPHIRE_SEED.pages.INITIAL.options.EAT",
+      "SAPPHIRE_SEED.pages.INITIAL.options.PLANT"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "Heal",
+        "base_value": 9.0
+      }
+    ]
+  },
+  {
+    "id": "SelfHelpBook",
+    "is_shared": false,
+    "initial_option_labels": [
+      "SELF_HELP_BOOK.pages.INITIAL.options.READ_THE_BACK",
+      "SELF_HELP_BOOK.pages.INITIAL.options.READ_THE_BACK_LOCKED",
+      "SELF_HELP_BOOK.pages.INITIAL.options.READ_PASSAGE",
+      "SELF_HELP_BOOK.pages.INITIAL.options.READ_PASSAGE_LOCKED",
+      "SELF_HELP_BOOK.pages.INITIAL.options.READ_ENTIRE_BOOK",
+      "SELF_HELP_BOOK.pages.INITIAL.options.READ_ENTIRE_BOOK_LOCKED",
+      "SELF_HELP_BOOK.pages.INITIAL.options.NO_OPTIONS"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "Int",
+        "key": "Enchantment1Amount",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Int",
+        "key": "Enchantment2Amount",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Int",
+        "key": "Enchantment3Amount",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "SlipperyBridge",
+    "is_shared": false,
+    "initial_option_labels": [
+      "SLIPPERY_BRIDGE.pages.INITIAL.options.OVERCOME",
+      "SLIPPERY_BRIDGE.pages.INITIAL.options.HOLD_ON_0"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "Dynamic"
+      }
+    ]
+  },
+  {
+    "id": "SpiralingWhirlpool",
+    "is_shared": false,
+    "initial_option_labels": [
+      "SPIRALING_WHIRLPOOL.pages.INITIAL.options.OBSERVE",
+      "SPIRALING_WHIRLPOOL.pages.INITIAL.options.DRINK"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 0.0
+      }
+    ]
+  },
+  {
+    "id": "SpiritGrafter",
+    "is_shared": false,
+    "initial_option_labels": [
+      "SPIRIT_GRAFTER.pages.INITIAL.options.LET_IT_IN",
+      "SPIRIT_GRAFTER.pages.INITIAL.options.REJECTION"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "HpLoss",
+        "key": "RejectionHpLoss",
+        "base_value": 10.0
+      },
+      {
+        "kind": "Heal",
+        "key": "LetItInHealAmount",
+        "base_value": 25.0
+      }
+    ]
+  },
+  {
+    "id": "StoneOfAllTime",
+    "is_shared": false,
+    "initial_option_labels": [
+      "STONE_OF_ALL_TIME.pages.INITIAL.options.LIFT",
+      "STONE_OF_ALL_TIME.pages.INITIAL.options.LIFT_LOCKED",
+      "STONE_OF_ALL_TIME.pages.INITIAL.options.PUSH",
+      "STONE_OF_ALL_TIME.pages.INITIAL.options.PUSH_LOCKED"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "Dynamic",
+        "key": "DrinkMaxHpGain",
+        "base_value": 10.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "PushHpLoss",
+        "base_value": 6.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "PushVigorousAmount",
+        "base_value": 8.0
+      }
+    ]
+  },
+  {
+    "id": "SunkenStatue",
+    "is_shared": false,
+    "initial_option_labels": [
+      "SUNKEN_STATUE.pages.INITIAL.options.GRAB_SWORD",
+      "SUNKEN_STATUE.pages.INITIAL.options.DIVE_INTO_WATER"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "Gold",
+        "base_value": 111.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "HpLoss",
+        "base_value": 7.0
+      }
+    ]
+  },
+  {
+    "id": "SunkenTreasury",
+    "is_shared": false,
+    "initial_option_labels": [
+      "SUNKEN_TREASURY.pages.INITIAL.options.FIRST_CHEST",
+      "SUNKEN_TREASURY.pages.INITIAL.options.SECOND_CHEST"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "SmallChestGold",
+        "base_value": 60.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "LargeChestGold",
+        "base_value": 333.0
+      }
+    ]
+  },
+  {
+    "id": "Symbiote",
+    "is_shared": false,
+    "initial_option_labels": [
+      "SYMBIOTE.pages.INITIAL.options.APPROACH",
+      "SYMBIOTE.pages.INITIAL.options.APPROACH_LOCKED",
+      "SYMBIOTE.pages.INITIAL.options.KILL_WITH_FIRE"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "TabletOfTruth",
+    "is_shared": false,
+    "initial_option_labels": [
+      "TABLET_OF_TRUTH.pages.INITIAL.options.DECIPHER_1",
+      "TABLET_OF_TRUTH.pages.INITIAL.options.SMASH"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "SmashHPGain",
+        "base_value": 20.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "DecipherMaxHpLoss",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "TeaMaster",
+    "is_shared": false,
+    "initial_option_labels": [
+      "TEA_MASTER.pages.INITIAL.options.BONE_TEA",
+      "TEA_MASTER.pages.INITIAL.options.BONE_TEA_LOCKED",
+      "TEA_MASTER.pages.INITIAL.options.EMBER_TEA",
+      "TEA_MASTER.pages.INITIAL.options.EMBER_TEA_LOCKED",
+      "TEA_MASTER.pages.INITIAL.options.TEA_OF_DISCOURTESY"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "BoneTeaCost",
+        "base_value": 50.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "EmberTeaCost",
+        "base_value": 150.0
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "TheArchitect",
+    "is_shared": false
+  },
+  {
+    "id": "TheFutureOfPotions",
+    "is_shared": false
+  },
+  {
+    "id": "TheLanternKey",
+    "is_shared": true,
+    "initial_option_labels": [
+      "THE_LANTERN_KEY.pages.INITIAL.options.RETURN_THE_KEY",
+      "THE_LANTERN_KEY.pages.INITIAL.options.KEEP_THE_KEY"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 100.0
+      }
+    ]
+  },
+  {
+    "id": "TheLegendsWereTrue",
+    "is_shared": false,
+    "initial_option_labels": [
+      "THE_LEGENDS_WERE_TRUE.pages.INITIAL.options.NAB_THE_MAP",
+      "THE_LEGENDS_WERE_TRUE.pages.INITIAL.options.SLOWLY_FIND_AN_EXIT"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 8.0,
+        "value_prop": "Unblockable"
+      }
+    ]
+  },
+  {
+    "id": "ThisOrThat",
+    "is_shared": false,
+    "initial_option_labels": [
+      "THIS_OR_THAT.pages.INITIAL.options.PLAIN",
+      "THIS_OR_THAT.pages.INITIAL.options.ORNATE"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "HpLoss",
+        "base_value": 6.0
+      },
+      {
+        "kind": "Gold",
+        "base_value": 0.0
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "TinkerTime",
+    "is_shared": false,
+    "initial_option_labels": [
+      "TINKER_TIME.pages.INITIAL.options.CHOOSE_CARD_TYPE"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 12.0,
+        "value_prop": "Move"
+      },
+      {
+        "kind": "Block",
+        "base_value": 8.0,
+        "value_prop": "Move"
+      },
+      {
+        "kind": "Power",
+        "generic": "WeakPower",
+        "key": "SappingWeak",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Power",
+        "generic": "VulnerablePower",
+        "key": "SappingVulnerable",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "ViolenceHits",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Power",
+        "generic": "StranglePower",
+        "key": "ChokingDamage",
+        "base_value": 6.0
+      },
+      {
+        "kind": "Energy",
+        "key": "EnergizedEnergy",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Cards",
+        "key": "WisdomCards",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "key": "ExpertiseStrength",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "key": "ExpertiseDexterity",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "CuriousReduction",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Energy",
+        "key": "energyPrefix",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "TrashHeap",
+    "is_shared": false,
+    "initial_option_labels": [
+      "TRASH_HEAP.pages.INITIAL.options.DIVE_IN",
+      "TRASH_HEAP.pages.INITIAL.options.GRAB"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "HpLoss",
+        "base_value": 8.0
+      },
+      {
+        "kind": "Gold",
+        "base_value": 100.0
+      }
+    ]
+  },
+  {
+    "id": "Trial",
+    "is_shared": false,
+    "initial_option_labels": [
+      "TRIAL.pages.INITIAL.options.ACCEPT",
+      "TRIAL.pages.INITIAL.options.REJECT"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "EntrantNumber",
+        "base_value": -1.0
+      }
+    ]
+  },
+  {
+    "id": "UnrestSite",
+    "is_shared": false,
+    "initial_option_labels": [
+      "UNREST_SITE.pages.INITIAL.options.REST",
+      "UNREST_SITE.pages.INITIAL.options.KILL"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 0.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "MaxHpLoss",
+        "base_value": 8.0
+      }
+    ]
+  },
+  {
+    "id": "WarHistorianRepy",
+    "is_shared": true,
+    "initial_option_labels": [
+      "WAR_HISTORIAN_REPY.pages.INITIAL.options.UNLOCK_CAGE",
+      "WAR_HISTORIAN_REPY.pages.INITIAL.options.UNLOCK_CHEST"
+    ]
+  },
+  {
+    "id": "WaterloggedScriptorium",
+    "is_shared": false,
+    "initial_option_labels": [
+      "WATERLOGGED_SCRIPTORIUM.pages.INITIAL.options.BLOODY_INK",
+      "WATERLOGGED_SCRIPTORIUM.pages.INITIAL.options.TENTACLE_QUILL",
+      "WATERLOGGED_SCRIPTORIUM.pages.INITIAL.options.TENTACLE_QUILL_LOCKED",
+      "WATERLOGGED_SCRIPTORIUM.pages.INITIAL.options.PRICKLY_SPONGE",
+      "WATERLOGGED_SCRIPTORIUM.pages.INITIAL.options.PRICKLY_SPONGE_LOCKED"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 6.0
+      },
+      {
+        "kind": "Gold",
+        "base_value": 55.0
+      },
+      {
+        "kind": "Gold",
+        "key": "PricklySpongeGold",
+        "base_value": 99.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "WelcomeToWongos",
+    "is_shared": false,
+    "initial_option_labels": [
+      "WELCOME_TO_WONGOS.pages.INITIAL.options.BARGAIN_BIN",
+      "WELCOME_TO_WONGOS.pages.INITIAL.options.BARGAIN_BIN_LOCKED",
+      "WELCOME_TO_WONGOS.pages.INITIAL.options.FEATURED_ITEM",
+      "WELCOME_TO_WONGOS.pages.INITIAL.options.FEATURED_ITEM_LOCKED",
+      "WELCOME_TO_WONGOS.pages.INITIAL.options.MYSTERY_BOX",
+      "WELCOME_TO_WONGOS.pages.INITIAL.options.MYSTERY_BOX_LOCKED",
+      "WELCOME_TO_WONGOS.pages.INITIAL.options.LEAVE"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "BargainBinCost",
+        "base_value": 100.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "MysteryBoxCost",
+        "base_value": 300.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "FeaturedItemCost",
+        "base_value": 200.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "MysteryBoxRelicCount",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "MysteryBoxCombatCount",
+        "base_value": 5.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "WongoPointAmount",
+        "base_value": 0.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "RemainingWongoPointAmount",
+        "base_value": 0.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "TotalWongoBadgeAmount",
+        "base_value": 0.0
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "Wellspring",
+    "is_shared": false,
+    "initial_option_labels": [
+      "WELLSPRING.pages.INITIAL.options.BOTTLE",
+      "WELLSPRING.pages.INITIAL.options.BATHE"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "BatheCurses",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "WhisperingHollow",
+    "is_shared": false,
+    "initial_option_labels": [
+      "WHISPERING_HOLLOW.pages.INITIAL.options.GOLD",
+      "WHISPERING_HOLLOW.pages.INITIAL.options.HUG"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 35.0
+      },
+      {
+        "kind": "HpLoss",
+        "base_value": 9.0
+      }
+    ]
+  },
+  {
+    "id": "WoodCarvings",
+    "is_shared": false,
+    "initial_option_labels": [
+      "WOOD_CARVINGS.pages.INITIAL.options.SNAKE",
+      "WOOD_CARVINGS.pages.INITIAL.options.SNAKE_LOCKED",
+      "WOOD_CARVINGS.pages.INITIAL.options.BIRD",
+      "WOOD_CARVINGS.pages.INITIAL.options.TORUS"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "ZenWeaver",
+    "is_shared": false,
+    "initial_option_labels": [
+      "ZEN_WEAVER.pages.INITIAL.options.BREATHING_TECHNIQUES",
+      "ZEN_WEAVER.pages.INITIAL.options.EMOTIONAL_AWARENESS",
+      "ZEN_WEAVER.pages.INITIAL.options.ARACHNID_ACUPUNCTURE"
+    ],
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "BreathingTechniquesCost",
+        "base_value": 50.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "EmotionalAwarenessCost",
+        "base_value": 125.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "ArachnidAcupunctureCost",
+        "base_value": 250.0
+      }
+    ]
+  }
+]
