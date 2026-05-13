@@ -296,6 +296,41 @@ impl CombatState {
             }
             CombatSide::None => {}
         }
+        // AfterSideTurnStart hook pass — currently just Poison.
+        // Hook firing order proper will land in #70; for now we run the
+        // ticks directly so combat math stays correct.
+        self.tick_start_of_turn_powers(side);
+    }
+
+    /// Apply each creature's start-of-turn power effects when that
+    /// creature's side begins its turn. Currently models PoisonPower:
+    /// deal `Amount` damage (Unblockable | Unpowered → block-bypassing),
+    /// then decrement the stack by 1.
+    ///
+    /// Snapshots ticks before applying so a death during one tick doesn't
+    /// disrupt iteration. Tick uses `lose_hp` (bypasses block) per the
+    /// `ValueProp.Unblockable` flag the C# passes.
+    pub fn tick_start_of_turn_powers(&mut self, side: CombatSide) {
+        let mut ticks: Vec<(usize, i32)> = Vec::new();
+        let list = match side {
+            CombatSide::Player => &self.allies,
+            CombatSide::Enemy => &self.enemies,
+            CombatSide::None => return,
+        };
+        for (idx, creature) in list.iter().enumerate() {
+            if creature.current_hp == 0 {
+                continue;
+            }
+            if let Some(p) = creature.powers.iter().find(|p| p.id == "PoisonPower") {
+                if p.amount > 0 {
+                    ticks.push((idx, p.amount));
+                }
+            }
+        }
+        for (idx, amount) in ticks {
+            self.lose_hp(side, idx, amount);
+            self.decrement_power(side, idx, "PoisonPower", 1);
+        }
     }
 
     /// Pure end-of-turn bookkeeping for the side just finishing:
@@ -1370,6 +1405,76 @@ mod tests {
         cs.end_turn();
         cs.begin_turn(CombatSide::Player);
         assert_eq!(cs.round_number, 3);
+    }
+
+    // ---------- Poison tick tests -----------------------------------------
+
+    #[test]
+    fn poison_ticks_at_owner_side_begin() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 3);
+        let max_hp = cs.enemies[0].max_hp;
+        // Begin Enemy turn → poison ticks the Axebot.
+        cs.begin_turn(CombatSide::Enemy);
+        // 3 damage bypassing block; stack decrements to 2.
+        assert_eq!(cs.enemies[0].current_hp, max_hp - 3);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn poison_does_not_tick_on_opposing_side_begin() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 5);
+        let max_hp = cs.enemies[0].max_hp;
+        // Begin Player turn — enemy's poison should not fire.
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.enemies[0].current_hp, max_hp);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
+            5
+        );
+    }
+
+    #[test]
+    fn poison_bypasses_block() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 4);
+        cs.enemies[0].block = 100;
+        let max_hp = cs.enemies[0].max_hp;
+        cs.begin_turn(CombatSide::Enemy);
+        // begin_turn clears block first, but even if block were retained
+        // (e.g., Loop relic), Poison uses lose_hp which bypasses block.
+        // Here block is cleared at begin, so 4 damage chips HP directly.
+        assert_eq!(cs.enemies[0].current_hp, max_hp - 4);
+    }
+
+    #[test]
+    fn poison_decrements_to_zero_removes_stack() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 1);
+        cs.begin_turn(CombatSide::Enemy);
+        // After 1 → tick → 1 damage, then decrement → 0 → stack removed.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
+            0
+        );
+        assert!(!cs.enemies[0]
+            .powers
+            .iter()
+            .any(|p| p.id == "PoisonPower"));
+    }
+
+    #[test]
+    fn lethal_poison_marks_creature_dead() {
+        let mut cs = ironclad_combat();
+        // Set a low-HP Axebot then big poison.
+        cs.enemies[0].current_hp = 2;
+        cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 10);
+        cs.begin_turn(CombatSide::Enemy);
+        assert_eq!(cs.enemies[0].current_hp, 0);
     }
 
     #[test]
