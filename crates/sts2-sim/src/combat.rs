@@ -1040,6 +1040,69 @@ fn dispatch_on_play(
             cs.apply_power(target.0, target.1, "WeakPower", weak);
             true
         }
+        // Thunderclap (Ironclad common): 4 damage + 1 Vulnerable to ALL
+        // enemies. Upgrade: +3 damage. Each enemy takes the damage
+        // independently (block recomputes per target). Dead enemies skip.
+        "Thunderclap" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let vuln = canonical_int_value(card, "Vulnerable", upgrade_level);
+            let n = cs.enemies.len();
+            for i in 0..n {
+                if cs.enemies[i].current_hp == 0 {
+                    continue;
+                }
+                cs.deal_damage_enchanted(
+                    (CombatSide::Player, player_idx),
+                    (CombatSide::Enemy, i),
+                    damage,
+                    ValueProp::MOVE,
+                    enchantment,
+                );
+                // C# applies to HittableEnemies (still-alive); skip dead
+                // before AND after damage to match.
+                if cs.enemies[i].current_hp > 0 {
+                    cs.apply_power(CombatSide::Enemy, i, "VulnerablePower", vuln);
+                }
+            }
+            true
+        }
+        // IronWave (Ironclad common): 5 damage to single enemy + 5 block
+        // on self. Upgrade: +2 each. C# order is block-then-damage; we
+        // match.
+        "IronWave" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            true
+        }
+        // TwinStrike (Ironclad common): 5 damage × 2 hits to single
+        // enemy. Upgrade: +2 per hit (becomes 7×2). C# uses
+        // `.WithHitCount(2)` — each hit goes through modifiers independently.
+        "TwinStrike" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            for _ in 0..2 {
+                cs.deal_damage_enchanted(
+                    (CombatSide::Player, player_idx),
+                    target,
+                    damage,
+                    ValueProp::MOVE,
+                    enchantment,
+                );
+            }
+            true
+        }
         _ => false,
     }
 }
@@ -2623,6 +2686,73 @@ mod tests {
             cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
             3
         );
+    }
+
+    #[test]
+    fn thunderclap_hits_all_enemies_and_applies_vulnerable() {
+        let mut cs = ironclad_combat();
+        let tc = card_by_id("Thunderclap").unwrap();
+        cs.allies[0].player.as_mut().unwrap().hand.cards.push(
+            CardInstance::from_card(tc, 0),
+        );
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_e0 = cs.enemies[0].current_hp;
+        let hp_e1 = cs.enemies[1].current_hp;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_e0 - 4);
+        assert_eq!(cs.enemies[1].current_hp, hp_e1 - 4);
+        for i in 0..cs.enemies.len() {
+            assert_eq!(
+                cs.get_power_amount(CombatSide::Enemy, i, "VulnerablePower"),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn iron_wave_deals_damage_and_grants_block() {
+        let mut cs = ironclad_combat();
+        let iw = card_by_id("IronWave").unwrap();
+        cs.allies[0].player.as_mut().unwrap().hand.cards.push(
+            CardInstance::from_card(iw, 0),
+        );
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 5);
+        assert_eq!(cs.allies[0].block, 5);
+    }
+
+    #[test]
+    fn twin_strike_hits_twice() {
+        let mut cs = ironclad_combat();
+        let ts = card_by_id("TwinStrike").unwrap();
+        cs.allies[0].player.as_mut().unwrap().hand.cards.push(
+            CardInstance::from_card(ts, 0),
+        );
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 5 × 2 = 10, no block.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 10);
+    }
+
+    #[test]
+    fn upgraded_twin_strike_does_fourteen_damage() {
+        let mut cs = ironclad_combat();
+        let ts = card_by_id("TwinStrike").unwrap();
+        cs.allies[0].player.as_mut().unwrap().hand.cards.push(
+            CardInstance::from_card(ts, 1),
+        );
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 7 × 2 = 14.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 14);
     }
 
     #[test]
