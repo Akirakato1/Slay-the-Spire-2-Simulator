@@ -13,6 +13,7 @@ pub mod map;
 pub mod modifier;
 pub mod orb;
 pub mod path_pruning;
+pub mod potion;
 pub mod power;
 pub mod relic;
 pub mod rng;

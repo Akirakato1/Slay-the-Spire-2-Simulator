@@ -1,0 +1,920 @@
+[
+  {
+    "id": "Ashwater",
+    "pools": [
+      "Ironclad4"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "AttackPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "BeetleJuice",
+    "pools": [
+      "Potion1",
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AnyEnemy",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "DamageDecrease",
+        "base_value": 30.0
+      },
+      {
+        "kind": "Repeat",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "BlessingOfTheForge",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "BlockPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 12.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "BloodPotion",
+    "pools": [
+      "Ironclad4"
+    ],
+    "rarity": "Common",
+    "usage": "AnyTime",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "HealPercent",
+        "base_value": 20.0
+      }
+    ]
+  },
+  {
+    "id": "BoneBrew",
+    "pools": [
+      "Necrobinder4"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "Self",
+    "canonical_vars": [
+      {
+        "kind": "Summon",
+        "base_value": 15.0
+      }
+    ]
+  },
+  {
+    "id": "BottledPotential",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "Clarity",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "ClarityPower",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "ColorlessPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "CosmicConcoction",
+    "pools": [
+      "Regent4"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "Self",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "CunningPotion",
+    "pools": [
+      "Silent4"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "Self",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "CureAll",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "DeprecatedPotion",
+    "pools": [
+      "Deprecated"
+    ],
+    "rarity": "None",
+    "usage": "CombatOnly",
+    "target_type": "AnyEnemy"
+  },
+  {
+    "id": "DexterityPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "DistilledChaos",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "Self",
+    "canonical_vars": [
+      {
+        "kind": "Repeat",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "DropletOfPrecognition",
+    "pools": [
+      "Potion1",
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "Duplicator",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "EnergyPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "EntropicBrew",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "AnyTime",
+    "target_type": "Self"
+  },
+  {
+    "id": "EssenceOfDarkness",
+    "pools": [
+      "Defect4"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "ExplosiveAmpoule",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AllEnemies",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 10.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "FairyInABottle",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "Automatic",
+    "target_type": "Self"
+  },
+  {
+    "id": "FirePotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyEnemy",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 20.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "FlexPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "FocusPotion",
+    "pools": [
+      "Defect4"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "Self",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "FocusPower",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "Fortifier",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer"
+  },
+  {
+    "id": "FoulPotion",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "usage": "AnyTime",
+    "target_type": "TargetedNoCreature",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 12.0,
+        "value_prop": "Unpowered"
+      },
+      {
+        "kind": "Gold",
+        "base_value": 100.0
+      }
+    ]
+  },
+  {
+    "id": "FruitJuice",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "AnyTime",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "FyshOil",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "GamblersBrew",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "GhostInAJar",
+    "pools": [
+      "Silent4"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "IntangiblePower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "GigantificationPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "GigantificationPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "GlowwaterPotion",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "usage": "CombatOnly",
+    "target_type": "Self",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 10.0
+      }
+    ]
+  },
+  {
+    "id": "HeartOfIron",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "PlatingPower",
+        "base_value": 7.0
+      }
+    ]
+  },
+  {
+    "id": "KingsCourage",
+    "pools": [
+      "Regent4"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Forge",
+        "base_value": 15.0
+      }
+    ]
+  },
+  {
+    "id": "LiquidBronze",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "ThornsPower",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "LiquidMemories",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "LuckyTonic",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "BufferPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "MazalethsGift",
+    "pools": [
+      "Potion1",
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "RitualPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "OrobicAcid",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "PoisonPotion",
+    "pools": [
+      "Silent4"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyEnemy",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "PoisonPower",
+        "base_value": 6.0
+      }
+    ]
+  },
+  {
+    "id": "PotOfGhouls",
+    "pools": [
+      "Necrobinder4"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "Self",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "PotionOfBinding",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AllEnemies",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "VulnerablePower",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Power",
+        "generic": "WeakPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "PotionOfCapacity",
+    "pools": [
+      "Defect4"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "Self",
+    "canonical_vars": [
+      {
+        "kind": "Repeat",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "PotionOfDoom",
+    "pools": [
+      "Necrobinder4"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyEnemy",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "DoomPower",
+        "base_value": 33.0
+      }
+    ]
+  },
+  {
+    "id": "PotionShapedRock",
+    "pools": [
+      "Token"
+    ],
+    "rarity": "Token",
+    "usage": "CombatOnly",
+    "target_type": "AnyEnemy",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 15.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "PowderedDemise",
+    "pools": [
+      "Potion2",
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyEnemy",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Demise",
+        "base_value": 9.0
+      }
+    ]
+  },
+  {
+    "id": "PowerPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "RadiantTincture",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Power",
+        "generic": "RadiancePower",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "RegenPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "RegenPower",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "ShacklingPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AllEnemies",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 7.0
+      }
+    ]
+  },
+  {
+    "id": "ShipInABottle",
+    "pools": [
+      "Potion2",
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 10.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "SkillPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "SneckoOil",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 7.0
+      }
+    ]
+  },
+  {
+    "id": "SoldiersStew",
+    "pools": [
+      "Ironclad4"
+    ],
+    "rarity": "Rare",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer"
+  },
+  {
+    "id": "SpeedPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "StableSerum",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Repeat",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "StarPotion",
+    "pools": [
+      "Regent4"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "Self",
+    "canonical_vars": [
+      {
+        "kind": "Stars",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "StrengthPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "SwiftPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyPlayer",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "TouchOfInsanity",
+    "pools": [
+      "Potion2",
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "usage": "CombatOnly",
+    "target_type": "Self"
+  },
+  {
+    "id": "VulnerablePotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyEnemy",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "VulnerablePower",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "WeakPotion",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "usage": "CombatOnly",
+    "target_type": "AnyEnemy",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "WeakPower",
+        "base_value": 3.0
+      }
+    ]
+  }
+]
