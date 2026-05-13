@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/sts2-sim",
     "crates/sts2-sim-oracle-tests",
+    "tools/extract_cards",
 ]
 
 [workspace.package]

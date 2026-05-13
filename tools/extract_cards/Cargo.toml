@@ -1,0 +1,17 @@
+[package]
+name = "extract-cards"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "One-shot extractor: walks the StS2 decompile and emits crates/sts2-sim/data/cards.json. Re-run when the game updates."
+
+[[bin]]
+name = "extract-cards"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+regex = "1"
