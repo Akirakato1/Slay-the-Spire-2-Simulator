@@ -1,0 +1,1457 @@
+[
+  {
+    "id": "AccelerantPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "AccuracyPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "AdaptablePower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "AfterimagePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "AggressionPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ArsenalPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ArtifactPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "AsleepPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "AutomationPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "BaseCards",
+        "base_value": 10.0
+      }
+    ]
+  },
+  {
+    "id": "BackAttackLeftPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "BackAttackRightPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "BarricadePower",
+    "power_type": "Buff",
+    "stack_type": "Single",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "BattlewornDummyTimeLimitPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "BeaconOfHopePower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "BiasedCognitionPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "BlackHolePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "BlockNextTurnPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "BlurPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "BorrowedTimePower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "BufferPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "BurrowedPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "BurstPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CalamityPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CalcifyPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CallOfTheVoidPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ChainsOfBindingPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ChildOfTheStarsPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ClarityPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ColossusPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "DamageDecrease",
+        "base_value": 0.5
+      }
+    ]
+  },
+  {
+    "id": "ConfusedPower",
+    "power_type": "Debuff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "ConquerorPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ConstrictPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ConsumingShadowPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CoolantPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CorrosiveWavePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CorruptionPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "CountdownPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CoveredPower",
+    "power_type": "Buff",
+    "stack_type": "Single",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "CrabRagePower",
+    "power_type": "Buff",
+    "stack_type": "Single",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 6.0
+      },
+      {
+        "kind": "Block",
+        "base_value": 99.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "CreativeAiPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CrimsonMantlePower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "key": "SelfDamage",
+        "base_value": 0.0,
+        "value_prop": "Unblockable"
+      }
+    ]
+  },
+  {
+    "id": "CrueltyPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CuriousPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "CurlUpPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DampenPower",
+    "power_type": "Debuff",
+    "stack_type": "None"
+  },
+  {
+    "id": "DanseMacabrePower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "DarkEmbracePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DebilitatePower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DemesnePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DemisePower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DemonFormPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DevourLifePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DexterityPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "allow_negative": true
+  },
+  {
+    "id": "DiamondDiademPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "DieForYouPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "DisintegrationPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DoomPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DoubleDamagePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DrawCardsNextTurnPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DrumOfBattlePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DuplicationPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "EchoFormPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "EnergyNextTurnPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "EnragePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "EntropyPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "EnvenomPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "EscapeArtistPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FanOfKnivesPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "FastenPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FeelNoPainPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FeralPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FlameBarrierPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FlankingPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "FlutterPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "DamageDecrease",
+        "base_value": 50.0
+      }
+    ]
+  },
+  {
+    "id": "FocusPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "allow_negative": true
+  },
+  {
+    "id": "ForbiddenGrimoirePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ForegoneConclusionPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FrailPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FreeAttackPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FreePowerPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FreeSkillPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FriendshipPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "FurnacePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "GalvanicPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "GenesisPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "GigantificationPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "GraspPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "GravityPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "GuardedPower",
+    "power_type": "Buff",
+    "stack_type": "Single",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "HailstormPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "FrostOrbs",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "HammerTimePower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "HangPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HardToKillPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HardenedShellPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HatchPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HauntPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HeistPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HelloWorldPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HellraiserPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "HexPower",
+    "power_type": "Debuff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "HighVoltagePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HungerPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "IllusionPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "ImbalancedPower",
+    "power_type": "Debuff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "ImprovementPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "InfernoPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "key": "SelfDamage",
+        "base_value": 0.0,
+        "value_prop": "Unblockable"
+      }
+    ]
+  },
+  {
+    "id": "InfestedPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "InfiniteBladesPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "IntangiblePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "InterceptPower",
+    "power_type": "Buff",
+    "stack_type": "Single",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "IterationPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "JuggernautPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "JugglingPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "KnockdownPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "LeadershipPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "LethalityPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "LightningRodPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "LoopPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "MachineLearningPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "MagicBombPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "MasterPlannerPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "MayhemPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "MindRotPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "MinionPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "MonarchsGazePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "MonologuePower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "StrengthApplied",
+        "base_value": 0.0
+      }
+    ]
+  },
+  {
+    "id": "NecroMasteryPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "NemesisPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "NeurosurgePower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "NightmarePower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "NoBlockPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "NoDrawPower",
+    "power_type": "Debuff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "NoEnergyGainPower",
+    "power_type": "Debuff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "NostalgiaPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "NoxiousFumesPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "OblivionPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "OneTwoPunchPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "OrbitPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "OutbreakPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Repeat",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "PagestormPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "PainfulStabsPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "PaleBlueDotPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "CardPlay",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "PanachePower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "CardsLeft",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "PaperCutsPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ParryPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "PersonalHivePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "PhantomBladesPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "PillarOfCreationPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "PlatingPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Decrement",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "PlowPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "PoisonPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "PossessSpeedPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "PossessStrengthPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "PrepTimePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "PyrePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "RadiancePower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "RagePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "RampartPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "RavenousPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ReaperFormPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ReattachPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "ReboundPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ReflectPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "RegenPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "RetainHandPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "RingingPower",
+    "power_type": "Debuff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "RitualPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "RollingBoulderPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 5.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "RoyaltiesPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "RupturePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SandpitPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ScrutinyPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "SeekingEdgePower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "SelfFormingClayPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SentryModePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SerpentFormPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ShadowStepPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ShadowmeldPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ShriekPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter",
+    "allow_negative": true
+  },
+  {
+    "id": "ShrinkPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter",
+    "allow_negative": true,
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "DamageDecrease",
+        "base_value": 30.0
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "ShroudPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SicEmPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SignalBoostPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SkittishPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SleightOfFleshPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SlipperyPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SlothPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SlowPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "SlowAmount",
+        "base_value": 0.0
+      }
+    ]
+  },
+  {
+    "id": "SlumberPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SmoggyPower",
+    "power_type": "Debuff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "SmokestackPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SneakyPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SoarPower",
+    "power_type": "Buff",
+    "stack_type": "Single",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "DamageDecrease",
+        "base_value": 50.0
+      }
+    ]
+  },
+  {
+    "id": "SpectrumShiftPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SpeedsterPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SpinnerPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SpiritOfAshPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "StampedePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "StarNextTurnPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SteamEruptionPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "StockPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "StormPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "StranglePower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "StratagemPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "StrengthPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "allow_negative": true
+  },
+  {
+    "id": "SubroutinePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SuckPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SummonNextTurnPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SurprisePower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "SurroundedPower",
+    "power_type": "Debuff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "SwipePower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "SwordSagePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "TagTeamPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "TangledPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "TankPower",
+    "power_type": "Buff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "TemporaryDexterityPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "TemporaryFocusPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "TemporaryStrengthPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "TenderPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "TerritorialPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "TheBombPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 40.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "TheGambitPower",
+    "power_type": "Debuff",
+    "stack_type": "Single"
+  },
+  {
+    "id": "TheHuntPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "TheSealedThronePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ThieveryPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 0.0
+      }
+    ]
+  },
+  {
+    "id": "ThornsPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ThunderPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ToolsOfTheTradePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ToricToughnessPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 0.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "TrackingPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "TrashToTreasurePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "TyrannyPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "UnmovablePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "VeilpiercerPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ViciousPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "VigorPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "VitalSparkPower",
+    "power_type": "Buff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "VoidFormPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "VulnerablePower",
+    "power_type": "Debuff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "DamageIncrease",
+        "base_value": 1.5
+      }
+    ]
+  },
+  {
+    "id": "WasteAwayPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "WeakPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "DamageDecrease",
+        "base_value": 0.75
+      }
+    ]
+  },
+  {
+    "id": "WellLaidPlansPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "WraithFormPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  }
+]

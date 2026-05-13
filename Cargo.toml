@@ -4,6 +4,7 @@ members = [
     "crates/sts2-sim",
     "crates/sts2-sim-oracle-tests",
     "tools/extract_cards",
+    "tools/extract_powers",
     "tools/extract_relics",
     "tools/extractors_common",
 ]

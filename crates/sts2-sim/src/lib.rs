@@ -8,6 +8,7 @@ pub mod card;
 pub mod hash;
 pub mod map;
 pub mod path_pruning;
+pub mod power;
 pub mod relic;
 pub mod rng;
 pub mod rng_set;

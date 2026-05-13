@@ -1,0 +1,18 @@
+[package]
+name = "extract-powers"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "One-shot extractor: walks the StS2 decompile and emits crates/sts2-sim/data/powers.json. Re-run when the game updates."
+
+[[bin]]
+name = "extract-powers"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+regex = "1"
+extractors_common = { path = "../extractors_common" }
