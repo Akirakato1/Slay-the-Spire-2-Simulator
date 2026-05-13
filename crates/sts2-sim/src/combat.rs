@@ -19,7 +19,7 @@
 //!     optional player/monster sub-state, avoiding `enum`-variant boilerplate
 //!     for the many fields that are shared.
 
-use crate::card::{by_id as card_by_id, CardData};
+use crate::card::{by_id as card_by_id, CardData, CardType, TargetType};
 use crate::character::CharacterData;
 use crate::encounter::EncounterData;
 use crate::monster::MonsterData;
@@ -595,6 +595,32 @@ impl CombatState {
         clamped as i32
     }
 
+    /// Check if combat has resolved. Returns `Some(Victory)` if every
+    /// enemy is at 0 HP, `Some(Defeat)` if every player creature is, or
+    /// `None` if combat continues. Escaped enemies don't count toward
+    /// either side (matches StS rules: fleeing enemies neither lose nor
+    /// keep you fighting).
+    pub fn is_combat_over(&self) -> Option<CombatResult> {
+        let all_enemies_dead = !self.enemies.is_empty()
+            && self.enemies.iter().all(|c| c.current_hp == 0);
+        let all_players_dead = !self.allies.is_empty()
+            && self
+                .allies
+                .iter()
+                .filter(|c| c.kind == CreatureKind::Player)
+                .all(|c| c.current_hp == 0);
+        if all_players_dead {
+            // Defeat takes precedence over Victory if both somehow happen
+            // in the same instant — matches C# combat-end ordering where
+            // player-death checks run before victory checks.
+            Some(CombatResult::Defeat)
+        } else if all_enemies_dead {
+            Some(CombatResult::Victory)
+        } else {
+            None
+        }
+    }
+
     /// Convenience: compose `modify_damage` with `apply_damage`. Most card
     /// behaviors deal damage through this entrypoint.
     pub fn deal_damage(
@@ -607,6 +633,252 @@ impl CombatState {
         let modified = self.modify_damage(dealer, target, raw, props);
         self.apply_damage(target.0, target.1, modified)
     }
+
+    // ---------- Card play action ------------------------------------------
+    //
+    // Mirrors the C# CardManager.PlayCard / CardModel.OnPlay path at the
+    // state level: validate energy + target, deduct energy, route the
+    // card hand → play → discard/exhaust, invoke the OnPlay dispatcher.
+    //
+    // The dispatcher is a single match (see `dispatch_on_play`) — each
+    // ported card adds one arm. Cards whose OnPlay isn't yet ported
+    // return `PlayResult::Unhandled`; the rest of the state changes
+    // (energy deduction, pile routing) still happen so the test harness
+    // can observe partial progress while we incrementally fill in the
+    // dispatcher.
+
+    /// Play a card from the named player's hand. Validates and (if OK)
+    /// deducts energy, runs OnPlay, and routes the card to discard or
+    /// exhaust per its type. Returns a `PlayResult` distinguishing the
+    /// failure modes.
+    pub fn play_card(
+        &mut self,
+        player_idx: usize,
+        hand_idx: usize,
+        target: Option<(CombatSide, usize)>,
+    ) -> PlayResult {
+        // 1. Locate hand card + verify energy. Borrow scope kept tight so
+        //    the subsequent state mutations don't fight the borrow checker.
+        let card_id;
+        let upgrade_level;
+        let energy_cost;
+        let card_data: &'static CardData;
+        let max_target_side;
+        let max_target_idx;
+        {
+            let Some(creature) = self.allies.get(player_idx) else {
+                return PlayResult::InvalidHand;
+            };
+            let Some(ps) = creature.player.as_ref() else {
+                return PlayResult::InvalidHand;
+            };
+            let Some(card) = ps.hand.cards.get(hand_idx) else {
+                return PlayResult::InvalidHand;
+            };
+            let Some(data) = card_by_id(&card.id) else {
+                return PlayResult::UnknownCard;
+            };
+            card_id = card.id.clone();
+            upgrade_level = card.upgrade_level;
+            energy_cost = card.current_energy_cost;
+            card_data = data;
+            if ps.energy < energy_cost {
+                return PlayResult::InsufficientEnergy {
+                    available: ps.energy,
+                    required: energy_cost,
+                };
+            }
+            // Snapshot enemy / ally counts for target validation; can't
+            // hold a reference into self.allies past here.
+            max_target_side = self.enemies.len();
+            max_target_idx = self.allies.len();
+        }
+
+        // 2. Target validation by CardData.target_type. Player-aimed
+        //    target types (SelfTarget, AnyPlayer) currently support only
+        //    the single-player case (target == None → defaults to self).
+        match validate_target(card_data.target_type, target, max_target_idx, max_target_side, player_idx) {
+            Ok(()) => {}
+            Err(e) => return e,
+        }
+
+        // 3. Deduct energy.
+        {
+            let ps = self.allies[player_idx].player.as_mut().unwrap();
+            ps.energy -= energy_cost;
+        }
+
+        // 4. Remove the card from hand into a temporary "play" position.
+        //    We hold it here until OnPlay finishes; some cards (e.g.,
+        //    exhausting attacks) need their CardInstance available during
+        //    OnPlay before routing.
+        let played_card = {
+            let ps = self.allies[player_idx].player.as_mut().unwrap();
+            ps.hand.cards.remove(hand_idx)
+        };
+
+        // 5. Dispatch OnPlay. The handler may mutate cs freely.
+        let handled = dispatch_on_play(
+            self,
+            &card_id,
+            upgrade_level,
+            player_idx,
+            target,
+        );
+
+        // 6. Route the card per its type. Status/Curse cards exhaust
+        //    by default; Attack/Skill/Power go to discard unless the
+        //    card's keyword set includes Exhaust (not yet ported).
+        let dest = match card_data.card_type {
+            CardType::Status | CardType::Curse => PileType::Exhaust,
+            _ => PileType::Discard,
+        };
+        let ps = self.allies[player_idx].player.as_mut().unwrap();
+        match dest {
+            PileType::Discard => ps.discard.cards.push(played_card),
+            PileType::Exhaust => ps.exhaust.cards.push(played_card),
+            _ => ps.discard.cards.push(played_card),
+        }
+
+        if handled {
+            PlayResult::Ok
+        } else {
+            PlayResult::Unhandled
+        }
+    }
+}
+
+/// Outcome of [`CombatState::play_card`].
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum PlayResult {
+    /// OnPlay dispatched and ran cleanly; energy spent; card routed.
+    Ok,
+    /// Card-state changes (energy, routing) happened, but no OnPlay
+    /// implementation is registered for this card yet. Useful during
+    /// incremental porting — tests can call play_card on un-ported
+    /// cards and see the routing without crashing.
+    Unhandled,
+    /// hand_idx is out of bounds, or player_idx doesn't reference a
+    /// valid player creature.
+    InvalidHand,
+    /// Card energy cost exceeds the player's current energy.
+    InsufficientEnergy { available: i32, required: i32 },
+    /// Target violates the card's `target_type`: missing when required,
+    /// present when not allowed, or pointing to a dead/missing creature.
+    InvalidTarget,
+    /// The card's `id` is not in the static `CardData` table.
+    UnknownCard,
+}
+
+fn validate_target(
+    target_type: TargetType,
+    target: Option<(CombatSide, usize)>,
+    n_allies: usize,
+    n_enemies: usize,
+    player_idx: usize,
+) -> Result<(), PlayResult> {
+    match target_type {
+        TargetType::None | TargetType::AllEnemies | TargetType::AllAllies
+        | TargetType::RandomEnemy | TargetType::TargetedNoCreature => {
+            // No specific target needed; ignore any passed target.
+            Ok(())
+        }
+        TargetType::SelfTarget => {
+            // Allow either None (defaults to self) or explicit
+            // (Player, player_idx). Anything else is invalid.
+            match target {
+                None => Ok(()),
+                Some((CombatSide::Player, idx)) if idx == player_idx => Ok(()),
+                _ => Err(PlayResult::InvalidTarget),
+            }
+        }
+        TargetType::AnyEnemy => {
+            match target {
+                Some((CombatSide::Enemy, idx)) if idx < n_enemies => Ok(()),
+                _ => Err(PlayResult::InvalidTarget),
+            }
+        }
+        TargetType::AnyPlayer | TargetType::AnyAlly => {
+            match target {
+                Some((CombatSide::Player, idx)) if idx < n_allies => Ok(()),
+                None => Ok(()),
+                _ => Err(PlayResult::InvalidTarget),
+            }
+        }
+        TargetType::Osty => {
+            // Special target type — minimal handling for now.
+            Ok(())
+        }
+    }
+}
+
+/// OnPlay dispatcher. Each ported card adds one arm. Returns true if the
+/// card's effect was applied, false if its OnPlay isn't ported yet.
+///
+/// Per C# semantics, OnPlay can mutate the entire CombatState (damage,
+/// block, draw cards, apply powers). We pass `&mut CombatState` for the
+/// dispatch and let each handler call the high-level primitives
+/// (`deal_damage`, `gain_block`, `apply_power`, `draw_cards`, ...).
+fn dispatch_on_play(
+    cs: &mut CombatState,
+    card_id: &str,
+    upgrade_level: i32,
+    player_idx: usize,
+    target: Option<(CombatSide, usize)>,
+) -> bool {
+    match card_id {
+        // All 5 Strike variants: deal Damage to single AnyEnemy target,
+        // routed through the modifier pipeline with ValueProp.Move.
+        "StrikeIronclad" | "StrikeSilent" | "StrikeDefect" | "StrikeRegent"
+        | "StrikeNecrobinder" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.deal_damage(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+            );
+            true
+        }
+        // All 5 Defend variants: gain Block on self. The C# calls
+        // CreatureCmd.GainBlock which threads through block-modifier hooks
+        // (Frail / Dexterity) — those powers aren't ported yet, so for
+        // now we go straight to gain_block. Once Frail/Dexterity land,
+        // wrap this in a modify_block pipeline analogous to modify_damage.
+        "DefendIronclad" | "DefendSilent" | "DefendDefect" | "DefendRegent"
+        | "DefendNecrobinder" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Resolve the effective integer value of one of a card's canonical vars
+/// at a given upgrade level. Sums the base value with any
+/// `upgrade_deltas` whose `var_kind` matches, scaled by `upgrade_level`.
+///
+/// For Strike (Damage var, base 6, delta +3) at level 1 this returns 9.
+/// For Defend (Block, base 5, delta +3) at level 1, 8.
+fn canonical_int_value(card: &CardData, var_kind: &str, upgrade_level: i32) -> i32 {
+    let base = card
+        .canonical_vars
+        .iter()
+        .find(|v| v.kind == var_kind)
+        .and_then(|v| v.base_value)
+        .unwrap_or(0.0);
+    let delta_sum: f64 = card
+        .upgrade_deltas
+        .iter()
+        .filter(|d| d.var_kind == var_kind)
+        .map(|d| d.delta)
+        .sum();
+    let total = base + delta_sum * upgrade_level as f64;
+    total as i32
 }
 
 /// `ValueProp` flags — mirrors C# `MegaCrit.Sts2.Core.ValueProps.ValueProp`.
@@ -676,6 +948,14 @@ fn power_multiplicative_target(power: &PowerInstance, props: ValueProp) -> f64 {
         "VulnerablePower" => 1.5,
         _ => 1.0,
     }
+}
+
+/// Result of a resolved combat. Reported by [`CombatState::is_combat_over`]
+/// when the combat ends.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CombatResult {
+    Victory,
+    Defeat,
 }
 
 /// Outcome of a single `apply_damage` call. Useful for combat-log replay
@@ -1358,5 +1638,333 @@ mod tests {
         assert_eq!(outcome.hp_lost, 4);
         assert_eq!(cs.enemies[0].block, 0);
         assert_eq!(cs.enemies[0].current_hp, max_hp - 4);
+    }
+
+    // ---------- Card-play action tests -----------------------------------
+    //
+    // OnPlay dispatch is empty in this commit — every play returns
+    // `Unhandled` (after energy/routing happen). Subsequent commits
+    // register Strike + Defend etc. and that result flips to `Ok`.
+
+    /// Draw a known card name to position 0 of hand. Searches the draw
+    /// pile until found and pops it to hand. Avoids depending on shuffle
+    /// order for setup.
+    fn draw_specific(cs: &mut CombatState, card_id: &str) {
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        let pos = ps
+            .draw
+            .cards
+            .iter()
+            .position(|c| c.id == card_id)
+            .unwrap_or_else(|| panic!("no {} in draw", card_id));
+        let card = ps.draw.cards.remove(pos);
+        ps.hand.cards.push(card);
+    }
+
+    #[test]
+    fn play_card_unhandled_still_spends_energy_and_routes_to_discard() {
+        let mut cs = ironclad_combat();
+        // Bash isn't dispatched yet (will land in the archetype-expansion
+        // task). Confirm the "Unhandled but state-changes-still-happen"
+        // path: energy spent, card routed to discard.
+        draw_specific(&mut cs, "Bash");
+        let result = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        assert_eq!(result, PlayResult::Unhandled);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.energy, 1); // Bash costs 2.
+        assert!(ps.hand.is_empty());
+        assert_eq!(ps.discard.len(), 1);
+        assert_eq!(ps.discard.cards[0].id, "Bash");
+    }
+
+    #[test]
+    fn play_card_insufficient_energy_rejects() {
+        let mut cs = ironclad_combat();
+        draw_specific(&mut cs, "Bash");
+        // Bash costs 2; set energy to 1 to force rejection.
+        cs.allies[0].player.as_mut().unwrap().energy = 1;
+        let result = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        assert!(matches!(
+            result,
+            PlayResult::InsufficientEnergy { available: 1, required: 2 }
+        ));
+        // Nothing should have changed.
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.energy, 1);
+        assert_eq!(ps.hand.len(), 1);
+        assert!(ps.discard.is_empty());
+    }
+
+    #[test]
+    fn play_card_invalid_hand_idx() {
+        let mut cs = ironclad_combat();
+        // No cards in hand → any hand_idx is invalid.
+        let result = cs.play_card(0, 0, None);
+        assert_eq!(result, PlayResult::InvalidHand);
+    }
+
+    #[test]
+    fn play_card_missing_target_for_attack() {
+        let mut cs = ironclad_combat();
+        draw_specific(&mut cs, "StrikeIronclad");
+        // Strike targets AnyEnemy — None is invalid.
+        let result = cs.play_card(0, 0, None);
+        assert_eq!(result, PlayResult::InvalidTarget);
+        // State should be unchanged (validation happens before deduction).
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.energy, 3);
+        assert_eq!(ps.hand.len(), 1);
+    }
+
+    #[test]
+    fn play_card_self_target_accepts_none_and_self_explicit() {
+        let mut cs = ironclad_combat();
+        draw_specific(&mut cs, "DefendIronclad");
+        // DefendIronclad: TargetType::SelfTarget; None should work.
+        // (Now dispatched → Ok rather than Unhandled.)
+        let r1 = cs.play_card(0, 0, None);
+        assert_eq!(r1, PlayResult::Ok);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.energy, 2); // Defend costs 1.
+        assert_eq!(ps.discard.len(), 1);
+    }
+
+    #[test]
+    fn play_card_invalid_target_idx() {
+        let mut cs = ironclad_combat();
+        draw_specific(&mut cs, "StrikeIronclad");
+        // Only 2 enemies; idx=99 invalid.
+        let result = cs.play_card(0, 0, Some((CombatSide::Enemy, 99)));
+        assert_eq!(result, PlayResult::InvalidTarget);
+    }
+
+    #[test]
+    fn play_card_invalid_player_idx() {
+        let mut cs = ironclad_combat();
+        let result = cs.play_card(99, 0, None);
+        assert_eq!(result, PlayResult::InvalidHand);
+    }
+
+    // ---------- Combat-end detection tests --------------------------------
+
+    #[test]
+    fn fresh_combat_is_not_over() {
+        let cs = ironclad_combat();
+        assert!(cs.is_combat_over().is_none());
+    }
+
+    #[test]
+    fn all_enemies_dead_is_victory() {
+        let mut cs = ironclad_combat();
+        for e in cs.enemies.iter_mut() {
+            e.current_hp = 0;
+        }
+        assert_eq!(cs.is_combat_over(), Some(CombatResult::Victory));
+    }
+
+    #[test]
+    fn partial_kill_is_not_over() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 0;
+        // Second Axebot still alive.
+        assert!(cs.is_combat_over().is_none());
+    }
+
+    #[test]
+    fn all_players_dead_is_defeat() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].current_hp = 0;
+        assert_eq!(cs.is_combat_over(), Some(CombatResult::Defeat));
+    }
+
+    #[test]
+    fn defeat_takes_precedence_over_victory() {
+        // Both sides 0 HP simultaneously — defeat reported, matching C#
+        // ordering of player-death checks before victory checks.
+        let mut cs = ironclad_combat();
+        cs.allies[0].current_hp = 0;
+        for e in cs.enemies.iter_mut() {
+            e.current_hp = 0;
+        }
+        assert_eq!(cs.is_combat_over(), Some(CombatResult::Defeat));
+    }
+
+    // ---------- Strike + Defend OnPlay tests -----------------------------
+
+    #[test]
+    fn strike_ironclad_deals_six_damage() {
+        let mut cs = ironclad_combat();
+        draw_specific(&mut cs, "StrikeIronclad");
+        let axebot_hp = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, axebot_hp - 6);
+        // Energy spent, card in discard.
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.energy, 2);
+        assert_eq!(ps.discard.cards[0].id, "StrikeIronclad");
+    }
+
+    #[test]
+    fn upgraded_strike_deals_nine() {
+        let mut cs = ironclad_combat();
+        // Inject an upgraded StrikeIronclad into hand.
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            let strike = card_by_id("StrikeIronclad").unwrap();
+            ps.hand.cards.push(CardInstance::from_card(strike, 1));
+        }
+        let axebot_hp = cs.enemies[0].current_hp;
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // Strike: base 6 + upgrade delta 3 = 9.
+        assert_eq!(cs.enemies[0].current_hp, axebot_hp - 9);
+    }
+
+    #[test]
+    fn strike_with_strength_threads_modifier() {
+        let mut cs = ironclad_combat();
+        draw_specific(&mut cs, "StrikeIronclad");
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
+        let axebot_hp = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 6 base + 2 Strength = 8.
+        assert_eq!(cs.enemies[0].current_hp, axebot_hp - 8);
+    }
+
+    #[test]
+    fn strike_against_vulnerable_does_nine() {
+        let mut cs = ironclad_combat();
+        draw_specific(&mut cs, "StrikeIronclad");
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+        let axebot_hp = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 6 * 1.5 = 9.
+        assert_eq!(cs.enemies[0].current_hp, axebot_hp - 9);
+    }
+
+    #[test]
+    fn defend_ironclad_gains_five_block() {
+        let mut cs = ironclad_combat();
+        draw_specific(&mut cs, "DefendIronclad");
+        let r = cs.play_card(0, 0, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 5);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.energy, 2);
+        assert_eq!(ps.discard.cards[0].id, "DefendIronclad");
+    }
+
+    #[test]
+    fn upgraded_defend_gains_eight() {
+        let mut cs = ironclad_combat();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            let defend = card_by_id("DefendIronclad").unwrap();
+            ps.hand.cards.push(CardInstance::from_card(defend, 1));
+        }
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 8); // 5 + 3
+    }
+
+    /// All 5 Strike variants share the same OnPlay; confirm each dispatch
+    /// arm fires (sanity: the long `|` chain in the match works for each
+    /// id without subtle typos).
+    #[test]
+    fn all_strike_variants_dispatch() {
+        for strike in &[
+            "StrikeIronclad",
+            "StrikeSilent",
+            "StrikeDefect",
+            "StrikeRegent",
+            "StrikeNecrobinder",
+        ] {
+            let mut cs = ironclad_combat();
+            let card = card_by_id(strike).unwrap();
+            cs.allies[0]
+                .player
+                .as_mut()
+                .unwrap()
+                .hand
+                .cards
+                .push(CardInstance::from_card(card, 0));
+            let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+            let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+            assert_eq!(r, PlayResult::Ok, "{strike} did not dispatch");
+        }
+    }
+
+    #[test]
+    fn all_defend_variants_dispatch() {
+        for defend in &[
+            "DefendIronclad",
+            "DefendSilent",
+            "DefendDefect",
+            "DefendRegent",
+            "DefendNecrobinder",
+        ] {
+            let mut cs = ironclad_combat();
+            let card = card_by_id(defend).unwrap();
+            cs.allies[0]
+                .player
+                .as_mut()
+                .unwrap()
+                .hand
+                .cards
+                .push(CardInstance::from_card(card, 0));
+            let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+            let r = cs.play_card(0, hand_idx, None);
+            assert_eq!(r, PlayResult::Ok, "{defend} did not dispatch");
+            assert!(cs.allies[0].block > 0);
+        }
+    }
+
+    // ---------- Vertical-slice integration test --------------------------
+
+    /// End-to-end: Ironclad plays Strikes until both Axebots are dead.
+    /// Validates state-management + modifier pipeline + OnPlay dispatch +
+    /// combat-end detection composed cleanly.
+    #[test]
+    fn ironclad_kills_axebots_with_strikes() {
+        let mut cs = ironclad_combat();
+        let mut rng = Rng::new(1, 0);
+
+        // Top up hand with 5 StrikeIroncladS by injecting them directly
+        // (sidestepping the shuffle so the test stays deterministic).
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.hand.cards.clear();
+            let strike = card_by_id("StrikeIronclad").unwrap();
+            for _ in 0..16 {
+                ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            }
+            ps.energy = 99; // Plenty of energy for the test.
+        }
+
+        // Axebot has 44 HP. 6 damage/strike → 8 strikes per Axebot, 16 total.
+        assert!(cs.is_combat_over().is_none());
+        for _ in 0..8 {
+            let r = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+            assert_eq!(r, PlayResult::Ok);
+        }
+        assert_eq!(cs.enemies[0].current_hp, 0);
+        assert!(cs.is_combat_over().is_none(), "second Axebot still alive");
+
+        for _ in 0..8 {
+            let r = cs.play_card(0, 0, Some((CombatSide::Enemy, 1)));
+            assert_eq!(r, PlayResult::Ok);
+        }
+        assert_eq!(cs.enemies[1].current_hp, 0);
+        assert_eq!(cs.is_combat_over(), Some(CombatResult::Victory));
+
+        // Player should still be alive at max HP (Axebots haven't acted).
+        assert_eq!(cs.allies[0].current_hp, 80);
+
+        let _ = rng; // silence unused if compilation is sensitive
     }
 }
