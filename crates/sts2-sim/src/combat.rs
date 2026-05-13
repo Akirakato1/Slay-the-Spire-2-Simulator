@@ -598,6 +598,20 @@ impl CombatState {
             num *= power_multiplicative_target(power, props);
         }
 
+        // Cap pass: take the smallest cap any target-side power supplies.
+        // C# Hook tracks `num4 = MaxValue` and any listener's lower cap
+        // floors the result. IntangiblePower returns 1 to its owner.
+        let mut cap = f64::MAX;
+        for power in target_powers {
+            let c = power_damage_cap_target(power);
+            if c < cap {
+                cap = c;
+            }
+        }
+        if num > cap {
+            num = cap;
+        }
+
         let clamped = num.max(0.0);
         clamped as i32
     }
@@ -954,6 +968,22 @@ fn power_multiplicative_target(power: &PowerInstance, props: ValueProp) -> f64 {
         // VulnerablePower: ×1.5 on powered attacks landing on the owner.
         "VulnerablePower" => 1.5,
         _ => 1.0,
+    }
+}
+
+/// Damage cap from a target-side power. `f64::MAX` means no cap (matches
+/// C# decimal.MaxValue). The smallest cap across all target-side powers
+/// floors the post-multiplicative damage.
+///
+/// IntangiblePower's `ModifyDamageCap`: 1 when target == owner. (TheBoot
+/// relic raises the cap to 5; not modeled until relic hooks land.) The
+/// C# check `if (target != base.Owner) return decimal.MaxValue;` is
+/// implicit here — we only invoke this on target-side powers, so
+/// "target == owner" is structurally enforced.
+fn power_damage_cap_target(power: &PowerInstance) -> f64 {
+    match power.id.as_str() {
+        "IntangiblePower" => 1.0,
+        _ => f64::MAX,
     }
 }
 
@@ -1774,6 +1804,65 @@ mod tests {
             powered_move(),
         );
         assert_eq!(d, 0);
+    }
+
+    #[test]
+    fn intangible_caps_incoming_damage_at_one() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "IntangiblePower", 1);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            100,
+            powered_move(),
+        );
+        assert_eq!(d, 1);
+    }
+
+    #[test]
+    fn intangible_does_not_amplify_below_cap() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "IntangiblePower", 1);
+        // Small attacks still resolve at their original value if below cap.
+        // Actually Strike 6 capped at 1 → 1. Below cap means attack < 1
+        // already; let's test attack = 0 (still 0).
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            0,
+            powered_move(),
+        );
+        assert_eq!(d, 0);
+    }
+
+    #[test]
+    fn intangible_only_caps_target_not_dealer() {
+        // Player has Intangible. Player attacks Axebot — Axebot takes
+        // full damage (Intangible doesn't cap the player's outgoing damage).
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "IntangiblePower", 1);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        assert_eq!(d, 6);
+    }
+
+    #[test]
+    fn intangible_caps_after_vulnerable_multiplier() {
+        // Even with Vulnerable on Intangible target, cap still floors at 1.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "IntangiblePower", 1);
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        assert_eq!(d, 1);
     }
 
     #[test]
