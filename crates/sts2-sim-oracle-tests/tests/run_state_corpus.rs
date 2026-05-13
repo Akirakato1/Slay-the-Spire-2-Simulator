@@ -197,6 +197,73 @@ fn hp_trace_for(log: &RunLog, player_id: i64) -> Vec<(i32, i32, i32, i32, i32, i
 }
 
 #[test]
+fn corpus_deck_reconstruction_consistent() {
+    // For each solo run, reconstruct the starter deck by inverting the
+    // recorded card edits over the run:
+    //   starter[id] = final[id]
+    //                 - Σ cards_gained[id]
+    //                 + Σ cards_removed[id]
+    //                 - Σ cards_transformed.final[id]
+    //                 + Σ cards_transformed.original[id]
+    //                 - Σ bought_colorless[id]
+    // Assert: every reconstructed count is non-negative, and the total
+    // starter size is a reasonable solo-character starter (5..=15 cards).
+    use std::collections::HashMap;
+    for path in corpus() {
+        let log = parse(&path);
+        if log.players.len() > 1 { continue }
+        let pid = log.players[0].id;
+
+        // Histogram of final deck.
+        let mut counts: HashMap<String, i32> = HashMap::new();
+        for card in &log.players[0].deck {
+            *counts.entry(card.id.clone()).or_insert(0) += 1;
+        }
+
+        // Walk per-floor edits and invert. Observed: cards_transformed
+        // entries are *also* recorded as cards_gained/cards_removed in
+        // the same floor, so treating transforms separately double-counts.
+        // bought_colorless likewise overlaps with cards_gained. We use
+        // ONLY cards_gained/cards_removed as the canonical add/sub
+        // edges — transforms and colorless buys are already represented
+        // there.
+        for act in &log.map_point_history {
+            for node in act {
+                let Some(s) = node.player_stats.iter().find(|s| s.player_id == pid)
+                else { continue };
+                for c in &s.cards_gained {
+                    *counts.entry(c.id.clone()).or_insert(0) -= 1;
+                }
+                for c in &s.cards_removed {
+                    *counts.entry(c.id.clone()).or_insert(0) += 1;
+                }
+            }
+        }
+
+        let starter_total: i32 = counts.values().sum();
+        let any_negative = counts.iter().filter(|&(_, &v)| v < 0).count();
+
+        assert!(any_negative == 0,
+            "{:?}: reconstructed starter has negative counts: {:?}",
+            path.file_name(),
+            counts.iter().filter(|&(_, &v)| v < 0).collect::<Vec<_>>(),
+        );
+        assert!((5..=15).contains(&starter_total),
+            "{:?}: reconstructed starter total {} outside [5, 15]; counts={:?}",
+            path.file_name(), starter_total, counts,
+        );
+
+        eprintln!(
+            "{:?}: char={} starter_total={} non_zero_ids={}",
+            path.file_name(),
+            log.players[0].character,
+            starter_total,
+            counts.values().filter(|&&v| v > 0).count(),
+        );
+    }
+}
+
+#[test]
 fn corpus_max_hp_accounting_consistent_per_floor() {
     // max_hp moves linearly with gained/lost — no capping logic to worry
     // about. Strict equality.
