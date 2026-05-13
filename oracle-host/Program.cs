@@ -105,6 +105,7 @@ internal sealed class Dispatcher
     private readonly MethodInfo _stringHelperSnake;
     private readonly MethodInfo _listExtStableShuffle;
     private readonly Dictionary<string, ActReflectionBundle> _actBundles;
+    private readonly StandardActMapReflectionBundle _samBundle;
     private readonly MethodInfo _nextIntSingle;
     private readonly MethodInfo _nextIntRange;
     private readonly MethodInfo _nextBool;
@@ -132,6 +133,7 @@ internal sealed class Dispatcher
         MethodInfo stringHelperSnake,
         MethodInfo listExtStableShuffle,
         Dictionary<string, ActReflectionBundle> actBundles,
+        StandardActMapReflectionBundle samBundle,
         MethodInfo nextIntSingle,
         MethodInfo nextIntRange,
         MethodInfo nextBool,
@@ -158,6 +160,7 @@ internal sealed class Dispatcher
         _stringHelperSnake = stringHelperSnake;
         _listExtStableShuffle = listExtStableShuffle;
         _actBundles = actBundles;
+        _samBundle = samBundle;
         _nextIntSingle = nextIntSingle;
         _nextIntRange = nextIntRange;
         _nextBool = nextBool;
@@ -234,6 +237,44 @@ internal sealed class Dispatcher
                 countsNumElites, countsNumShops, countsNumUnknowns, countsNumRests);
         }
 
+        // StandardActMap construction + grid inspection bundle.
+        var samType = asm.GetType("MegaCrit.Sts2.Core.Map.StandardActMap",
+            throwOnError: true)!;
+        var actModelType = asm.GetType("MegaCrit.Sts2.Core.Models.ActModel",
+            throwOnError: true)!;
+        var samCtor = samType.GetConstructor(new[] {
+            rngType, actModelType, typeof(bool), typeof(bool),
+            typeof(bool), countsType, typeof(bool),
+        }) ?? throw new InvalidOperationException("StandardActMap ctor not found");
+        var samGrid = samType.GetProperty("Grid",
+            BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("Grid property not found");
+        var samBoss = samType.GetProperty("BossMapPoint")
+            ?? throw new InvalidOperationException("BossMapPoint not found");
+        var samStarting = samType.GetProperty("StartingMapPoint")
+            ?? throw new InvalidOperationException("StartingMapPoint not found");
+        var mapPointType = asm.GetType("MegaCrit.Sts2.Core.Map.MapPoint",
+            throwOnError: true)!;
+        var mpCoord = mapPointType.GetField("coord")
+            ?? throw new InvalidOperationException("MapPoint.coord not found");
+        var mpPointType = mapPointType.GetProperty("PointType")
+            ?? throw new InvalidOperationException("MapPoint.PointType not found");
+        var mpChildren = mapPointType.GetProperty("Children")
+            ?? throw new InvalidOperationException("MapPoint.Children not found");
+        var mpParents = mapPointType.GetField("parents")
+            ?? throw new InvalidOperationException("MapPoint.parents not found");
+        var mapCoordType = asm.GetType("MegaCrit.Sts2.Core.Map.MapCoord",
+            throwOnError: true)!;
+        var mcCol = mapCoordType.GetField("col")
+            ?? throw new InvalidOperationException("MapCoord.col not found");
+        var mcRow = mapCoordType.GetField("row")
+            ?? throw new InvalidOperationException("MapCoord.row not found");
+
+        var samBundle = new StandardActMapReflectionBundle(
+            samCtor, samGrid, samBoss, samStarting,
+            mpCoord, mpPointType, mpChildren, mpParents,
+            mcCol, mcRow);
+
         var methods = rngType.GetMethods();
         MethodInfo Find(string name, int arity, Type? firstParam = null) =>
             methods.First(m => m.Name == name
@@ -271,7 +312,7 @@ internal sealed class Dispatcher
             ?? throw new InvalidOperationException("Seed property not found");
 
         return new Dispatcher(rngType, ctor, ctorNamed,
-            stringHelperHash, stringHelperSnake, listExtStableShuffle, actBundles,
+            stringHelperHash, stringHelperSnake, listExtStableShuffle, actBundles, samBundle,
             nextIntSingle, nextIntRange,
             nextBool, nextDoubleSingle, nextDoubleRange,
             nextFloatSingle, nextFloatRange, nextUIntSingle, nextUIntRange,
@@ -348,6 +389,23 @@ internal sealed class Dispatcher
                     ["num_of_shops"] = (int)bundle.NumOfShops.GetValue(counts)!,
                     ["num_of_elites"] = (int)bundle.NumOfElites.GetValue(counts)!,
                 });
+            }
+
+            case "standard_act_map_construct":
+            {
+                var actName = p["act"]!.GetValue<string>();
+                if (!_actBundles.TryGetValue(actName, out var actBundle))
+                    throw new InvalidOperationException($"unknown act: {actName}");
+                var rngInst = GetInstance(p);
+                var isMultiplayer = p["is_multiplayer"]?.GetValue<bool>() ?? false;
+                var replaceTreasure = p["replace_treasure_with_elites"]?.GetValue<bool>() ?? false;
+                var hasSecondBoss = p["has_second_boss"]?.GetValue<bool>() ?? false;
+                var enablePruning = p["enable_pruning"]?.GetValue<bool>() ?? false;
+                var sam = _samBundle.Ctor.Invoke(new object?[] {
+                    rngInst, actBundle.Instance, isMultiplayer, replaceTreasure,
+                    hasSecondBoss, null, enablePruning,
+                })!;
+                return Ok(SerializeMap(sam, _samBundle));
             }
 
             case "rng_next_int":
@@ -547,6 +605,69 @@ internal sealed class Dispatcher
     }
 
     private static JsonObject Ok(JsonNode? result) => new() { ["result"] = result };
+
+    private static JsonObject SerializeMap(object sam, StandardActMapReflectionBundle b)
+    {
+        var grid = (Array)b.Grid.GetValue(sam)!;
+        var cols = grid.GetLength(0);
+        var rows = grid.GetLength(1);
+        var points = new JsonArray();
+        for (var col = 0; col < cols; col++)
+        for (var row = 0; row < rows; row++)
+        {
+            var mp = grid.GetValue(col, row);
+            if (mp is null) continue;
+            points.Add(SerializeMapPoint(mp, b));
+        }
+        var bossMp = b.Boss.GetValue(sam)!;
+        var startMp = b.Starting.GetValue(sam)!;
+        return new JsonObject
+        {
+            ["cols"] = cols,
+            ["rows"] = rows,
+            ["grid_points"] = points,
+            ["boss"] = SerializeMapPoint(bossMp, b),
+            ["starting"] = SerializeMapPoint(startMp, b),
+        };
+    }
+
+    private static JsonObject SerializeMapPoint(object mp, StandardActMapReflectionBundle b)
+    {
+        var coord = b.MpCoord.GetValue(mp)!;
+        var col = (int)b.McCol.GetValue(coord)!;
+        var row = (int)b.McRow.GetValue(coord)!;
+        var pt = (int)b.MpPointType.GetValue(mp)!;
+        var children = (System.Collections.IEnumerable)b.MpChildren.GetValue(mp)!;
+        var parents = (System.Collections.IEnumerable)b.MpParents.GetValue(mp)!;
+        var childCoords = new JsonArray();
+        foreach (var child in children)
+        {
+            var childCoord = b.MpCoord.GetValue(child)!;
+            childCoords.Add(new JsonObject
+            {
+                ["col"] = (int)b.McCol.GetValue(childCoord)!,
+                ["row"] = (int)b.McRow.GetValue(childCoord)!,
+            });
+        }
+        var parentCoords = new JsonArray();
+        foreach (var par in parents)
+        {
+            var parCoord = b.MpCoord.GetValue(par)!;
+            parentCoords.Add(new JsonObject
+            {
+                ["col"] = (int)b.McCol.GetValue(parCoord)!,
+                ["row"] = (int)b.McRow.GetValue(parCoord)!,
+            });
+        }
+        return new JsonObject
+        {
+            ["col"] = col,
+            ["row"] = row,
+            ["point_type"] = pt,
+            ["children"] = childCoords,
+            ["parents"] = parentCoords,
+        };
+    }
 }
 
 internal sealed record ActReflectionBundle(
@@ -556,3 +677,15 @@ internal sealed record ActReflectionBundle(
     PropertyInfo NumOfShops,
     PropertyInfo NumOfUnknowns,
     PropertyInfo NumOfRests);
+
+internal sealed record StandardActMapReflectionBundle(
+    ConstructorInfo Ctor,
+    PropertyInfo Grid,
+    PropertyInfo Boss,
+    PropertyInfo Starting,
+    FieldInfo MpCoord,
+    PropertyInfo MpPointType,
+    PropertyInfo MpChildren,
+    FieldInfo MpParents,
+    FieldInfo McCol,
+    FieldInfo McRow);

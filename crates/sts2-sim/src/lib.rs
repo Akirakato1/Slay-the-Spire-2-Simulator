@@ -6,6 +6,8 @@
 pub mod act;
 pub mod hash;
 pub mod map;
+pub mod map_post_processing;
 pub mod rng;
 pub mod rng_set;
 pub mod shuffle;
+pub mod standard_act_map;
