@@ -7,6 +7,7 @@ pub mod act;
 pub mod card;
 pub mod hash;
 pub mod map;
+pub mod orb;
 pub mod path_pruning;
 pub mod power;
 pub mod relic;

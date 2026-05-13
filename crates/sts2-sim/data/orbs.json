@@ -1,0 +1,27 @@
+[
+  {
+    "id": "DarkOrb",
+    "passive_val": 6.0,
+    "evoke_val": 6.0
+  },
+  {
+    "id": "FrostOrb",
+    "passive_val": 2.0,
+    "evoke_val": 5.0
+  },
+  {
+    "id": "GlassOrb",
+    "passive_val": 4.0,
+    "evoke_val": null
+  },
+  {
+    "id": "LightningOrb",
+    "passive_val": 3.0,
+    "evoke_val": 8.0
+  },
+  {
+    "id": "PlasmaOrb",
+    "passive_val": 1.0,
+    "evoke_val": 2.0
+  }
+]
