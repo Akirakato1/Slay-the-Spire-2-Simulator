@@ -164,6 +164,18 @@ pub struct CardInstance {
     /// Combat-scoped tags ("retain_this_turn", "free_this_turn", ...).
     /// Cleared between turns by the behavior port.
     pub tags_this_turn: Vec<String>,
+    /// Enchantment attached to this card, if any. Damage / block hooks
+    /// read this during the modifier pipeline.
+    pub enchantment: Option<EnchantmentInstance>,
+}
+
+/// One enchantment attached to a card. `id` matches `EnchantmentData.id`;
+/// `amount` is the stack count (Sharp's `EnchantDamageAdditive` returns
+/// `Amount`; Corrupted uses a fixed factor and ignores Amount).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EnchantmentInstance {
+    pub id: String,
+    pub amount: i32,
 }
 
 impl CardInstance {
@@ -182,6 +194,7 @@ impl CardInstance {
             upgrade_level,
             current_energy_cost: upgraded_cost,
             tags_this_turn: Vec::new(),
+            enchantment: None,
         }
     }
 }
@@ -618,7 +631,27 @@ impl CombatState {
         raw: i32,
         props: ValueProp,
     ) -> i32 {
+        self.modify_damage_with_enchantment(dealer, target, raw, props, None)
+    }
+
+    /// Same pipeline as `modify_damage` but threads a card's enchantment
+    /// through the pre-power additive + multiplicative phases. C#
+    /// `Hook.ModifyDamage` applies `cardSource.Enchantment.EnchantDamage*`
+    /// BEFORE iterating per-power hooks.
+    pub fn modify_damage_with_enchantment(
+        &self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        raw: i32,
+        props: ValueProp,
+        enchantment: Option<&EnchantmentInstance>,
+    ) -> i32 {
         let mut num = raw as f64;
+
+        if let Some(ench) = enchantment {
+            num += enchantment_damage_additive(&ench.id, ench.amount, props);
+            num *= enchantment_damage_multiplicative(&ench.id, ench.amount, props);
+        }
 
         let dealer_powers = creature_powers(self, dealer);
         let target_powers = creature_powers(self, target);
@@ -633,9 +666,6 @@ impl CombatState {
             num *= power_multiplicative_target(power, props);
         }
 
-        // Cap pass: take the smallest cap any target-side power supplies.
-        // C# Hook tracks `num4 = MaxValue` and any listener's lower cap
-        // floors the result. IntangiblePower returns 1 to its owner.
         let mut cap = f64::MAX;
         for power in target_powers {
             let c = power_damage_cap_target(power);
@@ -687,6 +717,22 @@ impl CombatState {
         props: ValueProp,
     ) -> DamageOutcome {
         let modified = self.modify_damage(dealer, target, raw, props);
+        self.apply_damage(target.0, target.1, modified)
+    }
+
+    /// Enchantment-aware variant. Card OnPlay handlers route through this
+    /// path so an attached `EnchantmentInstance` participates in the
+    /// modifier pipeline.
+    pub fn deal_damage_enchanted(
+        &mut self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        raw: i32,
+        props: ValueProp,
+        enchantment: Option<&EnchantmentInstance>,
+    ) -> DamageOutcome {
+        let modified =
+            self.modify_damage_with_enchantment(dealer, target, raw, props, enchantment);
         self.apply_damage(target.0, target.1, modified)
     }
 
@@ -773,11 +819,14 @@ impl CombatState {
             ps.hand.cards.remove(hand_idx)
         };
 
-        // 5. Dispatch OnPlay. The handler may mutate cs freely.
+        // 5. Dispatch OnPlay. The handler may mutate cs freely. The
+        //    played card's enchantment (if any) is forwarded for damage
+        //    modifier participation.
         let handled = dispatch_on_play(
             self,
             &card_id,
             upgrade_level,
+            played_card.enchantment.as_ref(),
             player_idx,
             target,
         );
@@ -879,22 +928,25 @@ fn dispatch_on_play(
     cs: &mut CombatState,
     card_id: &str,
     upgrade_level: i32,
+    enchantment: Option<&EnchantmentInstance>,
     player_idx: usize,
     target: Option<(CombatSide, usize)>,
 ) -> bool {
     match card_id {
         // All 5 Strike variants: deal Damage to single AnyEnemy target,
-        // routed through the modifier pipeline with ValueProp.Move.
+        // routed through the modifier pipeline with ValueProp.Move. The
+        // played card's enchantment threads through pre-power modifiers.
         "StrikeIronclad" | "StrikeSilent" | "StrikeDefect" | "StrikeRegent"
         | "StrikeNecrobinder" => {
             let Some(target) = target else { return false; };
             let Some(card) = card_by_id(card_id) else { return false; };
             let damage = canonical_int_value(card, "Damage", upgrade_level);
-            cs.deal_damage(
+            cs.deal_damage_enchanted(
                 (CombatSide::Player, player_idx),
                 target,
                 damage,
                 ValueProp::MOVE,
+                enchantment,
             );
             true
         }
@@ -1019,6 +1071,38 @@ fn power_damage_cap_target(power: &PowerInstance) -> f64 {
     match power.id.as_str() {
         "IntangiblePower" => 1.0,
         _ => f64::MAX,
+    }
+}
+
+/// Per-enchantment `EnchantDamageAdditive` contribution. Returns 0 for
+/// non-applicable enchantments / non-powered attacks (matches C# pattern).
+fn enchantment_damage_additive(ench_id: &str, amount: i32, props: ValueProp) -> f64 {
+    if !props.is_powered_attack() {
+        return 0.0;
+    }
+    match ench_id {
+        // Sharp: adds `base.Amount` to damage on powered attacks. Only
+        // CanEnchantCardType(Attack) — but that's enforced at attach time,
+        // not in the modifier pipeline.
+        "Sharp" => amount as f64,
+        _ => 0.0,
+    }
+}
+
+/// Per-enchantment `EnchantDamageMultiplicative` contribution. Returns
+/// the identity 1.0 for non-applicable enchantments / non-powered attacks.
+fn enchantment_damage_multiplicative(
+    ench_id: &str,
+    _amount: i32,
+    props: ValueProp,
+) -> f64 {
+    if !props.is_powered_attack() {
+        return 1.0;
+    }
+    match ench_id {
+        // Corrupted: fixed ×1.5 on powered attacks. Ignores Amount.
+        "Corrupted" => 1.5,
+        _ => 1.0,
     }
 }
 
@@ -1909,6 +1993,116 @@ mod tests {
             powered_move(),
         );
         assert_eq!(d, 0);
+    }
+
+    // ---------- Enchantment pipeline tests ------------------------------
+
+    #[test]
+    fn sharp_enchantment_adds_amount_to_attack_damage() {
+        // Sharp's EnchantDamageAdditive returns Amount on powered attacks.
+        let cs = ironclad_combat();
+        let ench = EnchantmentInstance {
+            id: "Sharp".to_string(),
+            amount: 3,
+        };
+        let d = cs.modify_damage_with_enchantment(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+            Some(&ench),
+        );
+        assert_eq!(d, 9); // 6 + 3
+    }
+
+    #[test]
+    fn corrupted_enchantment_multiplies_attack_damage_by_1_5() {
+        let cs = ironclad_combat();
+        let ench = EnchantmentInstance {
+            id: "Corrupted".to_string(),
+            amount: 1, // ignored — Corrupted is a fixed factor
+        };
+        let d = cs.modify_damage_with_enchantment(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+            Some(&ench),
+        );
+        assert_eq!(d, 9); // 6 * 1.5
+    }
+
+    #[test]
+    fn enchantments_skip_on_non_powered_attacks() {
+        let cs = ironclad_combat();
+        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 5 };
+        let d = cs.modify_damage_with_enchantment(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            ValueProp::NONE, // not a powered attack
+            Some(&sharp),
+        );
+        assert_eq!(d, 6); // Sharp contributes 0
+    }
+
+    #[test]
+    fn enchantment_applied_before_powers() {
+        // C# order: enchantment additive then enchantment multiplicative,
+        // THEN per-power additive (Strength), then per-power multiplicative.
+        // Sharp +3 on Strike 6 = 9. Then Strength +2 → 11. Then Vulnerable
+        // ×1.5 → 16. Truncation to i32 = 16.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 3 };
+        let d = cs.modify_damage_with_enchantment(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+            Some(&sharp),
+        );
+        assert_eq!(d, 16);
+    }
+
+    #[test]
+    fn strike_with_sharp_enchantment_dispatches_through_play_card() {
+        // End-to-end through play_card: attach Sharp+2 to a StrikeIronclad,
+        // play it, verify damage is 6+2 = 8.
+        let mut cs = ironclad_combat();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            let strike = card_by_id("StrikeIronclad").unwrap();
+            let mut card = CardInstance::from_card(strike, 0);
+            card.enchantment = Some(EnchantmentInstance {
+                id: "Sharp".to_string(),
+                amount: 2,
+            });
+            ps.hand.cards.push(card);
+        }
+        let axebot_hp = cs.enemies[0].current_hp;
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, axebot_hp - 8);
+    }
+
+    #[test]
+    fn unknown_enchantment_id_is_noop() {
+        let cs = ironclad_combat();
+        let ench = EnchantmentInstance {
+            id: "NotAnEnchantment".to_string(),
+            amount: 99,
+        };
+        let d = cs.modify_damage_with_enchantment(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+            Some(&ench),
+        );
+        assert_eq!(d, 6);
     }
 
     #[test]
