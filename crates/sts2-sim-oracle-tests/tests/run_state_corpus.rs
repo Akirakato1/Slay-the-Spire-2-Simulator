@@ -181,6 +181,92 @@ fn corpus_player_runtime_state_populates_from_log() {
     }
 }
 
+/// Per-floor HP stats: (current_hp, max_hp, damage_taken, hp_healed,
+/// max_hp_gained, max_hp_lost) in act+floor order for one player.
+fn hp_trace_for(log: &RunLog, player_id: i64) -> Vec<(i32, i32, i32, i32, i32, i32)> {
+    let mut out = Vec::new();
+    for act in &log.map_point_history {
+        for node in act {
+            if let Some(s) = node.player_stats.iter().find(|s| s.player_id == player_id) {
+                out.push((s.current_hp, s.max_hp, s.damage_taken, s.hp_healed,
+                    s.max_hp_gained, s.max_hp_lost));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn corpus_max_hp_accounting_consistent_per_floor() {
+    // max_hp moves linearly with gained/lost — no capping logic to worry
+    // about. Strict equality.
+    let mut total_checks = 0;
+    let mut divergences: Vec<String> = Vec::new();
+    for path in corpus() {
+        let log = parse(&path);
+        if log.players.len() > 1 { continue }
+        let pid = log.players[0].id;
+        let trace = hp_trace_for(&log, pid);
+        for w in trace.windows(2) {
+            let (_, prev_max, _, _, _, _) = w[0];
+            let (_, curr_max, _, _, gained, lost) = w[1];
+            let expected = prev_max + gained - lost;
+            total_checks += 1;
+            if expected != curr_max {
+                divergences.push(format!(
+                    "{:?}: prev_max={prev_max} +{gained} -{lost} = {expected}, recorded {curr_max}",
+                    path.file_name(),
+                ));
+            }
+        }
+    }
+    eprintln!("max_hp accounting: {total_checks} checks, {} divergences",
+        divergences.len());
+    for d in divergences.iter().take(5) {
+        eprintln!("  {d}");
+    }
+    assert!(total_checks > 0);
+    assert!(divergences.is_empty(),
+        "{} max_hp divergences", divergences.len());
+}
+
+#[test]
+fn corpus_current_hp_within_max_hp_each_floor() {
+    // current_hp never exceeds max_hp at end of any floor. (Edge case:
+    // hp_healed > damage_taken can push past the previous max_hp but
+    // current_hp is capped to max_hp afterwards.)
+    let mut total = 0;
+    let mut violations = Vec::new();
+    for path in corpus() {
+        let log = parse(&path);
+        if log.players.len() > 1 { continue }
+        let pid = log.players[0].id;
+        for (curr_hp, max_hp, _, _, _, _) in hp_trace_for(&log, pid) {
+            total += 1;
+            if curr_hp > max_hp {
+                violations.push(format!(
+                    "{:?}: curr_hp={curr_hp} > max_hp={max_hp}",
+                    path.file_name(),
+                ));
+            }
+            if curr_hp < 0 {
+                violations.push(format!(
+                    "{:?}: curr_hp={curr_hp} negative",
+                    path.file_name(),
+                ));
+            }
+        }
+    }
+    eprintln!("current_hp invariant: {total} checks, {} violations",
+        violations.len());
+    for v in violations.iter().take(5) {
+        eprintln!("  {v}");
+    }
+    assert!(total > 0);
+    assert!(violations.is_empty(),
+        "{} current_hp invariant violations", violations.len());
+}
+
 #[test]
 fn corpus_gold_accounting_consistent_per_floor() {
     // For each solo run, walk the recorded per-floor gold stats and check
