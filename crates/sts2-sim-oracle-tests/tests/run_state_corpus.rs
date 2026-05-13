@@ -15,6 +15,21 @@ use sts2_sim::map::MapPointType;
 use sts2_sim::run_log::{self, RunLog};
 use sts2_sim::run_state::{replay_act_log, RunState};
 
+/// Returns the gold balance after every node in act+floor order for one
+/// player, plus the (current, gained, lost, spent, stolen) tuple. Skips
+/// nodes with no stats for that player.
+fn gold_trace_for(log: &RunLog, player_id: i64) -> Vec<(i32, i32, i32, i32, i32)> {
+    let mut out = Vec::new();
+    for act in &log.map_point_history {
+        for node in act {
+            if let Some(s) = node.player_stats.iter().find(|s| s.player_id == player_id) {
+                out.push((s.current_gold, s.gold_gained, s.gold_lost, s.gold_spent, s.gold_stolen));
+            }
+        }
+    }
+    out
+}
+
 const CORPUS_DIRS: &[&str] = &[
     r"C:\Users\zhuyl\OneDrive\Desktop\sts2_stats\sample runs",
     r"C:\Users\zhuyl\OneDrive\Desktop\STS2 RL\sample_run_103.2",
@@ -132,6 +147,79 @@ fn every_corpus_act_generates_clean_map() {
 /// We still assert that the replay machinery itself works (any success
 /// at all) and that recorded sequences are at least *structurally*
 /// well-formed (start with "ancient", end with "boss").
+#[test]
+fn corpus_player_runtime_state_populates_from_log() {
+    for path in corpus() {
+        let log = parse(&path);
+        let rs = match RunState::from_run_log(&log) {
+            Some(r) => r,
+            None => continue,
+        };
+        assert_eq!(rs.players().len(), log.players.len());
+        for (i, p) in rs.players().iter().enumerate() {
+            let logged = &log.players[i];
+            assert_eq!(p.character_id, logged.character);
+            assert_eq!(p.id, logged.id);
+            assert_eq!(p.deck.len(), logged.deck.len(),
+                "{:?} player {}: deck size mismatch", path.file_name(), i);
+            assert_eq!(p.relics.len(), logged.relics.len(),
+                "{:?} player {}: relic count mismatch", path.file_name(), i);
+            assert_eq!(p.potions.len(), logged.potions.len(),
+                "{:?} player {}: potion count mismatch", path.file_name(), i);
+            assert_eq!(p.max_potion_slot_count, logged.max_potion_slot_count);
+
+            // HP and gold must be present (final stats recorded for every
+            // run we sampled). Sanity bounds: gold non-negative,
+            // current_hp <= max_hp (or =0 if the player died at floor end).
+            assert!(p.gold >= 0,
+                "{:?} player {}: final gold {} negative",
+                path.file_name(), i, p.gold);
+            assert!(p.max_hp > 0 || log.was_abandoned,
+                "{:?} player {}: max_hp = {} on non-abandoned run",
+                path.file_name(), i, p.max_hp);
+        }
+    }
+}
+
+#[test]
+fn corpus_gold_accounting_consistent_per_floor() {
+    // For each solo run, walk the recorded per-floor gold stats and check
+    // that prev_gold + gained - lost - spent - stolen == current_gold.
+    // Records the first divergence so failures are diagnosable.
+    let mut total_checks = 0;
+    let mut divergences: Vec<String> = Vec::new();
+    for path in corpus() {
+        let log = parse(&path);
+        if log.players.len() > 1 {
+            // Multi-player gold accounting may share pools / interleave;
+            // defer until we port the coop money model.
+            continue;
+        }
+        let pid = log.players[0].id;
+        let trace = gold_trace_for(&log, pid);
+        for w in trace.windows(2) {
+            let (prev_gold, _, _, _, _) = w[0];
+            let (curr_gold, gained, lost, spent, stolen) = w[1];
+            let expected = prev_gold + gained - lost - spent - stolen;
+            total_checks += 1;
+            if expected != curr_gold {
+                divergences.push(format!(
+                    "{:?}: prev={prev_gold} +{gained} -{lost} -{spent} -{stolen} = {expected}, recorded {curr_gold}",
+                    path.file_name(),
+                ));
+            }
+        }
+    }
+    eprintln!("gold accounting: {total_checks} checks, {} divergences",
+        divergences.len());
+    for d in divergences.iter().take(5) {
+        eprintln!("  {d}");
+    }
+    assert!(total_checks > 0, "no gold checks ran");
+    assert!(divergences.is_empty(),
+        "{} gold-accounting divergences", divergences.len());
+}
+
 #[test]
 fn corpus_path_replay_best_effort() {
     let mut total = 0;

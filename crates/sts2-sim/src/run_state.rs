@@ -19,17 +19,50 @@ use crate::act::{act_for, ActId, ActModel};
 use crate::map::{MapCoord, MapPointType};
 use crate::rng::Rng;
 use crate::rng_set::RunRngSet;
-use crate::run_log::{NodeEntry, RunLog};
+use crate::run_log::{CardRef, NodeEntry, PotionEntry, RelicEntry, RunLog};
 use crate::standard_act_map::StandardActMap;
 
-/// Names a player by their character id (C# `CHARACTER.IRONCLAD` etc.) and
-/// their numeric id (1 for solo, Steam id in coop). Player runtime state
-/// (HP/gold/deck/relics/...) lands when we port the Player module.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlayerSlot {
+/// Per-player runtime state. Identity fields (`character_id`, `id`) plus
+/// HP / gold / deck / relics / potions. Mirrors the `.run` file's
+/// per-player record. Card / relic / potion entries reuse the `run_log`
+/// types — they're identifier-shaped, no behavior attached. Behavior
+/// lands when the Card / Relic / Potion modules port.
+#[derive(Debug, Clone)]
+pub struct PlayerState {
     pub character_id: String,
+    /// Solo runs use 1; coop uses Steam IDs (17-digit). i64 covers both.
     pub id: i64,
+    pub hp: i32,
+    pub max_hp: i32,
+    pub gold: i32,
+    pub deck: Vec<CardRef>,
+    pub relics: Vec<RelicEntry>,
+    pub potions: Vec<PotionEntry>,
+    pub max_potion_slot_count: i32,
 }
+
+impl PlayerState {
+    /// Construct a fresh slot at run-start with empty deck/relics/potions
+    /// and zero gold/hp. Use this when forward-simulating a new run;
+    /// callers populate the starting deck/relics from the character's
+    /// loadout afterwards (those models aren't ported yet).
+    pub fn empty(character_id: &str, id: i64) -> Self {
+        Self {
+            character_id: character_id.to_owned(),
+            id,
+            hp: 0,
+            max_hp: 0,
+            gold: 0,
+            deck: Vec::new(),
+            relics: Vec::new(),
+            potions: Vec::new(),
+            max_potion_slot_count: 0,
+        }
+    }
+}
+
+/// Backwards-compat alias for code that wants just the identity tuple.
+pub type PlayerSlot = PlayerState;
 
 /// Decode a C# `ActModel.Id.Entry` string (e.g. "OVERGROWTH", "ACT.HIVE") into
 /// our `ActId` enum. Returns `None` for unknown ids; callers should treat
@@ -62,7 +95,7 @@ pub struct RunState {
     /// caller-set on `new()`, or detected from a `.run` log's history
     /// (trailing double-`boss` entries).
     acts_have_second_boss: Vec<bool>,
-    players: Vec<PlayerSlot>,
+    players: Vec<PlayerState>,
     /// 0-based index into `acts`. `-1` = before the first act.
     current_act_index: i32,
     /// 0-based floor within the current act. 0 = starting (ancient) node.
@@ -83,7 +116,7 @@ impl RunState {
     pub fn new(
         seed_string: &str,
         ascension: i32,
-        players: Vec<PlayerSlot>,
+        players: Vec<PlayerState>,
         acts: Vec<ActId>,
         modifiers: Vec<String>,
     ) -> Self {
@@ -124,10 +157,23 @@ impl RunState {
             .map(|s| act_id_from_run_log_string(s))
             .collect();
         let acts = acts?;
-        let players = log.players.iter()
-            .map(|p| PlayerSlot {
-                character_id: p.character.clone(),
-                id: p.id,
+        let players: Vec<PlayerState> = log.players.iter()
+            .map(|p| {
+                // Populate runtime state from the FINAL recorded state.
+                // (For mid-run reconstruction we'd later replay per-floor
+                //  stat deltas; not in scope for the MVP.)
+                let final_stats = last_player_stats(log, p.id);
+                PlayerState {
+                    character_id: p.character.clone(),
+                    id: p.id,
+                    hp: final_stats.map(|s| s.current_hp).unwrap_or(0),
+                    max_hp: final_stats.map(|s| s.max_hp).unwrap_or(0),
+                    gold: final_stats.map(|s| s.current_gold).unwrap_or(0),
+                    deck: p.deck.clone(),
+                    relics: p.relics.clone(),
+                    potions: p.potions.clone(),
+                    max_potion_slot_count: p.max_potion_slot_count,
+                }
             })
             .collect();
         let modifiers = log.modifiers.iter()
@@ -156,7 +202,8 @@ impl RunState {
     pub fn rng_set_mut(&mut self) -> &mut RunRngSet { &mut self.rng_set }
     pub fn ascension(&self) -> i32 { self.ascension }
     pub fn acts(&self) -> &[ActId] { &self.acts }
-    pub fn players(&self) -> &[PlayerSlot] { &self.players }
+    pub fn players(&self) -> &[PlayerState] { &self.players }
+    pub fn players_mut(&mut self) -> &mut [PlayerState] { &mut self.players }
     pub fn current_act_index(&self) -> i32 { self.current_act_index }
     pub fn act_floor(&self) -> i32 { self.act_floor }
     pub fn current_map(&self) -> Option<&StandardActMap> { self.current_map.as_ref() }
@@ -336,6 +383,18 @@ pub fn replay_act_log(
     })
 }
 
+/// Walk every node entry's `player_stats` in act+floor order and return the
+/// most recent entry whose `player_id` matches. Used to seed a
+/// `PlayerState` with the run's final HP/gold values.
+fn last_player_stats(log: &RunLog, player_id: i64) -> Option<&crate::run_log::PlayerStats> {
+    log.map_point_history.iter().rev().flat_map(|act| {
+        act.iter().rev().flat_map(|node| {
+            node.player_stats.iter().rev()
+                .find(|s| s.player_id == player_id)
+        })
+    }).next()
+}
+
 fn find_path(
     map: &StandardActMap,
     types: &[MapPointType],
@@ -403,10 +462,7 @@ mod tests {
 
     #[test]
     fn run_state_construction_seeds_rng_set() {
-        let players = vec![PlayerSlot {
-            character_id: "CHARACTER.IRONCLAD".to_owned(),
-            id: 1,
-        }];
+        let players = vec![PlayerState::empty("CHARACTER.IRONCLAD", 1)];
         let rs = RunState::new(
             "ABC123", 9, players,
             vec![ActId::Overgrowth, ActId::Hive, ActId::Glory],
@@ -426,10 +482,7 @@ mod tests {
 
     #[test]
     fn enter_act_generates_map_and_resets_floor() {
-        let players = vec![PlayerSlot {
-            character_id: "CHARACTER.IRONCLAD".to_owned(),
-            id: 1,
-        }];
+        let players = vec![PlayerState::empty("CHARACTER.IRONCLAD", 1)];
         let mut rs = RunState::new(
             "ABC123", 0, players,
             vec![ActId::Overgrowth, ActId::Hive, ActId::Glory],
