@@ -1,0 +1,20 @@
+[package]
+name = "sts2-sim-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Python bindings for sts2-sim. Build with `maturin develop --release` from this directory."
+
+[lib]
+name = "sts2_sim_py"
+# cdylib for the Python extension, rlib so cargo can still run lib tests.
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sts2-sim = { path = "../sts2-sim" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# Pin pyo3 to a recent stable. abi3-py39 = compatible with Python 3.9+;
+# the produced wheel works across CPython versions without recompiling.
+pyo3 = { version = "0.23", features = ["abi3-py39", "extension-module"] }

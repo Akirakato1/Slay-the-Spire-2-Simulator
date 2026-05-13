@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/sts2-sim",
     "crates/sts2-sim-oracle-tests",
+    "crates/sts2-sim-py",
     "tools/extract_afflictions",
     "tools/extract_cards",
     "tools/extract_characters",

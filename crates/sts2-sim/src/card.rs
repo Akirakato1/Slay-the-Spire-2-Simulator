@@ -21,12 +21,12 @@
 //!
 //! The table is parsed once on first access via `LazyLock`.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
 /// Single concrete CardModel subclass — pure data.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CardData {
     /// Class-name id, e.g. "BattleTrance", "DefendIronclad". Used as the
     /// canonical key.
@@ -71,7 +71,7 @@ pub struct CardData {
     pub upgrade_deltas: Vec<UpgradeDelta>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct CardVar {
     /// Var class base name, e.g. "Damage", "Block", "Cards", "Power",
     /// "Dynamic", "ExtraDamage", "CalculationBase", "CalculatedDamage", etc.
@@ -93,7 +93,7 @@ pub struct CardVar {
     pub value_prop: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct UpgradeDelta {
     /// Matches one of `CardVar::kind`, `CardVar::generic`, or `CardVar::key`,
     /// depending on which indexer the C# code uses in `OnUpgrade`.
@@ -102,7 +102,7 @@ pub struct UpgradeDelta {
 }
 
 /// `CardType` enum. Names match the C# enum exactly.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub enum CardType {
     None,
     Attack,
@@ -114,7 +114,7 @@ pub enum CardType {
 }
 
 /// `CardRarity` enum. Names match the C# enum exactly.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub enum CardRarity {
     None,
     Basic,
@@ -131,7 +131,7 @@ pub enum CardRarity {
 
 /// `TargetType` enum. C# `TargetType.Self` is renamed to `SelfTarget` here
 /// to avoid colliding with Rust's `Self` keyword; JSON keeps the C# spelling.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 pub enum TargetType {
     None,
     #[serde(rename = "Self")]
