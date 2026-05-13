@@ -484,6 +484,76 @@ fn next_gaussian_int_matches() {
 
 #[test]
 #[ignore = "requires built oracle-host"]
+fn next_item_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0xB7_22_8E_4F_91_03_5D_77);
+
+    for _ in 0..50 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..100 {
+            let n = (d.next_range(50) + 1) as i32; // [1, 50]
+            let items: Vec<i32> = (0..n).collect();
+            let json_items: Value = json!(items.iter().collect::<Vec<_>>());
+            let rust_pick = *rust.next_item(&items).expect("non-empty");
+            let resp = oracle.call(
+                "rng_next_item",
+                json!({ "handle": handle, "items": json_items }),
+            ).unwrap();
+            let oracle_pick = resp["result"].as_i64().unwrap() as i32;
+            assert_eq!(rust_pick, oracle_pick,
+                "next_item mismatch (seed={seed}, n={n}): rust={rust_pick} oracle={oracle_pick}");
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn weighted_next_item_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0x4C_D7_F1_18_E0_5B_77_29);
+
+    for _ in 0..50 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..50 {
+            let n = (d.next_range(20) + 1) as usize; // [1, 20]
+            let items: Vec<i32> = (0..n as i32).collect();
+            // Strictly positive weights so the threshold always lands inside.
+            let weights: Vec<f32> = (0..n)
+                .map(|_| 0.01 + (d.next_range(1000) as f32) * 0.001)
+                .collect();
+            let weight_lookup = weights.clone();
+            let rust_pick = *rust
+                .weighted_next_item(&items, |x| weight_lookup[*x as usize])
+                .expect("non-empty positive-weighted");
+
+            let json_items: Value = json!(items.iter().collect::<Vec<_>>());
+            let json_weights: Value =
+                json!(weights.iter().map(|w| w.to_bits() as i32).collect::<Vec<_>>());
+            let resp = oracle.call(
+                "rng_weighted_next_item",
+                json!({
+                    "handle": handle,
+                    "items": json_items,
+                    "weights": json_weights,
+                }),
+            ).unwrap();
+            let oracle_pick = resp["result"].as_i64().unwrap() as i32;
+            assert_eq!(rust_pick, oracle_pick,
+                "weighted_next_item mismatch (seed={seed}, n={n}, weights={weights:?}): rust={rust_pick} oracle={oracle_pick}");
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
 fn shuffle_matches() {
     let mut oracle = Oracle::spawn().expect("spawn oracle");
     let mut d = Driver::new(0xFEEDFACE_CAFEBABE);

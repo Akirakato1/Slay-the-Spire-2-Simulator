@@ -313,6 +313,48 @@ impl Rng {
         result
     }
 
+    /// `Rng.NextItem<T>(IEnumerable<T>)`. Returns `None` on empty input
+    /// (matching C#'s `return default(T)` when count == 0). Otherwise picks
+    /// uniformly via `NextInt(0, items.len())`, which advances the counter
+    /// by one.
+    pub fn next_item<'a, T>(&mut self, items: &'a [T]) -> Option<&'a T> {
+        if items.is_empty() {
+            return None;
+        }
+        let idx = self.next_int_range(0, items.len() as i32) as usize;
+        Some(&items[idx])
+    }
+
+    /// `Rng.WeightedNextItem<T>(IEnumerable<T>, Func<T, float>)`. Calls
+    /// `NextFloat(1f)` (which advances the counter once), then walks items in
+    /// order subtracting weights in single-precision until the cumulative
+    /// threshold is reached. Returns `None` if the threshold is never reached
+    /// (matches C#'s `return default(T)` fallback).
+    ///
+    /// Weights are summed in f32 (matching LINQ's `Sum(Func<T, float>)` and
+    /// the C# Rng's float arithmetic) — order-dependent round-off must match
+    /// bit-exactly between implementations, so iteration order is the same on
+    /// both sides.
+    pub fn weighted_next_item<'a, T, F>(
+        &mut self,
+        items: &'a [T],
+        weight_fn: F,
+    ) -> Option<&'a T>
+    where
+        F: Fn(&T) -> f32,
+    {
+        let r = self.next_float(1.0);
+        let total: f32 = items.iter().map(&weight_fn).sum();
+        let mut threshold = r * total;
+        for t in items {
+            threshold -= weight_fn(t);
+            if threshold <= 0.0 {
+                return Some(t);
+            }
+        }
+        None
+    }
+
     /// In-place Fisher-Yates shuffle, matching `Rng.Shuffle<T>(IList<T>)` in
     /// the decompile. Note: each `next_int` advance increments the counter,
     /// so a shuffle of N items advances the counter by N-1.

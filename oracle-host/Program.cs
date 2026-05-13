@@ -114,6 +114,8 @@ internal sealed class Dispatcher
     private readonly MethodInfo _nextGaussianInt;
     private readonly MethodInfo _fastForward;
     private readonly MethodInfo _shuffleGeneric;
+    private readonly MethodInfo _nextItemGeneric;
+    private readonly MethodInfo _weightedNextItemGeneric;
     private readonly PropertyInfo _counterProp;
     private readonly PropertyInfo _seedProp;
 
@@ -134,6 +136,8 @@ internal sealed class Dispatcher
         MethodInfo nextGaussianInt,
         MethodInfo fastForward,
         MethodInfo shuffleGeneric,
+        MethodInfo nextItemGeneric,
+        MethodInfo weightedNextItemGeneric,
         PropertyInfo counterProp,
         PropertyInfo seedProp)
     {
@@ -153,6 +157,8 @@ internal sealed class Dispatcher
         _nextGaussianInt = nextGaussianInt;
         _fastForward = fastForward;
         _shuffleGeneric = shuffleGeneric;
+        _nextItemGeneric = nextItemGeneric;
+        _weightedNextItemGeneric = weightedNextItemGeneric;
         _counterProp = counterProp;
         _seedProp = seedProp;
     }
@@ -187,6 +193,15 @@ internal sealed class Dispatcher
         var nextGaussianInt = Find("NextGaussianInt", 4, typeof(int));
         var fastForward = methods.First(m => m.Name == "FastForwardCounter");
         var shuffleGen = methods.First(m => m.Name == "Shuffle" && m.IsGenericMethod);
+        var nextItemGen = methods.First(m =>
+            m.Name == "NextItem" && m.IsGenericMethod && m.GetParameters().Length == 1);
+        // The instance WeightedNextItem (NOT the static one): two params
+        // (IEnumerable<T>, Func<T, float>) and is_generic.
+        var weightedNextItemGen = methods.First(m =>
+            m.Name == "WeightedNextItem"
+            && m.IsGenericMethod
+            && m.GetParameters().Length == 2
+            && !m.IsStatic);
 
         var counter = rngType.GetProperty("Counter")
             ?? throw new InvalidOperationException("Counter property not found");
@@ -197,7 +212,8 @@ internal sealed class Dispatcher
             nextBool, nextDoubleSingle, nextDoubleRange,
             nextFloatSingle, nextFloatRange, nextUIntSingle, nextUIntRange,
             nextGaussianDouble, nextGaussianFloat, nextGaussianInt,
-            fastForward, shuffleGen, counter, seed);
+            fastForward, shuffleGen, nextItemGen, weightedNextItemGen,
+            counter, seed);
     }
 
     public JsonObject Dispatch(string method, JsonObject p)
@@ -335,6 +351,37 @@ internal sealed class Dispatcher
                 var target = p["target_count"]!.GetValue<int>();
                 _fastForward.Invoke(inst, new object[] { target });
                 return Ok(JsonValue.Create(true));
+            }
+
+            case "rng_next_item":
+            {
+                var inst = GetInstance(p);
+                var items = p["items"]!.AsArray()
+                    .Select(n => n!.GetValue<int>()).ToList();
+                var nextItemInt = _nextItemGeneric.MakeGenericMethod(typeof(int));
+                var picked = (int)nextItemInt.Invoke(inst, new object[] { items })!;
+                return Ok(JsonValue.Create(picked));
+            }
+
+            case "rng_weighted_next_item":
+            {
+                var inst = GetInstance(p);
+                var items = p["items"]!.AsArray()
+                    .Select(n => n!.GetValue<int>()).ToList();
+                var weightsArr = p["weights"]!.AsArray()
+                    .Select(n => BitConverter.Int32BitsToSingle(n!.GetValue<int>()))
+                    .ToArray();
+                if (items.Count != weightsArr.Length)
+                    throw new InvalidOperationException(
+                        $"items/weights length mismatch ({items.Count} vs {weightsArr.Length})");
+                // Build a lookup so Func<int, float> works for arbitrary item
+                // values. (For testing, items are usually 0..N-1 anyway.)
+                var dict = new Dictionary<int, float>();
+                for (var i = 0; i < items.Count; i++) dict[items[i]] = weightsArr[i];
+                Func<int, float> weightFn = x => dict[x];
+                var weightedInt = _weightedNextItemGeneric.MakeGenericMethod(typeof(int));
+                var picked = (int)weightedInt.Invoke(inst, new object[] { items, weightFn })!;
+                return Ok(JsonValue.Create(picked));
             }
 
             case "rng_shuffle":
