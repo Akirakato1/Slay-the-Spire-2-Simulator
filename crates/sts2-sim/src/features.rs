@@ -217,6 +217,154 @@ fn effective_var(card: &CardData, var_kind: &str, upgrade_level: i32) -> Option<
     Some(base + delta_sum * upgrade_level as f64)
 }
 
+// ---------- Combat observation bundle (Phase 1.4) --------------------
+
+/// One complete combat observation. The agent's transformer trunk
+/// processes the variable-length card / enemy / relic lists; the fixed
+/// scalars become a small dense head.
+///
+/// Per-pile card feature vectors include the card's current instance
+/// state (upgrade level, enchantment) — the agent never has to look
+/// the runtime info up separately.
+#[derive(Clone, Debug)]
+pub struct CombatObservation {
+    /// Pinned to `OBSERVATION_SCHEMA_VERSION` at observation time.
+    /// Agents reject observations whose version doesn't match their
+    /// training-time version.
+    pub schema_version: u32,
+
+    // ----- Global combat context -----
+    /// `encounter_id`, mostly for telemetry / logging.
+    pub encounter_id: Option<String>,
+    pub round_number: i32,
+    /// Encoded as 0 = None, 1 = Player, 2 = Enemy.
+    pub current_side: u8,
+
+    // ----- Player state -----
+    /// Player creature features. For single-player runs there's just
+    /// one entry; the vec exists to support coop.
+    pub players: Vec<CreatureStateFeatures>,
+    /// Per-player energy state: (current_energy, turn_energy). Same
+    /// order as `players`.
+    pub player_energy: Vec<(i32, i32)>,
+    /// Relic feature vectors per player. Outer index matches `players`.
+    pub player_relics: Vec<Vec<RelicFeatures>>,
+
+    // ----- Card piles -----
+    /// Player-indexed card-pile features. Each inner Vec is one pile
+    /// in order: [Draw, Hand, Discard, Exhaust]. Cards inside a pile
+    /// keep their natural ordering (top-of-pile first).
+    pub player_piles: Vec<PilesFeatures>,
+
+    // ----- Enemies -----
+    pub enemies: Vec<CreatureStateFeatures>,
+}
+
+#[derive(Clone, Debug)]
+pub struct PilesFeatures {
+    pub draw: Vec<CardFeatures>,
+    pub hand: Vec<CardFeatures>,
+    pub discard: Vec<CardFeatures>,
+    pub exhaust: Vec<CardFeatures>,
+}
+
+/// Produce a `CombatObservation` from the live combat state. Cheap —
+/// the agent can call this every step. Allocates fresh Vecs per
+/// observation; if profiling reveals churn during training, swap to a
+/// reusable buffer.
+pub fn observe_combat(cs: &crate::combat::CombatState) -> CombatObservation {
+    let players_vec: Vec<CreatureStateFeatures> = cs
+        .allies
+        .iter()
+        .filter(|c| c.kind == CreatureKind::Player)
+        .map(creature_state_features)
+        .collect();
+
+    let player_energy: Vec<(i32, i32)> = cs
+        .allies
+        .iter()
+        .filter(|c| c.kind == CreatureKind::Player)
+        .map(|c| {
+            let ps = c.player.as_ref();
+            (
+                ps.map(|p| p.energy).unwrap_or(0),
+                ps.map(|p| p.turn_energy).unwrap_or(0),
+            )
+        })
+        .collect();
+
+    let player_relics: Vec<Vec<RelicFeatures>> = cs
+        .allies
+        .iter()
+        .filter(|c| c.kind == CreatureKind::Player)
+        .map(|c| {
+            let ps = c.player.as_ref();
+            ps.map(|p| {
+                p.relics
+                    .iter()
+                    .filter_map(|id| crate::relic::by_id(id))
+                    .map(relic_features)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default()
+        })
+        .collect();
+
+    let player_piles: Vec<PilesFeatures> = cs
+        .allies
+        .iter()
+        .filter(|c| c.kind == CreatureKind::Player)
+        .map(|c| {
+            let ps = c.player.as_ref();
+            match ps {
+                Some(p) => PilesFeatures {
+                    draw: cards_to_features(&p.draw.cards),
+                    hand: cards_to_features(&p.hand.cards),
+                    discard: cards_to_features(&p.discard.cards),
+                    exhaust: cards_to_features(&p.exhaust.cards),
+                },
+                None => PilesFeatures {
+                    draw: Vec::new(),
+                    hand: Vec::new(),
+                    discard: Vec::new(),
+                    exhaust: Vec::new(),
+                },
+            }
+        })
+        .collect();
+
+    let enemies: Vec<CreatureStateFeatures> =
+        cs.enemies.iter().map(creature_state_features).collect();
+
+    let current_side = match cs.current_side {
+        crate::combat::CombatSide::None => 0u8,
+        crate::combat::CombatSide::Player => 1u8,
+        crate::combat::CombatSide::Enemy => 2u8,
+    };
+
+    CombatObservation {
+        schema_version: OBSERVATION_SCHEMA_VERSION,
+        encounter_id: cs.encounter_id.clone(),
+        round_number: cs.round_number,
+        current_side,
+        players: players_vec,
+        player_energy,
+        player_relics,
+        player_piles,
+        enemies,
+    }
+}
+
+fn cards_to_features(cards: &[CardInstance]) -> Vec<CardFeatures> {
+    cards
+        .iter()
+        .filter_map(|inst| {
+            let data = crate::card::by_id(&inst.id)?;
+            Some(card_features(data, Some(inst)))
+        })
+        .collect()
+}
+
 // ---------- Relic features (Phase 1.2) --------------------------------
 
 /// Relic feature vector size. Smaller than cards — no target/upgrade.
@@ -634,6 +782,80 @@ mod tests {
         // Powers we don't track in dedicated slots → zero.
         assert_eq!(f.values[IDX_CREATURE_FRAIL], 0.0);
         assert_eq!(f.values[IDX_CREATURE_INTANGIBLE], 0.0);
+    }
+
+    // ---------- Observation bundle tests ------------------------------
+
+    fn build_ironclad_state() -> crate::combat::CombatState {
+        use crate::combat::{deck_from_ids, CombatState, PlayerSetup};
+        use crate::{character, encounter};
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let enc = encounter::by_id("AxebotsNormal").unwrap();
+        let deck = deck_from_ids(&ironclad.starting_deck);
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80,
+            max_hp: 80,
+            deck,
+            relics: ironclad.starting_relics.clone(),
+        };
+        CombatState::start(enc, vec![setup], Vec::new())
+    }
+
+    #[test]
+    fn observation_carries_schema_version() {
+        let cs = build_ironclad_state();
+        let obs = observe_combat(&cs);
+        assert_eq!(obs.schema_version, OBSERVATION_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn observation_has_one_player_two_enemies() {
+        let cs = build_ironclad_state();
+        let obs = observe_combat(&cs);
+        assert_eq!(obs.players.len(), 1);
+        assert_eq!(obs.enemies.len(), 2);
+        assert_eq!(obs.player_energy.len(), 1);
+        assert_eq!(obs.player_relics.len(), 1);
+        assert_eq!(obs.player_piles.len(), 1);
+    }
+
+    #[test]
+    fn observation_player_energy_matches_state() {
+        let mut cs = build_ironclad_state();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let obs = observe_combat(&cs);
+        assert_eq!(obs.player_energy[0], (2, 3));
+    }
+
+    #[test]
+    fn observation_pile_sizes_match_state() {
+        let cs = build_ironclad_state();
+        let obs = observe_combat(&cs);
+        // 10-card Ironclad starter deck, all in draw, none drawn yet.
+        assert_eq!(obs.player_piles[0].draw.len(), 10);
+        assert_eq!(obs.player_piles[0].hand.len(), 0);
+        assert_eq!(obs.player_piles[0].discard.len(), 0);
+        assert_eq!(obs.player_piles[0].exhaust.len(), 0);
+    }
+
+    #[test]
+    fn observation_relic_features_present() {
+        let cs = build_ironclad_state();
+        let obs = observe_combat(&cs);
+        // Ironclad starts with BurningBlood.
+        assert_eq!(obs.player_relics[0].len(), 1);
+        let bb_feats = obs.player_relics[0][0];
+        // Starter rarity slot.
+        assert_eq!(bb_feats.values[IDX_RELIC_RARITY_BASE + 1], 1.0);
+    }
+
+    #[test]
+    fn observation_current_side_starts_player() {
+        let cs = build_ironclad_state();
+        let obs = observe_combat(&cs);
+        assert_eq!(obs.current_side, 1);
+        assert_eq!(obs.round_number, 1);
     }
 
     #[test]
