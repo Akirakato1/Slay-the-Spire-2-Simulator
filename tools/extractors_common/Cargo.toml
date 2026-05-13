@@ -1,0 +1,15 @@
+[package]
+name = "extractors_common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Shared helpers for the StS2 decompile-text-parse extractors (cards/relics/powers/...)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+anyhow = { workspace = true }
+regex = "1"

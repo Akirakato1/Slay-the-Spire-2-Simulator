@@ -22,6 +22,7 @@ name = "extract-cards"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "extractors_common",
  "regex",
  "serde",
  "serde_json",
@@ -32,9 +33,19 @@ name = "extract-relics"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "extractors_common",
  "regex",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "extractors_common"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "regex",
+ "serde",
 ]
 
 [[package]]
