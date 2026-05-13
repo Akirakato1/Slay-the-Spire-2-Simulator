@@ -23,6 +23,7 @@ use crate::card::{by_id as card_by_id, CardData};
 use crate::character::CharacterData;
 use crate::encounter::EncounterData;
 use crate::monster::MonsterData;
+use crate::power::{by_id as power_by_id, PowerStackType};
 use crate::rng::Rng;
 
 /// Default player energy at the start of each combat turn. (StS1/StS2
@@ -430,6 +431,116 @@ impl CombatState {
         let actual = amount.max(0);
         target.block += actual;
         actual
+    }
+
+    // ---------- Power apply / decrement / lookup --------------------------
+    //
+    // Reflects the PowerData metadata (stack_type, allow_negative) without
+    // invoking any per-power behavior hooks. The behavior port wires in:
+    //   - StrengthPower.ModifyDamageAdditive
+    //   - VulnerablePower.ModifyDamageMultiplicative
+    //   - PoisonPower.AfterSideTurnStart (poison ticks)
+    //   - Power application VFX / commands
+    // None of those change the arithmetic here.
+
+    /// Apply `amount` of a power to a creature, honoring the power's
+    /// `stack_type`. Returns the resulting stack count (or 0 if the power
+    /// id is unknown or the target doesn't exist).
+    ///
+    /// Stack-type rules:
+    ///   - Counter: accumulate. If `allow_negative` is false, clamp at 0
+    ///     and remove the stack when it hits 0. Strength is the canonical
+    ///     allow_negative=true case (Weak can drive it negative).
+    ///   - Single: 0 → set 1. 1+ amount or another apply → stays 1. The
+    ///     full-on/off semantics live in the behavior port; for now we
+    ///     just record presence.
+    pub fn apply_power(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        power_id: &str,
+        amount: i32,
+    ) -> i32 {
+        let Some(power) = power_by_id(power_id) else {
+            return 0;
+        };
+        let Some(target) = creature_mut(self, side, target_idx) else {
+            return 0;
+        };
+        match power.stack_type {
+            PowerStackType::Counter => {
+                if let Some(existing) =
+                    target.powers.iter_mut().find(|p| p.id == power_id)
+                {
+                    existing.amount += amount;
+                    if !power.allow_negative && existing.amount < 0 {
+                        existing.amount = 0;
+                    }
+                    if existing.amount == 0 && !power.allow_negative {
+                        let new_amount = 0;
+                        target.powers.retain(|p| p.id != power_id);
+                        return new_amount;
+                    }
+                    existing.amount
+                } else {
+                    let mut starting = amount;
+                    if !power.allow_negative && starting < 0 {
+                        starting = 0;
+                    }
+                    if starting == 0 && !power.allow_negative {
+                        return 0;
+                    }
+                    target.powers.push(PowerInstance {
+                        id: power_id.to_string(),
+                        amount: starting,
+                    });
+                    starting
+                }
+            }
+            PowerStackType::Single | PowerStackType::None => {
+                if target.powers.iter().any(|p| p.id == power_id) {
+                    1
+                } else {
+                    target.powers.push(PowerInstance {
+                        id: power_id.to_string(),
+                        amount: 1,
+                    });
+                    1
+                }
+            }
+        }
+    }
+
+    /// Decrement a counter-style power by `amount` (defaults to 1). Removes
+    /// the stack if it hits 0 (and the power doesn't allow negatives).
+    /// No-op for unknown power ids or absent powers.
+    pub fn decrement_power(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        power_id: &str,
+        amount: i32,
+    ) -> i32 {
+        self.apply_power(side, target_idx, power_id, -amount)
+    }
+
+    /// Returns the current stack count of a power on a creature, or 0 if
+    /// the power isn't applied.
+    pub fn get_power_amount(
+        &self,
+        side: CombatSide,
+        target_idx: usize,
+        power_id: &str,
+    ) -> i32 {
+        let creature = match side {
+            CombatSide::Player => self.allies.get(target_idx),
+            CombatSide::Enemy => self.enemies.get(target_idx),
+            CombatSide::None => None,
+        };
+        creature
+            .and_then(|c| c.powers.iter().find(|p| p.id == power_id))
+            .map(|p| p.amount)
+            .unwrap_or(0)
     }
 }
 
@@ -859,5 +970,93 @@ mod tests {
         assert_eq!(cs.allies[0].block, 8);
         cs.gain_block(CombatSide::Player, 0, -10);
         assert_eq!(cs.allies[0].block, 8);
+    }
+
+    // ---------- Power primitive tests ------------------------------------
+
+    #[test]
+    fn apply_strength_counter_accumulates() {
+        let mut cs = ironclad_combat();
+        // Strength is Counter + AllowNegative.
+        let after = cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
+        assert_eq!(after, 2);
+        let after = cs.apply_power(CombatSide::Player, 0, "StrengthPower", 3);
+        assert_eq!(after, 5);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            5
+        );
+    }
+
+    #[test]
+    fn strength_allows_negative_via_weak_style_apply() {
+        // Strength's allow_negative=true means Weak-style debuffs that
+        // apply negative Strength stack downward.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
+        let after = cs.apply_power(CombatSide::Player, 0, "StrengthPower", -5);
+        assert_eq!(after, -3);
+        // Stack stays even though negative — Strength.allow_negative=true.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            -3
+        );
+    }
+
+    #[test]
+    fn poison_decrement_to_zero_removes_stack() {
+        // PoisonPower is Counter + !allow_negative.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 4);
+        let after = cs.decrement_power(CombatSide::Enemy, 0, "PoisonPower", 4);
+        assert_eq!(after, 0);
+        // Should be gone from the stack, not lingering at 0.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
+            0
+        );
+        assert!(cs.enemies[0]
+            .powers
+            .iter()
+            .all(|p| p.id != "PoisonPower"));
+    }
+
+    #[test]
+    fn poison_decrement_below_zero_clamps_to_zero() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 3);
+        let after = cs.decrement_power(CombatSide::Enemy, 0, "PoisonPower", 10);
+        assert_eq!(after, 0);
+    }
+
+    #[test]
+    fn negative_apply_on_non_allow_negative_power_is_noop() {
+        // PoisonPower doesn't allow negative. Applying -5 fresh should
+        // result in nothing being added.
+        let mut cs = ironclad_combat();
+        let after = cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", -5);
+        assert_eq!(after, 0);
+        assert!(cs.enemies[0].powers.is_empty());
+    }
+
+    #[test]
+    fn lookup_returns_zero_when_power_absent() {
+        let cs = ironclad_combat();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            0
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            0
+        );
+    }
+
+    #[test]
+    fn unknown_power_id_is_noop() {
+        let mut cs = ironclad_combat();
+        let after = cs.apply_power(CombatSide::Player, 0, "NotAPowerName", 5);
+        assert_eq!(after, 0);
+        assert!(cs.allies[0].powers.is_empty());
     }
 }
