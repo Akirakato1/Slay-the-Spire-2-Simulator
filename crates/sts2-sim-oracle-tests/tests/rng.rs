@@ -162,6 +162,188 @@ fn fast_forward_matches() {
 
 #[test]
 #[ignore = "requires built oracle-host"]
+fn next_double_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0x1234_5678_ABCD_EF01);
+
+    for _ in 0..50 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..200 {
+            let rust_v = rust.next_double();
+            let resp = oracle.call("rng_next_double", json!({ "handle": handle })).unwrap();
+            let oracle_bits = resp["result"].as_i64().unwrap();
+            let oracle_v = f64::from_bits(oracle_bits as u64);
+            assert_eq!(
+                rust_v.to_bits(),
+                oracle_v.to_bits(),
+                "next_double mismatch (seed={seed}): rust={rust_v} oracle={oracle_v}"
+            );
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn next_double_range_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0xFACE_FEED_BAAD_F00D);
+
+    for _ in 0..50 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..100 {
+            let lo = (d.next_i32() as f64) * 0.001;
+            let hi = lo + (d.next_range(1_000_000) as f64 + 1.0) * 0.001;
+            let rust_v = rust.next_double_range(lo, hi);
+            let resp = oracle.call(
+                "rng_next_double_range",
+                json!({
+                    "handle": handle,
+                    "min_bits": lo.to_bits() as i64,
+                    "max_bits": hi.to_bits() as i64,
+                }),
+            ).unwrap();
+            let oracle_v = f64::from_bits(resp["result"].as_i64().unwrap() as u64);
+            assert_eq!(
+                rust_v.to_bits(),
+                oracle_v.to_bits(),
+                "next_double_range mismatch (seed={seed}, lo={lo}, hi={hi}): rust={rust_v} oracle={oracle_v}"
+            );
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn next_float_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0xBADC_0FFE_E0DD_F00D);
+
+    for _ in 0..50 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..100 {
+            let max = ((d.next_range(1000) + 1) as f32) * 0.5;
+            let rust_v = rust.next_float(max);
+            let resp = oracle.call(
+                "rng_next_float",
+                json!({ "handle": handle, "max_bits": max.to_bits() as i32 }),
+            ).unwrap();
+            let oracle_v = f32::from_bits(resp["result"].as_i64().unwrap() as u32);
+            assert_eq!(
+                rust_v.to_bits(),
+                oracle_v.to_bits(),
+                "next_float mismatch (seed={seed}, max={max}): rust={rust_v} oracle={oracle_v}"
+            );
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn next_float_range_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0xCAFE_BABE_DEAD_BEEF);
+
+    for _ in 0..50 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..100 {
+            let lo = (d.next_i32() as f32) * 0.0001;
+            let span = ((d.next_range(10_000) + 1) as f32) * 0.0001;
+            let hi = lo + span;
+            let rust_v = rust.next_float_range(lo, hi);
+            let resp = oracle.call(
+                "rng_next_float_range",
+                json!({
+                    "handle": handle,
+                    "min_bits": lo.to_bits() as i32,
+                    "max_bits": hi.to_bits() as i32,
+                }),
+            ).unwrap();
+            let oracle_v = f32::from_bits(resp["result"].as_i64().unwrap() as u32);
+            assert_eq!(
+                rust_v.to_bits(),
+                oracle_v.to_bits(),
+                "next_float_range mismatch (seed={seed}, lo={lo}, hi={hi}): rust={rust_v} oracle={oracle_v}"
+            );
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn next_uint_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0x9E37_79B9_7F4A_7C15);
+
+    for _ in 0..50 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..100 {
+            let max = d.next_u32().max(1);
+            let rust_v = rust.next_unsigned_int(max);
+            let resp = oracle.call(
+                "rng_next_uint",
+                json!({ "handle": handle, "max_exclusive": max as i64 }),
+            ).unwrap();
+            let oracle_v = resp["result"].as_i64().unwrap() as u32;
+            assert_eq!(rust_v, oracle_v,
+                "next_uint mismatch (seed={seed}, max={max}): rust={rust_v} oracle={oracle_v}");
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn next_uint_range_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0x517C_C1B7_2722_0A95);
+
+    for _ in 0..50 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..100 {
+            let min = d.next_u32() / 2;
+            let span = d.next_u32().max(1) / 2 + 1;
+            let max = min.saturating_add(span);
+            let rust_v = rust.next_unsigned_int_range(min, max);
+            let resp = oracle.call(
+                "rng_next_uint_range",
+                json!({
+                    "handle": handle,
+                    "min_inclusive": min as i64,
+                    "max_exclusive": max as i64,
+                }),
+            ).unwrap();
+            let oracle_v = resp["result"].as_i64().unwrap() as u32;
+            assert_eq!(rust_v, oracle_v,
+                "next_uint_range mismatch (seed={seed}, min={min}, max={max}): rust={rust_v} oracle={oracle_v}");
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
 fn shuffle_matches() {
     let mut oracle = Oracle::spawn().expect("spawn oracle");
     let mut d = Driver::new(0xFEEDFACE_CAFEBABE);

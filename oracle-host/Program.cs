@@ -103,6 +103,12 @@ internal sealed class Dispatcher
     private readonly MethodInfo _nextIntSingle;
     private readonly MethodInfo _nextIntRange;
     private readonly MethodInfo _nextBool;
+    private readonly MethodInfo _nextDoubleSingle;
+    private readonly MethodInfo _nextDoubleRange;
+    private readonly MethodInfo _nextFloatSingle;
+    private readonly MethodInfo _nextFloatRange;
+    private readonly MethodInfo _nextUIntSingle;
+    private readonly MethodInfo _nextUIntRange;
     private readonly MethodInfo _fastForward;
     private readonly MethodInfo _shuffleGeneric;
     private readonly PropertyInfo _counterProp;
@@ -114,6 +120,12 @@ internal sealed class Dispatcher
         MethodInfo nextIntSingle,
         MethodInfo nextIntRange,
         MethodInfo nextBool,
+        MethodInfo nextDoubleSingle,
+        MethodInfo nextDoubleRange,
+        MethodInfo nextFloatSingle,
+        MethodInfo nextFloatRange,
+        MethodInfo nextUIntSingle,
+        MethodInfo nextUIntRange,
         MethodInfo fastForward,
         MethodInfo shuffleGeneric,
         PropertyInfo counterProp,
@@ -124,6 +136,12 @@ internal sealed class Dispatcher
         _nextIntSingle = nextIntSingle;
         _nextIntRange = nextIntRange;
         _nextBool = nextBool;
+        _nextDoubleSingle = nextDoubleSingle;
+        _nextDoubleRange = nextDoubleRange;
+        _nextFloatSingle = nextFloatSingle;
+        _nextFloatRange = nextFloatRange;
+        _nextUIntSingle = nextUIntSingle;
+        _nextUIntRange = nextUIntRange;
         _fastForward = fastForward;
         _shuffleGeneric = shuffleGeneric;
         _counterProp = counterProp;
@@ -140,14 +158,21 @@ internal sealed class Dispatcher
             ?? throw new InvalidOperationException("Rng(uint, int) ctor not found");
 
         var methods = rngType.GetMethods();
-        var nextIntSingle = methods.First(m =>
-            m.Name == "NextInt"
-            && m.GetParameters().Length == 1
-            && m.GetParameters()[0].ParameterType == typeof(int));
-        var nextIntRange = methods.First(m =>
-            m.Name == "NextInt" && m.GetParameters().Length == 2);
-        var nextBool = methods.First(m =>
-            m.Name == "NextBool" && m.GetParameters().Length == 0);
+        MethodInfo Find(string name, int arity, Type? firstParam = null) =>
+            methods.First(m => m.Name == name
+                && m.GetParameters().Length == arity
+                && !m.IsGenericMethod
+                && (firstParam is null || m.GetParameters()[0].ParameterType == firstParam));
+
+        var nextIntSingle = Find("NextInt", 1, typeof(int));
+        var nextIntRange = Find("NextInt", 2, typeof(int));
+        var nextBool = Find("NextBool", 0);
+        var nextDoubleSingle = Find("NextDouble", 0);
+        var nextDoubleRange = Find("NextDouble", 2, typeof(double));
+        var nextFloatSingle = Find("NextFloat", 1, typeof(float));
+        var nextFloatRange = Find("NextFloat", 2, typeof(float));
+        var nextUIntSingle = Find("NextUnsignedInt", 1, typeof(uint));
+        var nextUIntRange = Find("NextUnsignedInt", 2, typeof(uint));
         var fastForward = methods.First(m => m.Name == "FastForwardCounter");
         var shuffleGen = methods.First(m => m.Name == "Shuffle" && m.IsGenericMethod);
 
@@ -157,7 +182,9 @@ internal sealed class Dispatcher
             ?? throw new InvalidOperationException("Seed property not found");
 
         return new Dispatcher(rngType, ctor, nextIntSingle, nextIntRange,
-            nextBool, fastForward, shuffleGen, counter, seed);
+            nextBool, nextDoubleSingle, nextDoubleRange,
+            nextFloatSingle, nextFloatRange, nextUIntSingle, nextUIntRange,
+            fastForward, shuffleGen, counter, seed);
     }
 
     public JsonObject Dispatch(string method, JsonObject p)
@@ -199,6 +226,58 @@ internal sealed class Dispatcher
                 var inst = GetInstance(p);
                 var v = (bool)_nextBool.Invoke(inst, Array.Empty<object>())!;
                 return Ok(JsonValue.Create(v));
+            }
+
+            case "rng_next_double":
+            {
+                var inst = GetInstance(p);
+                var v = (double)_nextDoubleSingle.Invoke(inst, Array.Empty<object>())!;
+                // Serialize as the bit pattern of the f64 so JSON round-trips
+                // are exact, immune to formatter precision quirks.
+                return Ok(JsonValue.Create(BitConverter.DoubleToInt64Bits(v)));
+            }
+
+            case "rng_next_double_range":
+            {
+                var inst = GetInstance(p);
+                var min = BitConverter.Int64BitsToDouble(p["min_bits"]!.GetValue<long>());
+                var max = BitConverter.Int64BitsToDouble(p["max_bits"]!.GetValue<long>());
+                var v = (double)_nextDoubleRange.Invoke(inst, new object[] { min, max })!;
+                return Ok(JsonValue.Create(BitConverter.DoubleToInt64Bits(v)));
+            }
+
+            case "rng_next_float":
+            {
+                var inst = GetInstance(p);
+                var max = BitConverter.Int32BitsToSingle(p["max_bits"]!.GetValue<int>());
+                var v = (float)_nextFloatSingle.Invoke(inst, new object[] { max })!;
+                return Ok(JsonValue.Create(BitConverter.SingleToInt32Bits(v)));
+            }
+
+            case "rng_next_float_range":
+            {
+                var inst = GetInstance(p);
+                var min = BitConverter.Int32BitsToSingle(p["min_bits"]!.GetValue<int>());
+                var max = BitConverter.Int32BitsToSingle(p["max_bits"]!.GetValue<int>());
+                var v = (float)_nextFloatRange.Invoke(inst, new object[] { min, max })!;
+                return Ok(JsonValue.Create(BitConverter.SingleToInt32Bits(v)));
+            }
+
+            case "rng_next_uint":
+            {
+                var inst = GetInstance(p);
+                var max = (uint)p["max_exclusive"]!.GetValue<long>();
+                var v = (uint)_nextUIntSingle.Invoke(inst, new object[] { max })!;
+                return Ok(JsonValue.Create((long)v));
+            }
+
+            case "rng_next_uint_range":
+            {
+                var inst = GetInstance(p);
+                var min = (uint)p["min_inclusive"]!.GetValue<long>();
+                var max = (uint)p["max_exclusive"]!.GetValue<long>();
+                var v = (uint)_nextUIntRange.Invoke(inst, new object[] { min, max })!;
+                return Ok(JsonValue.Create((long)v));
             }
 
             case "rng_fast_forward":

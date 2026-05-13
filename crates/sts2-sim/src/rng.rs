@@ -171,6 +171,66 @@ impl Rng {
         (self.sample() * range as f64) as i32 + min_inclusive
     }
 
+    /// `Rng.NextDouble()` — returns a `f64` in `[0.0, 1.0)`.
+    pub fn next_double(&mut self) -> f64 {
+        self.counter += 1;
+        self.sample()
+    }
+
+    /// `Rng.NextDouble(double min, double max)`.
+    pub fn next_double_range(&mut self, min: f64, max: f64) -> f64 {
+        if min > max {
+            panic!("Minimum must not be higher than maximum (got {min}, {max})");
+        }
+        self.counter += 1;
+        self.sample() * (max - min) + min
+    }
+
+    /// `Rng.NextFloat(float max)` — delegates to `NextFloat(0, max)`.
+    pub fn next_float(&mut self, max: f32) -> f32 {
+        self.next_float_range(0.0, max)
+    }
+
+    /// `Rng.NextFloat(float min, float max)`. C# computes the result as
+    /// `(float)(NextDouble() * (max - min) + min)`. The (max-min) subtraction
+    /// happens in single precision before being promoted to double — preserve
+    /// that ordering exactly.
+    pub fn next_float_range(&mut self, min: f32, max: f32) -> f32 {
+        if min > max {
+            panic!("Minimum must not be higher than maximum (got {min}, {max})");
+        }
+        self.counter += 1;
+        let s = self.sample();
+        let span = (max - min) as f64;
+        (s * span + min as f64) as f32
+    }
+
+    /// `Rng.NextUnsignedInt(uint max)` — delegates to (0, max).
+    pub fn next_unsigned_int(&mut self, max_exclusive: u32) -> u32 {
+        self.next_unsigned_int_range(0, max_exclusive)
+    }
+
+    /// `Rng.NextUnsignedInt(uint min, uint max)`. C# does
+    /// `min + (uint)(NextDouble() * (double)(max - min))`. The `max - min` is
+    /// uint arithmetic (wrapping), promoted to double for the multiply, then
+    /// truncated back to uint.
+    pub fn next_unsigned_int_range(
+        &mut self,
+        min_inclusive: u32,
+        max_exclusive: u32,
+    ) -> u32 {
+        if min_inclusive >= max_exclusive {
+            panic!(
+                "Minimum must be lower than maximum (got {min_inclusive}, {max_exclusive})"
+            );
+        }
+        self.counter += 1;
+        let s = self.sample();
+        let span = max_exclusive.wrapping_sub(min_inclusive) as f64;
+        let offset = (s * span) as u32;
+        min_inclusive.wrapping_add(offset)
+    }
+
     /// In-place Fisher-Yates shuffle, matching `Rng.Shuffle<T>(IList<T>)` in
     /// the decompile. Note: each `next_int` advance increments the counter,
     /// so a shuffle of N items advances the counter by N-1.
