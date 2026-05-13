@@ -1,0 +1,70 @@
+[
+  {
+    "id": "AllStar",
+    "clears_player_deck": false
+  },
+  {
+    "id": "BigGameHunter",
+    "clears_player_deck": false
+  },
+  {
+    "id": "CharacterCards",
+    "clears_player_deck": false
+  },
+  {
+    "id": "CursedRun",
+    "clears_player_deck": false
+  },
+  {
+    "id": "DeadlyEvents",
+    "clears_player_deck": false
+  },
+  {
+    "id": "DeprecatedModifier",
+    "clears_player_deck": false
+  },
+  {
+    "id": "Draft",
+    "clears_player_deck": true
+  },
+  {
+    "id": "Flight",
+    "clears_player_deck": false
+  },
+  {
+    "id": "Hoarder",
+    "clears_player_deck": false
+  },
+  {
+    "id": "Insanity",
+    "clears_player_deck": true
+  },
+  {
+    "id": "Midas",
+    "clears_player_deck": false
+  },
+  {
+    "id": "Murderous",
+    "clears_player_deck": false
+  },
+  {
+    "id": "NightTerrors",
+    "clears_player_deck": false
+  },
+  {
+    "id": "SealedDeck",
+    "clears_player_deck": true
+  },
+  {
+    "id": "Specialized",
+    "clears_player_deck": false
+  },
+  {
+    "id": "Terminal",
+    "clears_player_deck": false
+  },
+  {
+    "id": "Vintage",
+    "clears_player_deck": false
+  }
+]

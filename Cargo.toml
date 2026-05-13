@@ -6,6 +6,7 @@ members = [
     "tools/extract_afflictions",
     "tools/extract_cards",
     "tools/extract_enchantments",
+    "tools/extract_modifiers",
     "tools/extract_orbs",
     "tools/extract_powers",
     "tools/extract_relics",

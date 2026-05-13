@@ -50,6 +50,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "extract-modifiers"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "extractors_common",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "extract-orbs"
 version = "0.0.1"
 dependencies = [
