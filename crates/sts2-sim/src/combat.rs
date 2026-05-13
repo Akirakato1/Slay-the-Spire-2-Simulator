@@ -320,6 +320,16 @@ impl CombatState {
         self.tick_start_of_turn_powers(side);
     }
 
+    /// Fire each player's relic `BeforeCombatStart` hooks. Caller invokes
+    /// once at the very start of combat (after `start` constructor but
+    /// before any draws / turn begins). Used by Anchor (10 block) etc.
+    pub fn fire_before_combat_start_hooks(&mut self) {
+        let pairs = self.collect_player_relics();
+        for (player_idx, relic_id) in pairs {
+            dispatch_relic_before_combat_start(self, player_idx, &relic_id);
+        }
+    }
+
     /// Fire each player's relic AfterCombatVictory hooks. Caller invokes
     /// when `is_combat_over()` returns Victory. The hook dispatcher
     /// walks each player's `relics` list and runs registered handlers.
@@ -328,8 +338,16 @@ impl CombatState {
     /// / modifiers) lives in #70. For now we only fire relic hooks since
     /// they're the only `AfterCombatVictory` source we've ported.
     pub fn fire_after_combat_victory_hooks(&mut self) {
-        // Snapshot (player_idx, relic_id) pairs so the dispatch can mutate
-        // freely without iterator invalidation.
+        let pairs = self.collect_player_relics();
+        for (player_idx, relic_id) in pairs {
+            dispatch_relic_after_combat_victory(self, player_idx, &relic_id);
+        }
+    }
+
+    /// Snapshot (player_idx, relic_id) pairs so hook dispatchers can mutate
+    /// freely without iterator invalidation. Walks every player's relic
+    /// list in canonical order.
+    fn collect_player_relics(&self) -> Vec<(usize, String)> {
         let mut pairs: Vec<(usize, String)> = Vec::new();
         for (player_idx, creature) in self.allies.iter().enumerate() {
             if let Some(ps) = creature.player.as_ref() {
@@ -338,9 +356,7 @@ impl CombatState {
                 }
             }
         }
-        for (player_idx, relic_id) in pairs {
-            dispatch_relic_after_combat_victory(self, player_idx, &relic_id);
-        }
+        pairs
     }
 
     /// Apply each creature's start-of-turn power effects when that
@@ -1061,6 +1077,25 @@ fn canonical_int_value(card: &CardData, var_kind: &str, upgrade_level: i32) -> i
 // functions below. Currently only AfterCombatVictory is plumbed; the
 // other hook points (BeforeCombatStart, AfterDamageTaken, BeforeSideTurnStart)
 // land alongside #70 (hook firing order infrastructure).
+
+/// Dispatch a single relic's `BeforeCombatStart` hook. Used by relics
+/// that grant block / draw / energy at combat open.
+fn dispatch_relic_before_combat_start(
+    cs: &mut CombatState,
+    player_idx: usize,
+    relic_id: &str,
+) {
+    match relic_id {
+        // Anchor: gain 10 block at combat start. C# uses
+        // `BlockVar(10m, ValueProp.Unpowered)` — Unpowered bypasses any
+        // Frail-style block modifiers, which is what our raw gain_block
+        // does anyway (no Frail wrapper yet).
+        "Anchor" => {
+            cs.gain_block(CombatSide::Player, player_idx, 10);
+        }
+        _ => {}
+    }
+}
 
 /// Dispatch a single relic's `AfterCombatVictory` hook. Walks per-relic
 /// arms; relics with no AfterCombatVictory behavior fall through.
@@ -2699,6 +2734,26 @@ mod tests {
         }
         cs.fire_after_combat_victory_hooks();
         assert_eq!(cs.allies[0].current_hp, 0);
+    }
+
+    #[test]
+    fn anchor_grants_ten_block_at_combat_start() {
+        let mut cs = ironclad_combat();
+        // Replace starter relics with Anchor.
+        cs.allies[0].player.as_mut().unwrap().relics =
+            vec!["Anchor".to_string()];
+        assert_eq!(cs.allies[0].block, 0);
+        cs.fire_before_combat_start_hooks();
+        assert_eq!(cs.allies[0].block, 10);
+    }
+
+    #[test]
+    fn before_combat_start_skips_unhooked_relics() {
+        let mut cs = ironclad_combat();
+        // Only BurningBlood (no BeforeCombatStart) — block stays 0.
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().relics, vec!["BurningBlood"]);
+        cs.fire_before_combat_start_hooks();
+        assert_eq!(cs.allies[0].block, 0);
     }
 
     #[test]
