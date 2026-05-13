@@ -104,6 +104,7 @@ internal sealed class Dispatcher
     private readonly MethodInfo _stringHelperHash;
     private readonly MethodInfo _stringHelperSnake;
     private readonly MethodInfo _listExtStableShuffle;
+    private readonly Dictionary<string, ActReflectionBundle> _actBundles;
     private readonly MethodInfo _nextIntSingle;
     private readonly MethodInfo _nextIntRange;
     private readonly MethodInfo _nextBool;
@@ -130,6 +131,7 @@ internal sealed class Dispatcher
         MethodInfo stringHelperHash,
         MethodInfo stringHelperSnake,
         MethodInfo listExtStableShuffle,
+        Dictionary<string, ActReflectionBundle> actBundles,
         MethodInfo nextIntSingle,
         MethodInfo nextIntRange,
         MethodInfo nextBool,
@@ -155,6 +157,7 @@ internal sealed class Dispatcher
         _stringHelperHash = stringHelperHash;
         _stringHelperSnake = stringHelperSnake;
         _listExtStableShuffle = listExtStableShuffle;
+        _actBundles = actBundles;
         _nextIntSingle = nextIntSingle;
         _nextIntRange = nextIntRange;
         _nextBool = nextBool;
@@ -200,6 +203,37 @@ internal sealed class Dispatcher
         var listExtStableShuffle = listExtType.GetMethods()
             .First(m => m.Name == "StableShuffle" && m.IsGenericMethod);
 
+        // Concrete acts. We bypass ActModel's constructor (which depends on
+        // AbstractModel/ModelDb initialization that isn't safe to trigger
+        // here) and use uninitialized instances — GetMapPointTypes only
+        // reads the rng parameter, no instance state.
+        var countsType = asm.GetType("MegaCrit.Sts2.Core.Map.MapPointTypeCounts",
+            throwOnError: true)!;
+        var countsNumElites = countsType.GetProperty("NumOfElites")
+            ?? throw new InvalidOperationException("NumOfElites not found");
+        var countsNumShops = countsType.GetProperty("NumOfShops")
+            ?? throw new InvalidOperationException("NumOfShops not found");
+        var countsNumUnknowns = countsType.GetProperty("NumOfUnknowns")
+            ?? throw new InvalidOperationException("NumOfUnknowns not found");
+        var countsNumRests = countsType.GetProperty("NumOfRests")
+            ?? throw new InvalidOperationException("NumOfRests not found");
+
+        var actNames = new[] { "Overgrowth", "Hive", "Glory", "Underdocks", "DeprecatedAct" };
+        var actBundles = new Dictionary<string, ActReflectionBundle>();
+        foreach (var name in actNames)
+        {
+            var actType = asm.GetType($"MegaCrit.Sts2.Core.Models.Acts.{name}",
+                throwOnError: true)!;
+            var instance = System.Runtime.CompilerServices.RuntimeHelpers
+                .GetUninitializedObject(actType);
+            var getMapPointTypes = actType.GetMethod("GetMapPointTypes")
+                ?? throw new InvalidOperationException(
+                    $"{name}.GetMapPointTypes not found");
+            actBundles[name] = new ActReflectionBundle(
+                instance, getMapPointTypes,
+                countsNumElites, countsNumShops, countsNumUnknowns, countsNumRests);
+        }
+
         var methods = rngType.GetMethods();
         MethodInfo Find(string name, int arity, Type? firstParam = null) =>
             methods.First(m => m.Name == name
@@ -237,7 +271,7 @@ internal sealed class Dispatcher
             ?? throw new InvalidOperationException("Seed property not found");
 
         return new Dispatcher(rngType, ctor, ctorNamed,
-            stringHelperHash, stringHelperSnake, listExtStableShuffle,
+            stringHelperHash, stringHelperSnake, listExtStableShuffle, actBundles,
             nextIntSingle, nextIntRange,
             nextBool, nextDoubleSingle, nextDoubleRange,
             nextFloatSingle, nextFloatRange, nextUIntSingle, nextUIntRange,
@@ -297,6 +331,23 @@ internal sealed class Dispatcher
                 var result = new JsonArray();
                 foreach (var v in arr) result.Add(v);
                 return Ok(result);
+            }
+
+            case "act_get_map_point_types":
+            {
+                var actName = p["act"]!.GetValue<string>();
+                if (!_actBundles.TryGetValue(actName, out var bundle))
+                    throw new InvalidOperationException($"unknown act: {actName}");
+                var rngInst = GetInstance(p);
+                var counts = bundle.GetMapPointTypes.Invoke(
+                    bundle.Instance, new object[] { rngInst })!;
+                return Ok(new JsonObject
+                {
+                    ["num_of_unknowns"] = (int)bundle.NumOfUnknowns.GetValue(counts)!,
+                    ["num_of_rests"] = (int)bundle.NumOfRests.GetValue(counts)!,
+                    ["num_of_shops"] = (int)bundle.NumOfShops.GetValue(counts)!,
+                    ["num_of_elites"] = (int)bundle.NumOfElites.GetValue(counts)!,
+                });
             }
 
             case "rng_next_int":
@@ -497,3 +548,11 @@ internal sealed class Dispatcher
 
     private static JsonObject Ok(JsonNode? result) => new() { ["result"] = result };
 }
+
+internal sealed record ActReflectionBundle(
+    object Instance,
+    MethodInfo GetMapPointTypes,
+    PropertyInfo NumOfElites,
+    PropertyInfo NumOfShops,
+    PropertyInfo NumOfUnknowns,
+    PropertyInfo NumOfRests);
