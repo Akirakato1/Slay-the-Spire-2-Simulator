@@ -6,6 +6,7 @@
 pub mod act;
 pub mod affliction;
 pub mod card;
+pub mod character;
 pub mod enchantment;
 pub mod hash;
 pub mod map;

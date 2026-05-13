@@ -39,6 +39,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "extract-characters"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "extractors_common",
+ "regex",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "extract-enchantments"
 version = "0.0.1"
 dependencies = [

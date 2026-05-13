@@ -1,0 +1,162 @@
+[
+  {
+    "id": "Defect",
+    "starting_hp": 75,
+    "starting_gold": 99,
+    "card_pool": "Defect",
+    "potion_pool": "Defect",
+    "relic_pool": "Defect",
+    "starting_deck": [
+      "StrikeDefect",
+      "StrikeDefect",
+      "StrikeDefect",
+      "StrikeDefect",
+      "DefendDefect",
+      "DefendDefect",
+      "DefendDefect",
+      "DefendDefect",
+      "Zap",
+      "Dualcast"
+    ],
+    "starting_relics": [
+      "CrackedCore"
+    ]
+  },
+  {
+    "id": "DeprecatedCharacter",
+    "starting_hp": 1000,
+    "starting_gold": 99,
+    "card_pool": "Mock",
+    "potion_pool": "Ironclad",
+    "relic_pool": "Ironclad",
+    "starting_deck": [],
+    "starting_relics": []
+  },
+  {
+    "id": "Deprived",
+    "starting_hp": 1000,
+    "starting_gold": 99,
+    "card_pool": "Mock",
+    "potion_pool": "Ironclad",
+    "relic_pool": "Ironclad",
+    "starting_deck": [],
+    "starting_relics": []
+  },
+  {
+    "id": "Ironclad",
+    "starting_hp": 80,
+    "starting_gold": 99,
+    "card_pool": "Ironclad",
+    "potion_pool": "Ironclad",
+    "relic_pool": "Ironclad",
+    "starting_deck": [
+      "StrikeIronclad",
+      "StrikeIronclad",
+      "StrikeIronclad",
+      "StrikeIronclad",
+      "StrikeIronclad",
+      "DefendIronclad",
+      "DefendIronclad",
+      "DefendIronclad",
+      "DefendIronclad",
+      "Bash"
+    ],
+    "starting_relics": [
+      "BurningBlood"
+    ]
+  },
+  {
+    "id": "Necrobinder",
+    "starting_hp": 66,
+    "starting_gold": 99,
+    "card_pool": "Necrobinder",
+    "potion_pool": "Necrobinder",
+    "relic_pool": "Necrobinder",
+    "starting_deck": [
+      "StrikeNecrobinder",
+      "StrikeNecrobinder",
+      "StrikeNecrobinder",
+      "StrikeNecrobinder",
+      "DefendNecrobinder",
+      "DefendNecrobinder",
+      "DefendNecrobinder",
+      "DefendNecrobinder",
+      "Bodyguard",
+      "Unleash"
+    ],
+    "starting_relics": [
+      "BoundPhylactery"
+    ]
+  },
+  {
+    "id": "RandomCharacter",
+    "starting_hp": 1,
+    "starting_gold": 1,
+    "card_pool": "Ironclad",
+    "potion_pool": "Ironclad",
+    "relic_pool": "Ironclad",
+    "starting_deck": [
+      "StrikeIronclad",
+      "StrikeSilent",
+      "StrikeRegent",
+      "StrikeNecrobinder",
+      "StrikeDefect",
+      "DefendIronclad",
+      "DefendSilent",
+      "DefendRegent",
+      "DefendNecrobinder",
+      "DefendDefect"
+    ],
+    "starting_relics": [
+      "Circlet"
+    ]
+  },
+  {
+    "id": "Regent",
+    "starting_hp": 75,
+    "starting_gold": 99,
+    "card_pool": "Regent",
+    "potion_pool": "Regent",
+    "relic_pool": "Regent",
+    "starting_deck": [
+      "StrikeRegent",
+      "StrikeRegent",
+      "StrikeRegent",
+      "StrikeRegent",
+      "DefendRegent",
+      "DefendRegent",
+      "DefendRegent",
+      "DefendRegent",
+      "FallingStar",
+      "Venerate"
+    ],
+    "starting_relics": [
+      "DivineRight"
+    ]
+  },
+  {
+    "id": "Silent",
+    "starting_hp": 70,
+    "starting_gold": 99,
+    "card_pool": "Silent",
+    "potion_pool": "Silent",
+    "relic_pool": "Silent",
+    "starting_deck": [
+      "StrikeSilent",
+      "StrikeSilent",
+      "StrikeSilent",
+      "StrikeSilent",
+      "StrikeSilent",
+      "DefendSilent",
+      "DefendSilent",
+      "DefendSilent",
+      "DefendSilent",
+      "DefendSilent",
+      "Neutralize",
+      "Survivor"
+    ],
+    "starting_relics": [
+      "RingOfTheSnake"
+    ]
+  }
+]
