@@ -97,6 +97,25 @@ pub enum MapPointType {
     Ancient = 8,
 }
 
+impl MapPointType {
+    /// Parse the lowercase snake_case form used in `.run` files
+    /// (e.g. `"rest_site"` → `RestSite`). Returns `None` for unknown values.
+    pub fn from_run_log_str(s: &str) -> Option<Self> {
+        Some(match s {
+            "unassigned" => MapPointType::Unassigned,
+            "unknown" => MapPointType::Unknown,
+            "shop" => MapPointType::Shop,
+            "treasure" => MapPointType::Treasure,
+            "rest_site" => MapPointType::RestSite,
+            "monster" => MapPointType::Monster,
+            "elite" => MapPointType::Elite,
+            "boss" => MapPointType::Boss,
+            "ancient" => MapPointType::Ancient,
+            _ => return None,
+        })
+    }
+}
+
 /// `MegaCrit.Sts2.Core.Map.MapPointState`. Same ordinal mapping as the C# enum.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(i32)]

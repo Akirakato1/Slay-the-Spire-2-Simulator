@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use sts2_sim::map::MapPointType;
 use sts2_sim::run_log::{self, RunLog};
-use sts2_sim::run_state::RunState;
+use sts2_sim::run_state::{replay_act_log, RunState};
 
 const CORPUS_DIR: &str =
     r"C:\Users\zhuyl\OneDrive\Desktop\sts2_stats\sample runs";
@@ -102,6 +102,80 @@ fn every_corpus_act_generates_clean_map() {
             }
         }
     }
+}
+
+/// Best-effort path replay across the corpus. Counts how many (run, act)
+/// pairs replay cleanly through our generated map vs. how many produce
+/// no valid path. Failures here mean our generated map structurally
+/// differs from the map the recorded run experienced — that is a real
+/// gap (we're missing some map-gen-affecting parameter the game uses,
+/// likely character / ascension / modifier-driven), but the strict
+/// assertion is deferred until we've ported enough of those subsystems
+/// to diagnose properly.
+///
+/// We still assert that the replay machinery itself works (any success
+/// at all) and that recorded sequences are at least *structurally*
+/// well-formed (start with "ancient", end with "boss").
+#[test]
+fn corpus_path_replay_best_effort() {
+    let mut total = 0;
+    let mut ok = 0;
+    let mut failures: Vec<String> = Vec::new();
+    for path in corpus() {
+        let log = parse(&path);
+        if log.players.len() > 1 {
+            continue;
+        }
+        let mut rs = match RunState::from_run_log(&log) {
+            Some(r) => r,
+            None => continue,
+        };
+        for (act_idx, history) in log.map_point_history.iter().enumerate() {
+            // Structural: first node is starting ancient, last is boss.
+            assert_eq!(history.first().map(|n| n.map_point_type.as_str()),
+                Some("ancient"),
+                "{:?} act {}: first node should be ancient",
+                path.file_name(), act_idx);
+            assert_eq!(history.last().map(|n| n.map_point_type.as_str()),
+                Some("boss"),
+                "{:?} act {}: last node should be boss",
+                path.file_name(), act_idx);
+
+            rs.enter_act(act_idx as i32);
+            total += 1;
+            match replay_act_log(&mut rs, history) {
+                Ok(outcome) => {
+                    if outcome.reached_boss
+                        && outcome.advanced_floors == history.len() as i32 - 1
+                    {
+                        ok += 1;
+                    } else {
+                        failures.push(format!(
+                            "{:?} act {} ({:?}): partial replay (advanced {}, reached_boss {})",
+                            path.file_name(), act_idx, rs.acts()[act_idx],
+                            outcome.advanced_floors, outcome.reached_boss,
+                        ));
+                    }
+                }
+                Err(e) => {
+                    failures.push(format!(
+                        "{:?} act {} ({:?}): {e}",
+                        path.file_name(), act_idx, rs.acts()[act_idx],
+                    ));
+                }
+            }
+        }
+    }
+    eprintln!(
+        "path replay summary: {ok}/{total} acts replayed cleanly. \
+         Failures ({}):", failures.len(),
+    );
+    for f in &failures {
+        eprintln!("  - {f}");
+    }
+    // The replay machinery itself must work — at least one success.
+    assert!(ok > 0,
+        "no acts replayed cleanly; replay machinery may be broken");
 }
 
 #[test]

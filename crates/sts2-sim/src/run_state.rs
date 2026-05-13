@@ -16,10 +16,10 @@
 //! additions don't break the existing surface.
 
 use crate::act::{act_for, ActId, ActModel};
-use crate::map::MapCoord;
+use crate::map::{MapCoord, MapPointType};
 use crate::rng::Rng;
 use crate::rng_set::RunRngSet;
-use crate::run_log::RunLog;
+use crate::run_log::{NodeEntry, RunLog};
 use crate::standard_act_map::StandardActMap;
 
 /// Names a player by their character id (C# `CHARACTER.IRONCLAD` etc.) and
@@ -69,6 +69,10 @@ pub struct RunState {
     act_floor: i32,
     /// The generated map for the current act, if entered.
     current_map: Option<StandardActMap>,
+    /// The map node the player is currently at within `current_map`. Set
+    /// to the starting (ancient) coord on `enter_act`; updated by
+    /// `advance_to` as the player navigates.
+    current_coord: Option<MapCoord>,
     /// `modifiers` is a list of run modifier ids (e.g. ascension toggles,
     /// daily mutators). Kept as plain strings until the modifier module
     /// lands.
@@ -94,6 +98,7 @@ impl RunState {
             current_act_index: -1,
             act_floor: 0,
             current_map: None,
+            current_coord: None,
             modifiers,
         }
     }
@@ -189,21 +194,197 @@ impl RunState {
         self.current_act_index = act_index;
         self.act_floor = 0;
         self.current_map = Some(map);
+        // Standing at the starting (ancient) node when an act begins.
+        self.current_coord = self.current_map
+            .as_ref()
+            .map(|m| m.starting().coord);
         self.current_map.as_ref().unwrap()
     }
 
-    /// Advance `act_floor` by 1. Sets `current_map_coord` to None for the
-    /// MVP — proper map traversal lands when we port the player's
-    /// `CurrentMapCoord` selection logic.
+    /// Advance `act_floor` by 1 without moving the cursor. Mostly useful
+    /// in tests / harnesses that don't track precise map navigation.
     pub fn advance_floor(&mut self) {
         self.act_floor += 1;
     }
 
-    /// Stub: real implementation will track the player's chosen map node
-    /// each floor. Returns None until that lands.
+    /// Returns the map coord the player is currently standing on within
+    /// the current act, or `None` if `enter_act` hasn't been called.
     pub fn current_map_coord(&self) -> Option<MapCoord> {
-        None
+        self.current_coord
     }
+
+    /// Move the cursor to `coord`. Returns `Err` if no map is loaded, no
+    /// current coord is set, or `coord` is not a child of the current
+    /// position in the generated map.
+    pub fn advance_to(&mut self, coord: MapCoord) -> Result<(), String> {
+        let map = self.current_map.as_ref()
+            .ok_or_else(|| "no current map".to_string())?;
+        let current = self.current_coord
+            .ok_or_else(|| "no current coord".to_string())?;
+        let current_pt = map.get_point(current.col, current.row)
+            .ok_or_else(|| format!("current coord {current:?} not in map"))?;
+        if !current_pt.children.iter().any(|c| *c == coord) {
+            return Err(format!(
+                "{coord:?} is not a child of {current:?} (children: {:?})",
+                current_pt.children.iter().copied().collect::<Vec<_>>()
+            ));
+        }
+        self.current_coord = Some(coord);
+        self.act_floor += 1;
+        Ok(())
+    }
+}
+
+/// Outcome of replaying a recorded `.run` act through our generated map.
+#[derive(Debug, Clone)]
+pub struct ReplayOutcome {
+    /// Number of floors successfully advanced through.
+    pub advanced_floors: i32,
+    /// Floors where the recorded type matched multiple children of the
+    /// previous node; replay picked the smallest-col candidate to keep
+    /// going. Useful as a diagnostic: a clean run has 0 ambiguities.
+    pub ambiguous_floors: Vec<i32>,
+    /// Whether replay successfully reached a Boss node at the end.
+    pub reached_boss: bool,
+}
+
+/// Replay the recorded `map_point_history` for a single act through the
+/// already-entered map. Caller must have called `enter_act(act_idx)` on
+/// `state` first; this advances the cursor through a valid path.
+///
+/// Uses DFS over the recorded type sequence — the run log doesn't
+/// disambiguate between same-type junctions, so we try every viable
+/// successor and backtrack on dead ends. Returns `Err` if no path through
+/// the generated map satisfies the entire sequence (which would indicate
+/// our map genuinely diverges from what the run experienced).
+pub fn replay_act_log(
+    state: &mut RunState,
+    history: &[NodeEntry],
+) -> Result<ReplayOutcome, String> {
+    let map = state.current_map().ok_or("no current map")?.clone();
+    let start = state.current_map_coord().ok_or("no cursor")?;
+
+    // Recorded type sequence, skipping the starting (ancient) node we're
+    // already standing on.
+    let types: Result<Vec<MapPointType>, String> = history
+        .iter()
+        .skip(1)
+        .enumerate()
+        .map(|(i, n)| {
+            MapPointType::from_run_log_str(&n.map_point_type)
+                .ok_or_else(|| {
+                    format!("floor {}: unknown map_point_type {:?}",
+                        i + 1, n.map_point_type)
+                })
+        })
+        .collect();
+    let types = types?;
+
+    let mut path = vec![start];
+    if !find_path(&map, &types, 0, &mut path) {
+        return Err(format!(
+            "no path through generated map matches recorded type sequence \
+             of length {}",
+            types.len()
+        ));
+    }
+
+    // path[0] is start (cursor already there); advance through the rest.
+    let mut reached_boss = false;
+    for coord in path.iter().skip(1) {
+        state.advance_to(*coord)
+            .map_err(|e| format!("advance to {coord:?}: {e}"))?;
+        if let Some(p) = map.get_point(coord.col, coord.row) {
+            if p.point_type == MapPointType::Boss {
+                reached_boss = true;
+            }
+        }
+        if let Some(sb) = map.second_boss() {
+            if sb.coord == *coord {
+                reached_boss = true;
+            }
+        }
+    }
+
+    // Count ambiguous junctions along the chosen path — wherever multiple
+    // children of the previous coord matched the same recorded type.
+    let mut ambiguous_floors = Vec::new();
+    for (i, win) in path.windows(2).enumerate() {
+        let prev = win[0];
+        let target_type = types[i];
+        if target_type == MapPointType::Boss {
+            continue;
+        }
+        let prev_pt = match map.get_point(prev.col, prev.row) {
+            Some(p) => p,
+            None => continue,
+        };
+        let matches = prev_pt.children.iter().filter(|c| {
+            map.get_point(c.col, c.row)
+                .map(|p| p.point_type == target_type)
+                .unwrap_or(false)
+        }).count();
+        if matches > 1 {
+            ambiguous_floors.push((i + 1) as i32);
+        }
+    }
+
+    Ok(ReplayOutcome {
+        advanced_floors: (path.len() - 1) as i32,
+        ambiguous_floors,
+        reached_boss,
+    })
+}
+
+fn find_path(
+    map: &StandardActMap,
+    types: &[MapPointType],
+    idx: usize,
+    path: &mut Vec<MapCoord>,
+) -> bool {
+    if idx == types.len() {
+        return true;
+    }
+    let current = *path.last().expect("path non-empty");
+    let target = types[idx];
+
+    // Collect candidate children, with the boss specials handled explicitly.
+    let mut candidates: Vec<MapCoord> = Vec::new();
+    if target == MapPointType::Boss {
+        // From a row-(rows-1) point, children include map.boss(); from
+        // map.boss() itself, children may include map.second_boss().
+        if let Some(p) = map.get_point(current.col, current.row) {
+            for c in p.children.iter().copied() {
+                let is_boss = map.get_point(c.col, c.row)
+                    .map(|cp| cp.point_type == MapPointType::Boss)
+                    .unwrap_or(false);
+                if is_boss {
+                    candidates.push(c);
+                }
+            }
+        }
+    } else if let Some(p) = map.get_point(current.col, current.row) {
+        for c in p.children.iter().copied() {
+            let matches = map.get_point(c.col, c.row)
+                .map(|cp| cp.point_type == target)
+                .unwrap_or(false);
+            if matches {
+                candidates.push(c);
+            }
+        }
+    }
+    // Deterministic order (smallest coord first) so ambiguity-bookkeeping
+    // is reproducible.
+    candidates.sort();
+
+    for c in candidates {
+        path.push(c);
+        if find_path(map, types, idx + 1, path) {
+            return true;
+        }
+        path.pop();
+    }
+    false
 }
 
 #[cfg(test)]
