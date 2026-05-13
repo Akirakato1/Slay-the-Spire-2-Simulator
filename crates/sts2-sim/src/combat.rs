@@ -320,6 +320,46 @@ impl CombatState {
         self.tick_start_of_turn_powers(side);
     }
 
+    /// Generate the rewards earned by clearing this combat. Caller invokes
+    /// when `is_combat_over()` returns Victory, then routes the
+    /// `CombatRewards` into the strategic-layer RunState (deck additions,
+    /// gold accumulation, relic / potion drops).
+    ///
+    /// Currently models:
+    ///   - Gold: range by room type (Monster 10-20, Elite 35-45, Boss
+    ///     100). Uses `next_int_range(min, max+1)` per C# exclusive-max
+    ///     convention.
+    ///   - Card / potion / relic rewards: deferred (need card-pool
+    ///     rarity-weighted sampling + drop tables).
+    ///
+    /// Poverty-ascension gold multiplier deferred until ascension is
+    /// plumbed into CombatState.
+    pub fn generate_rewards(&self, rng: &mut Rng) -> CombatRewards {
+        let (min_gold, max_gold) = gold_reward_range(self.encounter_room_type());
+        let gold = if min_gold == max_gold {
+            min_gold
+        } else if min_gold < max_gold {
+            rng.next_int_range(min_gold, max_gold + 1)
+        } else {
+            0
+        };
+        CombatRewards {
+            gold,
+            ..Default::default()
+        }
+    }
+
+    /// Resolve the encounter's `RoomType` (Monster / Elite / Boss / …)
+    /// via the static encounter data table. Returns `None` for ad-hoc
+    /// combats that don't reference an EncounterData entry.
+    pub fn encounter_room_type(&self) -> Option<&'static str> {
+        self.encounter_id.as_ref().and_then(|id| {
+            crate::encounter::by_id(id)
+                .and_then(|e| e.room_type.as_deref())
+                .and_then(|s| ROOM_TYPE_STRS.iter().copied().find(|known| *known == s))
+        })
+    }
+
     /// Fire each player's relic `BeforeCombatStart` hooks. Caller invokes
     /// once at the very start of combat (after `start` constructor but
     /// before any draws / turn begins). Used by Anchor (10 block) etc.
@@ -1465,6 +1505,40 @@ pub fn pick_axebot_intent(rng: &mut Rng, last_intent: Option<AxebotIntent>) -> A
 pub enum CombatResult {
     Victory,
     Defeat,
+}
+
+/// End-of-combat rewards. Caller (RunState orchestration layer) routes the
+/// fields into deck additions / gold accumulation / relic drops as
+/// appropriate.
+///
+/// Card / potion / relic fields are placeholders for future expansion —
+/// currently only `gold` is populated.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CombatRewards {
+    pub gold: i32,
+    /// Card-reward choice triplet. Empty until card-reward generation lands.
+    pub card_choices: Vec<String>,
+    /// Single potion id if a potion dropped.
+    pub potion: Option<String>,
+    /// Single relic id (elite / boss drop).
+    pub relic: Option<String>,
+}
+
+/// Known room-type strings the gold table recognizes. Strings come from
+/// `EncounterData.room_type`; this list mirrors the C# `RoomType` enum
+/// arms checked in `MinGoldReward` / `MaxGoldReward`.
+const ROOM_TYPE_STRS: &[&str] = &["Monster", "Elite", "Boss"];
+
+/// Gold reward (min_inclusive, max_inclusive) by room type. From C#
+/// `EncounterModel.MinGoldReward` / `MaxGoldReward` at A0 with no Poverty
+/// ascension. Unknown room types drop nothing.
+fn gold_reward_range(room_type: Option<&str>) -> (i32, i32) {
+    match room_type {
+        Some("Monster") => (10, 20),
+        Some("Elite") => (35, 45),
+        Some("Boss") => (100, 100),
+        _ => (0, 0),
+    }
 }
 
 /// Outcome of a single `apply_damage` call. Useful for combat-log replay
@@ -2864,6 +2938,61 @@ mod tests {
         }
         cs.fire_after_combat_victory_hooks();
         assert_eq!(cs.allies[0].current_hp, 0);
+    }
+
+    // ---------- End-of-combat rewards tests ------------------------------
+
+    #[test]
+    fn axebots_normal_gold_reward_is_in_monster_range() {
+        // AxebotsNormal -> RoomType=Monster -> 10..=20 gold.
+        let cs = ironclad_combat();
+        let mut rng = Rng::new(7, 0);
+        let r = cs.generate_rewards(&mut rng);
+        assert!(
+            r.gold >= 10 && r.gold <= 20,
+            "Monster gold out of range: {}",
+            r.gold
+        );
+    }
+
+    #[test]
+    fn ad_hoc_combat_with_no_encounter_drops_zero_gold() {
+        let cs = CombatState::empty();
+        let mut rng = Rng::new(7, 0);
+        let r = cs.generate_rewards(&mut rng);
+        assert_eq!(r.gold, 0);
+    }
+
+    #[test]
+    fn generate_rewards_card_potion_relic_placeholders_empty() {
+        // Until card-reward / potion / relic generation lands, those
+        // fields are empty.
+        let cs = ironclad_combat();
+        let mut rng = Rng::new(7, 0);
+        let r = cs.generate_rewards(&mut rng);
+        assert!(r.card_choices.is_empty());
+        assert!(r.potion.is_none());
+        assert!(r.relic.is_none());
+    }
+
+    #[test]
+    fn gold_range_for_each_room_type() {
+        // Sanity-lock the table values against accidental table edits.
+        assert_eq!(gold_reward_range(Some("Monster")), (10, 20));
+        assert_eq!(gold_reward_range(Some("Elite")), (35, 45));
+        assert_eq!(gold_reward_range(Some("Boss")), (100, 100));
+        assert_eq!(gold_reward_range(Some("Shop")), (0, 0));
+        assert_eq!(gold_reward_range(None), (0, 0));
+    }
+
+    #[test]
+    fn gold_is_deterministic_for_a_given_seed() {
+        let cs = ironclad_combat();
+        let mut rng1 = Rng::new(42, 0);
+        let mut rng2 = Rng::new(42, 0);
+        let g1 = cs.generate_rewards(&mut rng1).gold;
+        let g2 = cs.generate_rewards(&mut rng2).gold;
+        assert_eq!(g1, g2);
     }
 
     #[test]
