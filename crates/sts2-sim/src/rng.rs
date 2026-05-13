@@ -231,6 +231,88 @@ impl Rng {
         min_inclusive.wrapping_add(offset)
     }
 
+    /// `Rng.NextGaussianDouble(mean, stdDev, min, max)`. Box-Muller transform
+    /// with a rejection loop until the standardized result lands in `[0, 1]`,
+    /// then linearly scales to `[min, max]`. The MegaCrit counter is
+    /// incremented exactly once per call regardless of how many rejection
+    /// iterations occur.
+    pub fn next_gaussian_double(
+        &mut self,
+        mean: f64,
+        std_dev: f64,
+        min: f64,
+        max: f64,
+    ) -> f64 {
+        if min > max {
+            panic!("Minimum must not be higher than maximum (got {min}, {max})");
+        }
+        self.counter += 1;
+        // The C# source uses this literal; the constant is 2*pi rounded to f64.
+        const TWO_PI: f64 = 6.283_185_307_179_586_2;
+        let mut result;
+        loop {
+            let u1 = self.sample();
+            let u2 = self.sample();
+            let magnitude = (-2.0 * u1.ln()).sqrt();
+            let angle = TWO_PI * u2;
+            let z = magnitude * angle.cos();
+            result = mean + z * std_dev;
+            if result >= 0.0 && result <= 1.0 {
+                break;
+            }
+        }
+        result * (max - min) + min
+    }
+
+    /// `Rng.NextGaussianFloat(...)` — delegates to `NextGaussianDouble` then
+    /// downcasts.
+    pub fn next_gaussian_float(
+        &mut self,
+        mean: f32,
+        std_dev: f32,
+        min: f32,
+        max: f32,
+    ) -> f32 {
+        self.next_gaussian_double(
+            mean as f64,
+            std_dev as f64,
+            min as f64,
+            max as f64,
+        ) as f32
+    }
+
+    /// `Rng.NextGaussianInt(mean, stdDev, min, max)`. Quirks (preserved
+    /// bug-for-bug): uses `Math.Sin` (not `Cos`), draws `1.0 - sample()`
+    /// instead of `sample()`, banker's rounding (`Math.Round` default),
+    /// and — unlike `NextGaussianDouble` — does NOT advance the MegaCrit
+    /// counter even though it consumes PRNG state.
+    pub fn next_gaussian_int(
+        &mut self,
+        mean: i32,
+        std_dev: i32,
+        min: i32,
+        max: i32,
+    ) -> i32 {
+        const TWO_PI: f64 = 6.283_185_307_179_586_2;
+        let mut result;
+        loop {
+            let u1 = 1.0 - self.sample();
+            let u2 = 1.0 - self.sample();
+            let magnitude = (-2.0 * u1.ln()).sqrt();
+            let angle = TWO_PI * u2;
+            let z = magnitude * angle.sin();
+            let v = mean as f64 + std_dev as f64 * z;
+            // C# `(int)Math.Round(double)` — banker's rounding, then
+            // saturating cast (.NET 5+ semantics); Rust 1.45+ `as i32`
+            // saturates to match.
+            result = v.round_ties_even() as i32;
+            if result >= min && result <= max {
+                break;
+            }
+        }
+        result
+    }
+
     /// In-place Fisher-Yates shuffle, matching `Rng.Shuffle<T>(IList<T>)` in
     /// the decompile. Note: each `next_int` advance increments the counter,
     /// so a shuffle of N items advances the counter by N-1.

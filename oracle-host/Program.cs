@@ -109,6 +109,9 @@ internal sealed class Dispatcher
     private readonly MethodInfo _nextFloatRange;
     private readonly MethodInfo _nextUIntSingle;
     private readonly MethodInfo _nextUIntRange;
+    private readonly MethodInfo _nextGaussianDouble;
+    private readonly MethodInfo _nextGaussianFloat;
+    private readonly MethodInfo _nextGaussianInt;
     private readonly MethodInfo _fastForward;
     private readonly MethodInfo _shuffleGeneric;
     private readonly PropertyInfo _counterProp;
@@ -126,6 +129,9 @@ internal sealed class Dispatcher
         MethodInfo nextFloatRange,
         MethodInfo nextUIntSingle,
         MethodInfo nextUIntRange,
+        MethodInfo nextGaussianDouble,
+        MethodInfo nextGaussianFloat,
+        MethodInfo nextGaussianInt,
         MethodInfo fastForward,
         MethodInfo shuffleGeneric,
         PropertyInfo counterProp,
@@ -142,6 +148,9 @@ internal sealed class Dispatcher
         _nextFloatRange = nextFloatRange;
         _nextUIntSingle = nextUIntSingle;
         _nextUIntRange = nextUIntRange;
+        _nextGaussianDouble = nextGaussianDouble;
+        _nextGaussianFloat = nextGaussianFloat;
+        _nextGaussianInt = nextGaussianInt;
         _fastForward = fastForward;
         _shuffleGeneric = shuffleGeneric;
         _counterProp = counterProp;
@@ -173,6 +182,9 @@ internal sealed class Dispatcher
         var nextFloatRange = Find("NextFloat", 2, typeof(float));
         var nextUIntSingle = Find("NextUnsignedInt", 1, typeof(uint));
         var nextUIntRange = Find("NextUnsignedInt", 2, typeof(uint));
+        var nextGaussianDouble = Find("NextGaussianDouble", 4, typeof(double));
+        var nextGaussianFloat = Find("NextGaussianFloat", 4, typeof(float));
+        var nextGaussianInt = Find("NextGaussianInt", 4, typeof(int));
         var fastForward = methods.First(m => m.Name == "FastForwardCounter");
         var shuffleGen = methods.First(m => m.Name == "Shuffle" && m.IsGenericMethod);
 
@@ -184,6 +196,7 @@ internal sealed class Dispatcher
         return new Dispatcher(rngType, ctor, nextIntSingle, nextIntRange,
             nextBool, nextDoubleSingle, nextDoubleRange,
             nextFloatSingle, nextFloatRange, nextUIntSingle, nextUIntRange,
+            nextGaussianDouble, nextGaussianFloat, nextGaussianInt,
             fastForward, shuffleGen, counter, seed);
     }
 
@@ -278,6 +291,42 @@ internal sealed class Dispatcher
                 var max = (uint)p["max_exclusive"]!.GetValue<long>();
                 var v = (uint)_nextUIntRange.Invoke(inst, new object[] { min, max })!;
                 return Ok(JsonValue.Create((long)v));
+            }
+
+            case "rng_next_gaussian_double":
+            {
+                var inst = GetInstance(p);
+                var mean = BitConverter.Int64BitsToDouble(p["mean_bits"]!.GetValue<long>());
+                var std = BitConverter.Int64BitsToDouble(p["std_dev_bits"]!.GetValue<long>());
+                var min = BitConverter.Int64BitsToDouble(p["min_bits"]!.GetValue<long>());
+                var max = BitConverter.Int64BitsToDouble(p["max_bits"]!.GetValue<long>());
+                var v = (double)_nextGaussianDouble.Invoke(inst,
+                    new object[] { mean, std, min, max })!;
+                return Ok(JsonValue.Create(BitConverter.DoubleToInt64Bits(v)));
+            }
+
+            case "rng_next_gaussian_float":
+            {
+                var inst = GetInstance(p);
+                var mean = BitConverter.Int32BitsToSingle(p["mean_bits"]!.GetValue<int>());
+                var std = BitConverter.Int32BitsToSingle(p["std_dev_bits"]!.GetValue<int>());
+                var min = BitConverter.Int32BitsToSingle(p["min_bits"]!.GetValue<int>());
+                var max = BitConverter.Int32BitsToSingle(p["max_bits"]!.GetValue<int>());
+                var v = (float)_nextGaussianFloat.Invoke(inst,
+                    new object[] { mean, std, min, max })!;
+                return Ok(JsonValue.Create(BitConverter.SingleToInt32Bits(v)));
+            }
+
+            case "rng_next_gaussian_int":
+            {
+                var inst = GetInstance(p);
+                var mean = p["mean"]!.GetValue<int>();
+                var std = p["std_dev"]!.GetValue<int>();
+                var min = p["min"]!.GetValue<int>();
+                var max = p["max"]!.GetValue<int>();
+                var v = (int)_nextGaussianInt.Invoke(inst,
+                    new object[] { mean, std, min, max })!;
+                return Ok(JsonValue.Create(v));
             }
 
             case "rng_fast_forward":

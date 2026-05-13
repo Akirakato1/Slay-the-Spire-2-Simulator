@@ -344,6 +344,146 @@ fn next_uint_range_matches() {
 
 #[test]
 #[ignore = "requires built oracle-host"]
+fn next_gaussian_double_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0x1F_6B_70_5A_7C_D9_E1_03);
+
+    // Use parameters where the rejection loop accepts quickly (mean in [0,1],
+    // stdDev small) so tests don't hang chasing rare acceptance. Counter
+    // alignment is checked after each call.
+    for _ in 0..40 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..80 {
+            let mean = 0.3 + (d.next_range(1000) as f64) * 0.0004; // [0.3, 0.7]
+            let std = 0.05 + (d.next_range(1000) as f64) * 0.00015; // [0.05, 0.2]
+            let lo = (d.next_i32() as f64) * 0.001;
+            let span = (d.next_range(10_000) as f64 + 1.0) * 0.001;
+            let hi = lo + span;
+
+            let rust_v = rust.next_gaussian_double(mean, std, lo, hi);
+            let resp = oracle.call(
+                "rng_next_gaussian_double",
+                json!({
+                    "handle": handle,
+                    "mean_bits": mean.to_bits() as i64,
+                    "std_dev_bits": std.to_bits() as i64,
+                    "min_bits": lo.to_bits() as i64,
+                    "max_bits": hi.to_bits() as i64,
+                }),
+            ).unwrap();
+            let oracle_v = f64::from_bits(resp["result"].as_i64().unwrap() as u64);
+            assert_eq!(
+                rust_v.to_bits(),
+                oracle_v.to_bits(),
+                "next_gaussian_double mismatch (seed={seed}, mean={mean}, std={std}, lo={lo}, hi={hi}): rust={rust_v} oracle={oracle_v}"
+            );
+
+            let counter_resp = oracle
+                .call("rng_counter", json!({ "handle": handle })).unwrap();
+            assert_eq!(
+                rust.counter(),
+                counter_resp["result"].as_i64().unwrap() as i32,
+                "counter drift after next_gaussian_double (seed={seed})"
+            );
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn next_gaussian_float_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0x3A_B7_C4_91_E5_02_77_F1);
+
+    for _ in 0..40 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..50 {
+            let mean = 0.3f32 + (d.next_range(1000) as f32) * 0.0004;
+            let std = 0.05f32 + (d.next_range(1000) as f32) * 0.00015;
+            let lo = (d.next_i32() as f32) * 0.001;
+            let hi = lo + ((d.next_range(10_000) as f32) + 1.0) * 0.001;
+
+            let rust_v = rust.next_gaussian_float(mean, std, lo, hi);
+            let resp = oracle.call(
+                "rng_next_gaussian_float",
+                json!({
+                    "handle": handle,
+                    "mean_bits": mean.to_bits() as i32,
+                    "std_dev_bits": std.to_bits() as i32,
+                    "min_bits": lo.to_bits() as i32,
+                    "max_bits": hi.to_bits() as i32,
+                }),
+            ).unwrap();
+            let oracle_v = f32::from_bits(resp["result"].as_i64().unwrap() as u32);
+            assert_eq!(
+                rust_v.to_bits(),
+                oracle_v.to_bits(),
+                "next_gaussian_float mismatch (seed={seed}, mean={mean}, std={std}, lo={lo}, hi={hi}): rust={rust_v} oracle={oracle_v}"
+            );
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
+fn next_gaussian_int_matches() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle");
+    let mut d = Driver::new(0xE3_07_2B_55_18_AD_BC_4F);
+
+    for _ in 0..40 {
+        let seed = d.next_u32();
+        let mut rust = Rng::new(seed, 0);
+        let handle = new_handle(&mut oracle, seed, 0);
+
+        for _ in 0..50 {
+            // Wide accepting range so the rejection loop terminates quickly.
+            let mean = (d.next_i32() % 100).clamp(-100, 100);
+            let std_dev = ((d.next_range(50) + 1) as i32).abs();
+            let min = mean - 500;
+            let max = mean + 500;
+
+            let rust_v = rust.next_gaussian_int(mean, std_dev, min, max);
+            let resp = oracle.call(
+                "rng_next_gaussian_int",
+                json!({
+                    "handle": handle,
+                    "mean": mean,
+                    "std_dev": std_dev,
+                    "min": min,
+                    "max": max,
+                }),
+            ).unwrap();
+            let oracle_v = resp["result"].as_i64().unwrap() as i32;
+            assert_eq!(
+                rust_v, oracle_v,
+                "next_gaussian_int mismatch (seed={seed}, mean={mean}, std={std_dev}, min={min}, max={max}): rust={rust_v} oracle={oracle_v}"
+            );
+
+            // NextGaussianInt does NOT advance the MegaCrit counter; assert
+            // that bug-for-bug behavior matches.
+            let counter_resp = oracle
+                .call("rng_counter", json!({ "handle": handle })).unwrap();
+            let oracle_counter = counter_resp["result"].as_i64().unwrap() as i32;
+            assert_eq!(rust.counter(), oracle_counter,
+                "counter drift after next_gaussian_int (seed={seed})");
+            assert_eq!(rust.counter(), 0,
+                "next_gaussian_int unexpectedly advanced counter to {} (seed={seed})",
+                rust.counter());
+        }
+        dispose(&mut oracle, handle);
+    }
+}
+
+#[test]
+#[ignore = "requires built oracle-host"]
 fn shuffle_matches() {
     let mut oracle = Oracle::spawn().expect("spawn oracle");
     let mut d = Driver::new(0xFEEDFACE_CAFEBABE);
