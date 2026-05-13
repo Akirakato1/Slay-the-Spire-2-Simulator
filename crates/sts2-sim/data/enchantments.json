@@ -1,0 +1,171 @@
+[
+  {
+    "id": "Adroit",
+    "has_extra_card_text": true,
+    "show_amount": true,
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 0.0,
+        "value_prop": "Move"
+      }
+    ]
+  },
+  {
+    "id": "Clone",
+    "has_extra_card_text": false,
+    "show_amount": false
+  },
+  {
+    "id": "Corrupted",
+    "has_extra_card_text": true,
+    "show_amount": false,
+    "applicable_card_types": [
+      "Attack"
+    ]
+  },
+  {
+    "id": "DeprecatedEnchantment",
+    "has_extra_card_text": false,
+    "show_amount": false
+  },
+  {
+    "id": "Glam",
+    "has_extra_card_text": false,
+    "show_amount": false,
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Times",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Goopy",
+    "has_extra_card_text": true,
+    "show_amount": false
+  },
+  {
+    "id": "Imbued",
+    "has_extra_card_text": false,
+    "show_amount": false,
+    "applicable_card_types": [
+      "Skill"
+    ]
+  },
+  {
+    "id": "Inky",
+    "has_extra_card_text": true,
+    "show_amount": false,
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 2.0,
+        "value_prop": "Move"
+      },
+      {
+        "kind": "Power",
+        "generic": "WeakPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Instinct",
+    "has_extra_card_text": false,
+    "show_amount": false,
+    "applicable_card_types": [
+      "Attack"
+    ]
+  },
+  {
+    "id": "Momentum",
+    "has_extra_card_text": true,
+    "show_amount": true,
+    "applicable_card_types": [
+      "Attack"
+    ]
+  },
+  {
+    "id": "Nimble",
+    "has_extra_card_text": false,
+    "show_amount": true
+  },
+  {
+    "id": "PerfectFit",
+    "has_extra_card_text": true,
+    "show_amount": false
+  },
+  {
+    "id": "RoyallyApproved",
+    "has_extra_card_text": false,
+    "show_amount": false,
+    "applicable_card_types": [
+      "Attack"
+    ]
+  },
+  {
+    "id": "Sharp",
+    "has_extra_card_text": false,
+    "show_amount": true,
+    "applicable_card_types": [
+      "Attack"
+    ]
+  },
+  {
+    "id": "Slither",
+    "has_extra_card_text": false,
+    "show_amount": false
+  },
+  {
+    "id": "SlumberingEssence",
+    "has_extra_card_text": false,
+    "show_amount": false
+  },
+  {
+    "id": "SoulsPower",
+    "has_extra_card_text": false,
+    "show_amount": false
+  },
+  {
+    "id": "Sown",
+    "has_extra_card_text": true,
+    "show_amount": false
+  },
+  {
+    "id": "Spiral",
+    "has_extra_card_text": false,
+    "show_amount": false,
+    "canonical_vars": [
+      {
+        "kind": "Int",
+        "key": "Times",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Steady",
+    "has_extra_card_text": false,
+    "show_amount": false
+  },
+  {
+    "id": "Swift",
+    "has_extra_card_text": true,
+    "show_amount": true
+  },
+  {
+    "id": "TezcatarasEmber",
+    "has_extra_card_text": false,
+    "show_amount": false
+  },
+  {
+    "id": "Vigorous",
+    "has_extra_card_text": false,
+    "show_amount": true,
+    "applicable_card_types": [
+      "Attack"
+    ]
+  }
+]
