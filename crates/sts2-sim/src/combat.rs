@@ -224,6 +224,13 @@ pub struct CombatState {
     /// from `enemies` because they shouldn't be valid targets but still
     /// matter for some end-of-combat rewards.
     pub escaped: Vec<Creature>,
+    /// Append-only event log for combat replay / analysis tooling.
+    /// Empty unless `log_enabled` is true (default off in training to
+    /// avoid allocation overhead).
+    pub combat_log: Vec<CombatEvent>,
+    /// When true, mutating methods push their effects to `combat_log`.
+    /// Toggle with `set_log_enabled`. Off by default.
+    pub log_enabled: bool,
 }
 
 impl CombatState {
@@ -238,7 +245,16 @@ impl CombatState {
             allies: Vec::new(),
             enemies: Vec::new(),
             escaped: Vec::new(),
+            combat_log: Vec::new(),
+            log_enabled: false,
         }
+    }
+
+    /// Toggle the verbose combat log. When true, mutating methods record
+    /// their effects in `combat_log`. Off by default to avoid the
+    /// allocation overhead during training runs.
+    pub fn set_log_enabled(&mut self, enabled: bool) {
+        self.log_enabled = enabled;
     }
 
     /// Set up a fresh combat. Mirrors the canonical entry point in C#:
@@ -273,6 +289,8 @@ impl CombatState {
             allies,
             enemies,
             escaped: Vec::new(),
+            combat_log: Vec::new(),
+            log_enabled: false,
         }
     }
 
@@ -283,6 +301,19 @@ impl CombatState {
     // with the behavior port. The methods below are the pure-state pieces:
     // they shuffle bookkeeping but don't run any model code.
 
+    /// Push a relic-hook-fired log entry. Used by the hook dispatchers.
+    fn log_relic_hook(&mut self, hook: &'static str, player_idx: usize, relic_id: &str) {
+        if self.log_enabled {
+            let round = self.round_number;
+            self.combat_log.push(CombatEvent::RelicHookFired {
+                round,
+                hook,
+                player_idx,
+                relic_id: relic_id.to_string(),
+            });
+        }
+    }
+
     /// Player turn → Enemy turn → Player turn. Each Player-side begin is the
     /// start of a new round; we bump `round_number` then. Sets `current_side`.
     pub fn begin_turn(&mut self, side: CombatSide) {
@@ -290,6 +321,11 @@ impl CombatState {
             self.round_number += 1;
         }
         self.current_side = side;
+        if self.log_enabled {
+            let round = self.round_number;
+            self.combat_log
+                .push(CombatEvent::TurnBegan { round, side });
+        }
         // Block survives one creature's *own* turn end → wipe at the start
         // of that side's next turn. This matches StS rules: block from
         // Defend persists through enemy attacks, then resets when you play
@@ -366,6 +402,7 @@ impl CombatState {
     pub fn fire_before_combat_start_hooks(&mut self) {
         let pairs = self.collect_player_relics();
         for (player_idx, relic_id) in pairs {
+            self.log_relic_hook("BeforeCombatStart", player_idx, &relic_id);
             dispatch_relic_before_combat_start(self, player_idx, &relic_id);
         }
     }
@@ -380,6 +417,7 @@ impl CombatState {
     pub fn fire_after_combat_victory_hooks(&mut self) {
         let pairs = self.collect_player_relics();
         for (player_idx, relic_id) in pairs {
+            self.log_relic_hook("AfterCombatVictory", player_idx, &relic_id);
             dispatch_relic_after_combat_victory(self, player_idx, &relic_id);
         }
     }
@@ -447,6 +485,11 @@ impl CombatState {
                 ps.discard.cards.append(&mut ps.hand.cards);
             }
         }
+        if self.log_enabled {
+            let round = self.round_number;
+            let side = self.current_side;
+            self.combat_log.push(CombatEvent::TurnEnded { round, side });
+        }
     }
 
     /// Draw up to `n` cards from the first player's draw pile, reshuffling
@@ -509,10 +552,23 @@ impl CombatState {
         target_idx: usize,
         amount: i32,
     ) -> DamageOutcome {
-        let Some(target) = creature_mut(self, side, target_idx) else {
-            return DamageOutcome::default();
+        let outcome = {
+            let Some(target) = creature_mut(self, side, target_idx) else {
+                return DamageOutcome::default();
+            };
+            damage_creature(target, amount)
         };
-        damage_creature(target, amount)
+        if self.log_enabled && (outcome.blocked > 0 || outcome.hp_lost > 0) {
+            let round = self.round_number;
+            self.combat_log.push(CombatEvent::DamageDealt {
+                round,
+                side,
+                target_idx,
+                amount,
+                outcome,
+            });
+        }
+        outcome
     }
 
     /// Heal a creature; saturates at `max_hp`.
@@ -564,11 +620,23 @@ impl CombatState {
         target_idx: usize,
         amount: i32,
     ) -> i32 {
-        let Some(target) = creature_mut(self, side, target_idx) else {
-            return 0;
+        let actual = {
+            let Some(target) = creature_mut(self, side, target_idx) else {
+                return 0;
+            };
+            let actual = amount.max(0);
+            target.block += actual;
+            actual
         };
-        let actual = amount.max(0);
-        target.block += actual;
+        if self.log_enabled && actual > 0 {
+            let round = self.round_number;
+            self.combat_log.push(CombatEvent::BlockGained {
+                round,
+                side,
+                target_idx,
+                amount: actual,
+            });
+        }
         actual
     }
 
@@ -594,6 +662,28 @@ impl CombatState {
     ///     full-on/off semantics live in the behavior port; for now we
     ///     just record presence.
     pub fn apply_power(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        power_id: &str,
+        amount: i32,
+    ) -> i32 {
+        let result = self.apply_power_inner(side, target_idx, power_id, amount);
+        if self.log_enabled {
+            let round = self.round_number;
+            self.combat_log.push(CombatEvent::PowerApplied {
+                round,
+                side,
+                target_idx,
+                power_id: power_id.to_string(),
+                delta: amount,
+                result_amount: result,
+            });
+        }
+        result
+    }
+
+    fn apply_power_inner(
         &mut self,
         side: CombatSide,
         target_idx: usize,
@@ -1505,6 +1595,50 @@ pub fn pick_axebot_intent(rng: &mut Rng, last_intent: Option<AxebotIntent>) -> A
 pub enum CombatResult {
     Victory,
     Defeat,
+}
+
+/// One event in the combat replay log. Pushed by `CombatState` mutations
+/// when `log_enabled` is true. Schema is append-only — adding variants
+/// is safe; renaming requires bumping the replay-tooling consumer.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CombatEvent {
+    /// `apply_damage` ran (post-modifier pipeline). Multi-hit attacks
+    /// emit one event per hit.
+    DamageDealt {
+        round: i32,
+        side: CombatSide,
+        target_idx: usize,
+        amount: i32,
+        outcome: DamageOutcome,
+    },
+    /// `gain_block` ran with a positive amount.
+    BlockGained {
+        round: i32,
+        side: CombatSide,
+        target_idx: usize,
+        amount: i32,
+    },
+    /// `apply_power` / `decrement_power` ran. `result_amount` is the
+    /// resulting stack count.
+    PowerApplied {
+        round: i32,
+        side: CombatSide,
+        target_idx: usize,
+        power_id: String,
+        delta: i32,
+        result_amount: i32,
+    },
+    /// `begin_turn` fired.
+    TurnBegan { round: i32, side: CombatSide },
+    /// `end_turn` fired.
+    TurnEnded { round: i32, side: CombatSide },
+    /// A relic combat hook ran (Anchor/BurningBlood/...).
+    RelicHookFired {
+        round: i32,
+        hook: &'static str,
+        player_idx: usize,
+        relic_id: String,
+    },
 }
 
 /// End-of-combat rewards. Caller (RunState orchestration layer) routes the
@@ -2993,6 +3127,83 @@ mod tests {
         let g1 = cs.generate_rewards(&mut rng1).gold;
         let g2 = cs.generate_rewards(&mut rng2).gold;
         assert_eq!(g1, g2);
+    }
+
+    // ---------- Combat-log tests -----------------------------------------
+
+    #[test]
+    fn log_off_by_default_no_events_recorded() {
+        let mut cs = ironclad_combat();
+        cs.gain_block(CombatSide::Player, 0, 5);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            ValueProp::MOVE,
+        );
+        assert!(cs.combat_log.is_empty());
+    }
+
+    #[test]
+    fn log_captures_damage_block_power_events() {
+        let mut cs = ironclad_combat();
+        cs.set_log_enabled(true);
+        cs.gain_block(CombatSide::Player, 0, 5);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            ValueProp::MOVE,
+        );
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+
+        let kinds: Vec<&str> = cs
+            .combat_log
+            .iter()
+            .map(|e| match e {
+                CombatEvent::BlockGained { .. } => "BlockGained",
+                CombatEvent::DamageDealt { .. } => "DamageDealt",
+                CombatEvent::PowerApplied { .. } => "PowerApplied",
+                CombatEvent::TurnBegan { .. } => "TurnBegan",
+                CombatEvent::TurnEnded { .. } => "TurnEnded",
+                CombatEvent::RelicHookFired { .. } => "RelicHookFired",
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            vec!["BlockGained", "DamageDealt", "PowerApplied"]
+        );
+    }
+
+    #[test]
+    fn log_captures_turn_and_hook_events() {
+        let mut cs = ironclad_combat();
+        cs.set_log_enabled(true);
+        cs.fire_before_combat_start_hooks();
+        cs.begin_turn(CombatSide::Player);
+        cs.end_turn();
+        cs.fire_after_combat_victory_hooks();
+
+        let hook_count = cs
+            .combat_log
+            .iter()
+            .filter(|e| matches!(e, CombatEvent::RelicHookFired { .. }))
+            .count();
+        // Ironclad has BurningBlood as the only starter relic; it has
+        // both BeforeCombatStart (no-op for BurningBlood — falls through)
+        // and AfterCombatVictory (heal). The dispatcher emits a log entry
+        // per relic-per-hook regardless of whether the relic has a
+        // registered handler, since the log captures dispatch attempts.
+        assert!(hook_count >= 2);
+
+        assert!(cs
+            .combat_log
+            .iter()
+            .any(|e| matches!(e, CombatEvent::TurnBegan { .. })));
+        assert!(cs
+            .combat_log
+            .iter()
+            .any(|e| matches!(e, CombatEvent::TurnEnded { .. })));
     }
 
     #[test]
