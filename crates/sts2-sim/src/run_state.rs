@@ -56,6 +56,12 @@ pub struct RunState {
     /// `acts[i]` = the act played at run-act-index `i` (typically 3 acts for
     /// a standard run).
     acts: Vec<ActId>,
+    /// `acts_have_second_boss[i]` mirrors C#'s per-act `HasSecondBoss`
+    /// flag, which the game sets from run-setup logic (ascension /
+    /// modifiers). Until those are ported we accept it as input — either
+    /// caller-set on `new()`, or detected from a `.run` log's history
+    /// (trailing double-`boss` entries).
+    acts_have_second_boss: Vec<bool>,
     players: Vec<PlayerSlot>,
     /// 0-based index into `acts`. `-1` = before the first act.
     current_act_index: i32,
@@ -77,17 +83,31 @@ impl RunState {
         acts: Vec<ActId>,
         modifiers: Vec<String>,
     ) -> Self {
+        let n = acts.len();
         Self {
             seed_string: seed_string.to_owned(),
             rng_set: RunRngSet::new(seed_string),
             ascension,
             acts,
+            acts_have_second_boss: vec![false; n],
             players,
             current_act_index: -1,
             act_floor: 0,
             current_map: None,
             modifiers,
         }
+    }
+
+    /// Set the `HasSecondBoss` flag for a given act index. Useful when
+    /// driving a forward-simulation run where the second-boss decision
+    /// needs to be made up front; replay paths can use
+    /// `from_run_log` which auto-detects from history.
+    pub fn set_act_has_second_boss(&mut self, act_index: i32, has: bool) {
+        self.acts_have_second_boss[act_index as usize] = has;
+    }
+
+    pub fn act_has_second_boss(&self, act_index: i32) -> bool {
+        self.acts_have_second_boss[act_index as usize]
     }
 
     /// Build a RunState from a parsed `.run` log. The log records the acts
@@ -108,7 +128,22 @@ impl RunState {
         let modifiers = log.modifiers.iter()
             .filter_map(|v| v.as_str().map(|s| s.to_owned()))
             .collect();
-        Some(Self::new(&log.seed, log.ascension, players, acts, modifiers))
+        let mut rs = Self::new(&log.seed, log.ascension, players, acts, modifiers);
+        // Detect HasSecondBoss per act by counting trailing "boss" entries
+        // in the recorded history. Two-or-more trailing bosses means the
+        // act ran with a second-boss layout.
+        for (i, hist) in log.map_point_history.iter().enumerate() {
+            if i >= rs.acts.len() {
+                break;
+            }
+            let trailing_bosses = hist.iter().rev()
+                .take_while(|n| n.map_point_type == "boss")
+                .count();
+            if trailing_bosses >= 2 {
+                rs.acts_have_second_boss[i] = true;
+            }
+        }
+        Some(rs)
     }
 
     pub fn seed_string(&self) -> &str { &self.seed_string }
@@ -143,11 +178,13 @@ impl RunState {
         let name = format!("act_{}_map", act_index + 1);
         let map_rng = Rng::new_named(self.rng_set.seed_uint(), &name);
         let is_multiplayer = self.players.len() > 1;
-        // shouldReplaceTreasureWithElites and hasSecondBoss are run-state-
-        // dependent in C# (ascension flags, modifiers). Stub as false for
-        // the MVP; future expansion threads the real flags in.
+        let has_second_boss = self.acts_have_second_boss[act_index as usize];
+        // shouldReplaceTreasureWithElites is a run-state-dependent flag
+        // (ascension / modifier driven) we haven't ported yet. Stays
+        // false until the modifier module lands.
         let map = StandardActMap::new(
-            map_rng, act.as_ref(), is_multiplayer, false, false, None, true,
+            map_rng, act.as_ref(), is_multiplayer, false, has_second_boss,
+            None, true,
         );
         self.current_act_index = act_index;
         self.act_floor = 0;

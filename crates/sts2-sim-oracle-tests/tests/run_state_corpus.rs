@@ -62,6 +62,7 @@ fn every_corpus_act_generates_clean_map() {
         };
         let act_count = rs.acts().len() as i32;
         for act_idx in 0..act_count {
+            let has_sb = rs.act_has_second_boss(act_idx);
             let map = rs.enter_act(act_idx);
             // Bounds: boss at (cols/2, rows), starting at (cols/2, 0).
             let cols = map.cols();
@@ -84,6 +85,20 @@ fn every_corpus_act_generates_clean_map() {
                 assert!(!p.parents.is_empty() || !p.children.is_empty(),
                     "{:?} act {}: orphan at {:?}",
                     path.file_name(), act_idx, p.coord);
+            }
+
+            // If the run had a second boss for this act, our regenerated
+            // map should also have one (at row=rows+1).
+            if has_sb {
+                let sb = map.second_boss().expect(
+                    "act flagged as second-boss but map.second_boss() is None"
+                );
+                assert_eq!(sb.coord.col, map.cols() / 2);
+                assert_eq!(sb.coord.row, map.rows() + 1);
+            } else {
+                assert!(map.second_boss().is_none(),
+                    "{:?} act {}: unexpected second_boss when run didn't flag one",
+                    path.file_name(), act_idx);
             }
         }
     }
