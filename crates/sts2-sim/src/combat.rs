@@ -542,6 +542,140 @@ impl CombatState {
             .map(|p| p.amount)
             .unwrap_or(0)
     }
+
+    // ---------- Damage modifier pipeline ----------------------------------
+    //
+    // Mirrors C# `Hook.ModifyDamage` / `ModifyDamageInternal`:
+    //   1. Card enchantment additive + multiplicative (TODO; current
+    //      CardInstance doesn't carry enchantment).
+    //   2. For each hook listener: ModifyDamageAdditive accumulates.
+    //   3. For each hook listener: ModifyDamageMultiplicative composes.
+    //   4. For each hook listener: ModifyDamageCap caps the result.
+    //   5. Math.Max(0, num); cast to int (truncation toward zero).
+    //
+    // C# iterates "hook listeners" (every power on every creature in the
+    // combat); each per-power method checks `dealer == base.Owner` or
+    // `target == base.Owner` and returns the identity (0 for additive,
+    // 1 for multiplicative) when it doesn't apply. We get the same
+    // numeric result by directly indexing dealer's powers vs target's
+    // powers and routing each contribution to the appropriate phase.
+    //
+    // Decimal vs f64: C# uses System.Decimal. Game damage is small
+    // integer-scale and the multiplicative factors we've seen are
+    // {0.75, 1.5} — all exact in f64. Factor count stays modest so we
+    // don't accumulate rounding error in practice.
+
+    /// Compute final integer damage after applying every active modifier
+    /// (Strength on dealer, Vulnerable on target, Weak on dealer, ...
+    /// later Intangible cap, etc.). The caller still routes the returned
+    /// integer through `apply_damage` for the block→HP split.
+    pub fn modify_damage(
+        &self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        raw: i32,
+        props: ValueProp,
+    ) -> i32 {
+        let mut num = raw as f64;
+
+        let dealer_powers = creature_powers(self, dealer);
+        let target_powers = creature_powers(self, target);
+
+        for power in dealer_powers {
+            num += power_additive_dealer(power, props);
+        }
+        for power in dealer_powers {
+            num *= power_multiplicative_dealer(power, props);
+        }
+        for power in target_powers {
+            num *= power_multiplicative_target(power, props);
+        }
+
+        let clamped = num.max(0.0);
+        clamped as i32
+    }
+
+    /// Convenience: compose `modify_damage` with `apply_damage`. Most card
+    /// behaviors deal damage through this entrypoint.
+    pub fn deal_damage(
+        &mut self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        raw: i32,
+        props: ValueProp,
+    ) -> DamageOutcome {
+        let modified = self.modify_damage(dealer, target, raw, props);
+        self.apply_damage(target.0, target.1, modified)
+    }
+}
+
+/// `ValueProp` flags — mirrors C# `MegaCrit.Sts2.Core.ValueProps.ValueProp`.
+/// `is_powered_attack()` is the predicate that gates damage modifiers:
+/// `Move && !Unpowered`.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Default)]
+pub struct ValueProp(pub u8);
+
+impl ValueProp {
+    pub const NONE: ValueProp = ValueProp(0);
+    pub const UNBLOCKABLE: ValueProp = ValueProp(2);
+    pub const UNPOWERED: ValueProp = ValueProp(4);
+    pub const MOVE: ValueProp = ValueProp(8);
+    pub const SKIP_HURT_ANIM: ValueProp = ValueProp(16);
+
+    pub const fn has(self, flag: ValueProp) -> bool {
+        (self.0 & flag.0) == flag.0
+    }
+    pub const fn with(self, flag: ValueProp) -> ValueProp {
+        ValueProp(self.0 | flag.0)
+    }
+    pub const fn is_powered_attack(self) -> bool {
+        self.has(ValueProp::MOVE) && !self.has(ValueProp::UNPOWERED)
+    }
+}
+
+fn creature_powers(cs: &CombatState, who: (CombatSide, usize)) -> &[PowerInstance] {
+    let creature = match who.0 {
+        CombatSide::Player => cs.allies.get(who.1),
+        CombatSide::Enemy => cs.enemies.get(who.1),
+        CombatSide::None => None,
+    };
+    creature.map(|c| c.powers.as_slice()).unwrap_or(&[])
+}
+
+fn power_additive_dealer(power: &PowerInstance, props: ValueProp) -> f64 {
+    if !props.is_powered_attack() {
+        return 0.0;
+    }
+    match power.id.as_str() {
+        // StrengthPower.ModifyDamageAdditive: +Amount on powered attacks
+        // from the owner. allow_negative=true → Strength can be negative
+        // (Weak-style debuffs subtract Strength).
+        "StrengthPower" => power.amount as f64,
+        _ => 0.0,
+    }
+}
+
+fn power_multiplicative_dealer(power: &PowerInstance, props: ValueProp) -> f64 {
+    if !props.is_powered_attack() {
+        return 1.0;
+    }
+    match power.id.as_str() {
+        // WeakPower: ×0.75 on powered attacks from the owner. (Paper
+        // Krane / Debilitate further tweak the factor; not modeled here.)
+        "WeakPower" => 0.75,
+        _ => 1.0,
+    }
+}
+
+fn power_multiplicative_target(power: &PowerInstance, props: ValueProp) -> f64 {
+    if !props.is_powered_attack() {
+        return 1.0;
+    }
+    match power.id.as_str() {
+        // VulnerablePower: ×1.5 on powered attacks landing on the owner.
+        "VulnerablePower" => 1.5,
+        _ => 1.0,
+    }
 }
 
 /// Outcome of a single `apply_damage` call. Useful for combat-log replay
@@ -1058,5 +1192,171 @@ mod tests {
         let after = cs.apply_power(CombatSide::Player, 0, "NotAPowerName", 5);
         assert_eq!(after, 0);
         assert!(cs.allies[0].powers.is_empty());
+    }
+
+    // ---------- Damage modifier pipeline tests ---------------------------
+    //
+    // Expected values hand-computed from the C# spec:
+    //   Strength contributes additively to dealer's outgoing damage on
+    //   powered attacks. Vulnerable multiplies *1.5 on target's incoming
+    //   damage. Weak multiplies *0.75 on dealer's outgoing. The pipeline
+    //   does additive first then multiplicative, then truncates toward 0
+    //   (C#'s `(int)decimal` cast).
+
+    fn powered_move() -> ValueProp {
+        ValueProp::MOVE
+    }
+
+    #[test]
+    fn no_modifiers_returns_raw_damage() {
+        let cs = ironclad_combat();
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        assert_eq!(d, 6);
+    }
+
+    #[test]
+    fn strength_adds_to_dealer() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        assert_eq!(d, 8);
+    }
+
+    #[test]
+    fn vulnerable_multiplies_on_target() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        assert_eq!(d, 9); // 6 * 1.5 = 9
+    }
+
+    #[test]
+    fn weak_multiplies_dealer_with_truncation() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "WeakPower", 3);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        assert_eq!(d, 4); // 6 * 0.75 = 4.5 -> trunc 4
+    }
+
+    #[test]
+    fn strength_plus_vulnerable_stacks_additive_then_multiplicative() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        // (6 + 2) * 1.5 = 12
+        assert_eq!(d, 12);
+    }
+
+    #[test]
+    fn strength_vulnerable_and_weak_compose() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
+        cs.apply_power(CombatSide::Player, 0, "WeakPower", 3);
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        // (6 + 2) * 0.75 * 1.5 = 9.0
+        assert_eq!(d, 9);
+    }
+
+    #[test]
+    fn unpowered_props_bypass_all_modifiers() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 5);
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+        // No Move flag → not a powered attack → no modifiers apply.
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            ValueProp::NONE,
+        );
+        assert_eq!(d, 6);
+        // Even with Move flag, Unpowered overrides.
+        let d2 = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            ValueProp::MOVE.with(ValueProp::UNPOWERED),
+        );
+        assert_eq!(d2, 6);
+    }
+
+    #[test]
+    fn negative_strength_subtracts() {
+        // Weak-style debuff drives Strength below zero (allow_negative=true).
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", -2);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        assert_eq!(d, 4);
+    }
+
+    #[test]
+    fn damage_clamps_to_zero_after_modifiers() {
+        // Strength of -10 on a 6-damage strike → -4, clamps to 0.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", -10);
+        let d = cs.modify_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        assert_eq!(d, 0);
+    }
+
+    #[test]
+    fn deal_damage_threads_modifier_then_block() {
+        // Vulnerable enemy with 5 block, Strike 6 → modified 9, blocks 5,
+        // chips 4 HP.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+        cs.enemies[0].block = 5;
+        let max_hp = cs.enemies[0].max_hp;
+        let outcome = cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            6,
+            powered_move(),
+        );
+        assert_eq!(outcome.blocked, 5);
+        assert_eq!(outcome.hp_lost, 4);
+        assert_eq!(cs.enemies[0].block, 0);
+        assert_eq!(cs.enemies[0].current_hp, max_hp - 4);
     }
 }
