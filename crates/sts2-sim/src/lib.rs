@@ -4,6 +4,7 @@
 //! the oracle diff tests in the `sts2-sim-oracle-tests` crate.
 
 pub mod act;
+pub mod affliction;
 pub mod card;
 pub mod hash;
 pub mod map;

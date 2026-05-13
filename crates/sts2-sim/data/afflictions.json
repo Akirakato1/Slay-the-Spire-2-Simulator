@@ -1,0 +1,42 @@
+[
+  {
+    "id": "Bound",
+    "has_extra_card_text": true,
+    "is_stackable": false
+  },
+  {
+    "id": "Devoured",
+    "has_extra_card_text": false,
+    "is_stackable": false
+  },
+  {
+    "id": "Entangled",
+    "has_extra_card_text": false,
+    "is_stackable": false
+  },
+  {
+    "id": "Galvanized",
+    "has_extra_card_text": true,
+    "is_stackable": true
+  },
+  {
+    "id": "Hexed",
+    "has_extra_card_text": false,
+    "is_stackable": false
+  },
+  {
+    "id": "Ringing",
+    "has_extra_card_text": true,
+    "is_stackable": false
+  },
+  {
+    "id": "Smog",
+    "has_extra_card_text": false,
+    "is_stackable": false
+  },
+  {
+    "id": "Weighted",
+    "has_extra_card_text": true,
+    "is_stackable": false
+  }
+]
