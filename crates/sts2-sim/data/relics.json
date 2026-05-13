@@ -1,0 +1,3711 @@
+[
+  {
+    "id": "Akabeko",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "VigorPower",
+        "base_value": 8.0
+      }
+    ]
+  },
+  {
+    "id": "AlchemicalCoffer",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "PotionSlots",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "AmethystAubergine",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 15.0
+      }
+    ]
+  },
+  {
+    "id": "Anchor",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 10.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "ArcaneScroll",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "ArchaicTooth",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "ArtOfWar",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Astrolabe",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "BagOfMarbles",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "VulnerablePower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "BagOfPreparation",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "BeatingRemnant",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "MaxHpLoss",
+        "base_value": 20.0
+      }
+    ]
+  },
+  {
+    "id": "BeautifulBracelet",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Swift",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "Bellows",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "BeltBuckle",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "BigHat",
+    "pools": [
+      "Necrobinder"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "BigMushroom",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 20.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "BiiigHug",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "BingBong",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event"
+  },
+  {
+    "id": "BlackBlood",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 12.0
+      }
+    ]
+  },
+  {
+    "id": "BlackStar",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "BlessedAntler",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "BloodSoakedRose",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "BloodVial",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "BoneFlute",
+    "pools": [
+      "Necrobinder"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 2.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "BoneTea",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic"
+      }
+    ]
+  },
+  {
+    "id": "BookOfFiveRings",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 5.0
+      },
+      {
+        "kind": "Heal",
+        "base_value": 20.0
+      }
+    ]
+  },
+  {
+    "id": "BookRepairKnife",
+    "pools": [
+      "Necrobinder"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "Bookmark",
+    "pools": [
+      "Necrobinder"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "BoomingConch",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "BoundPhylactery",
+    "pools": [
+      "Necrobinder"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Summon",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "BowlerHat",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "GoldIncrease",
+        "base_value": 1.25
+      }
+    ]
+  },
+  {
+    "id": "Bread",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "key": "GainEnergy",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Energy",
+        "key": "LoseEnergy",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "BrilliantScarf",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "Brimstone",
+    "pools": [
+      "Ironclad"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "key": "SelfStrength",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "key": "EnemyStrength",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "BronzeScales",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "ThornsPower",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "BurningBlood",
+    "pools": [
+      "Ironclad"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 6.0
+      }
+    ]
+  },
+  {
+    "id": "BurningSticks",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop"
+  },
+  {
+    "id": "Byrdpip",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event"
+  },
+  {
+    "id": "CallingBell",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Relics",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "Candelabra",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "CaptainsWheel",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 18.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "Cauldron",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Potions",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "CentennialPuzzle",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "Chandelier",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "CharonsAshes",
+    "pools": [
+      "Ironclad"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 3.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "ChemicalX",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Increase",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "ChoicesParadox",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "ChosenCheese",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Circlet",
+    "pools": [
+      "Fallback"
+    ],
+    "rarity": "None"
+  },
+  {
+    "id": "Claws",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 6.0
+      }
+    ]
+  },
+  {
+    "id": "CloakClasp",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 1.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "CrackedCore",
+    "pools": [
+      "Defect"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Lightning",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Crossbow",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "CursedPearl",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 333.0
+      }
+    ]
+  },
+  {
+    "id": "DarkstonePeriapt",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 6.0
+      }
+    ]
+  },
+  {
+    "id": "DataDisk",
+    "pools": [
+      "Defect"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "FocusPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "DaughterOfTheWind",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 1.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "DelicateFrond",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "DemonTongue",
+    "pools": [
+      "Ironclad"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "DeprecatedRelic",
+    "pools": [
+      "Deprecated"
+    ],
+    "rarity": "None"
+  },
+  {
+    "id": "DiamondDiadem",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "CardThreshold",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "DingyRug",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop"
+  },
+  {
+    "id": "DistinguishedCape",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "HpLoss",
+        "base_value": 9.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "DivineDestiny",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Stars",
+        "base_value": 6.0
+      }
+    ]
+  },
+  {
+    "id": "DivineRight",
+    "pools": [
+      "Regent"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Stars",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "DollysMirror",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop"
+  },
+  {
+    "id": "DragonFruit",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "DreamCatcher",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event"
+  },
+  {
+    "id": "Driftwood",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "DustyTome",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "Ectoplasm",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "ElectricShrymp",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "EmberTea",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic"
+      },
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "EmotionChip",
+    "pools": [
+      "Defect"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "EmptyCage",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "EternalFeather",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 5.0
+      },
+      {
+        "kind": "Heal",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "FakeAnchor",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 4.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "FakeBloodVial",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "FakeHappyFlower",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Turns",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "FakeLeesWaffle",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 10.0
+      }
+    ]
+  },
+  {
+    "id": "FakeMango",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "FakeMerchantsRug",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event"
+  },
+  {
+    "id": "FakeOrichalcum",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 3.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "FakeSneckoEye",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event"
+  },
+  {
+    "id": "FakeStrikeDummy",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "ExtraDamage",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "FakeVenerableTeaSet",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "FencingManual",
+    "pools": [
+      "Regent"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Forge",
+        "base_value": 10.0
+      }
+    ]
+  },
+  {
+    "id": "FestivePopper",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 9.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "Fiddle",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "ForgottenSoul",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 1.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "FragrantMushroom",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "HpLoss",
+        "base_value": 15.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "FresnelLens",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "NimbleAmount",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "FrozenEgg",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "FuneraryMask",
+    "pools": [
+      "Necrobinder"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "FurCoat",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Combats",
+        "base_value": 7.0
+      }
+    ]
+  },
+  {
+    "id": "GalacticDust",
+    "pools": [
+      "Regent"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Stars",
+        "base_value": 10.0
+      },
+      {
+        "kind": "Block",
+        "base_value": 10.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "GamblingChip",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "GamePiece",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "GhostSeed",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop"
+  },
+  {
+    "id": "Girya",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "GlassEye",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "Glitter",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "GnarledHammer",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "SharpAmount",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "GoldPlatedCables",
+    "pools": [
+      "Defect"
+    ],
+    "rarity": "Uncommon"
+  },
+  {
+    "id": "GoldenCompass",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "GoldenPearl",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 150.0
+      }
+    ]
+  },
+  {
+    "id": "Gorget",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "PlatingPower",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "GremlinHorn",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "HandDrill",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "VulnerablePower",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "HappyFlower",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Turns",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "HeftyTablet",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "HelicalDart",
+    "pools": [
+      "Silent"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "HistoryCourse",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event"
+  },
+  {
+    "id": "HornCleat",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 14.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "IceCream",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "InfusedCore",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Lightning",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "IntimidatingHelmet",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 4.0,
+        "value_prop": "Unpowered"
+      },
+      {
+        "kind": "Energy",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "IronClub",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "IvoryTile",
+    "pools": [
+      "Necrobinder"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Energy",
+        "key": "EnergyThreshold",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "JeweledMask",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "JewelryBox",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "JossPaper",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "ExhaustAmount",
+        "base_value": 5.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "JuzuBracelet",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common"
+  },
+  {
+    "id": "Kifuda",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "Kunai",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Kusarigama",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Damage",
+        "base_value": 6.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "Lantern",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "LargeCapsule",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Int",
+        "key": "Relics",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "LastingCandy",
+    "pools": [
+      "Event",
+      "Shared"
+    ],
+    "rarity": "Uncommon"
+  },
+  {
+    "id": "LavaLamp",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop"
+  },
+  {
+    "id": "LavaRock",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Relics",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "LeadPaperweight",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "LeafyPoultice",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 12.0
+      }
+    ]
+  },
+  {
+    "id": "LeesWaffle",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 7.0
+      }
+    ]
+  },
+  {
+    "id": "LetterOpener",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Damage",
+        "base_value": 5.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "LizardTail",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 50.0
+      }
+    ]
+  },
+  {
+    "id": "LoomingFruit",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 31.0
+      }
+    ]
+  },
+  {
+    "id": "LordsParasol",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "LostCoffer",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "LostWisp",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 8.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "LuckyFysh",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 15.0
+      }
+    ]
+  },
+  {
+    "id": "LunarPastry",
+    "pools": [
+      "Regent"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Stars",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Mango",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 14.0
+      }
+    ]
+  },
+  {
+    "id": "MassiveScroll",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "MawBank",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 12.0
+      }
+    ]
+  },
+  {
+    "id": "MealTicket",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 15.0
+      }
+    ]
+  },
+  {
+    "id": "MeatCleaver",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "MeatOnTheBone",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "HpThreshold",
+        "base_value": 50.0
+      },
+      {
+        "kind": "Heal",
+        "base_value": 12.0
+      }
+    ]
+  },
+  {
+    "id": "MembershipCard",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Discount",
+        "base_value": 50.0
+      }
+    ]
+  },
+  {
+    "id": "MercuryHourglass",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 3.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "Metronome",
+    "pools": [
+      "Defect"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 30.0,
+        "value_prop": "Unpowered"
+      },
+      {
+        "kind": "Dynamic",
+        "key": "OrbCount",
+        "base_value": 7.0
+      }
+    ]
+  },
+  {
+    "id": "MiniRegent",
+    "pools": [
+      "Regent"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "MiniatureCannon",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "ExtraDamage",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "MiniatureTent",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop"
+  },
+  {
+    "id": "MoltenEgg",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "MrStruggles",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event"
+  },
+  {
+    "id": "MummifiedHand",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "MusicBox",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "MysticLighter",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 9.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "NeowsBones",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Relics",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Curses",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "NeowsTalisman",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "NeowsTorment",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "NewLeaf",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "NinjaScroll",
+    "pools": [
+      "Silent"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Shivs",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "Nunchaku",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 10.0
+      },
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "NutritiousOyster",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 11.0
+      }
+    ]
+  },
+  {
+    "id": "NutritiousSoup",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "OddlySmoothStone",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "OldCoin",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 300.0
+      }
+    ]
+  },
+  {
+    "id": "OrangeDough",
+    "pools": [
+      "Regent"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "Orichalcum",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 6.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "OrnamentalFan",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Block",
+        "base_value": 4.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "Orrery",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "PaelsBlood",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "PaelsClaw",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "PaelsEye",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "PaelsFlesh",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "PaelsGrowth",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "PaelsHorn",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "PaelsLegion",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Turns",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "PaelsTears",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "PaelsTooth",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 5.0
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "PaelsWing",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Sacrifices",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "PandorasBox",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "Pantograph",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 25.0
+      }
+    ]
+  },
+  {
+    "id": "PaperKrane",
+    "pools": [
+      "Silent"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "PaperPhrog",
+    "pools": [
+      "Ironclad"
+    ],
+    "rarity": "Uncommon"
+  },
+  {
+    "id": "ParryingShield",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 10.0,
+        "value_prop": "Unpowered"
+      },
+      {
+        "kind": "Damage",
+        "base_value": 6.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "Pear",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 10.0
+      }
+    ]
+  },
+  {
+    "id": "PenNib",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon"
+  },
+  {
+    "id": "Pendulum",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Turns",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "Permafrost",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 7.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "PetrifiedToad",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon"
+  },
+  {
+    "id": "PhialHolster",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "PotionSlots",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Potions",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "PhilosophersStone",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "PhylacteryUnbound",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Summon",
+        "key": "StartOfCombat",
+        "base_value": 5.0
+      },
+      {
+        "kind": "Summon",
+        "key": "StartOfTurn",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "Planisphere",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "Pocketwatch",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "CardThreshold",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "PollinousCore",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Turns",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "Pomander",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "PotionBelt",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "PotionSlots",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "PowerCell",
+    "pools": [
+      "Defect"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "PrayerWheel",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "PrecariousShears",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Damage",
+        "base_value": 16.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "PreciseScissors",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "PreservedFog",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "PrismaticGem",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "PumpkinCandle",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "PunchDagger",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Momentum",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "RadiantPearl",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "RainbowRing",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "RazorTooth",
+    "pools": [
+      "Event",
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "RedMask",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "WeakPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "RedSkull",
+    "pools": [
+      "Ironclad"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "HpThreshold",
+        "base_value": 50.0
+      },
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "RegalPillow",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 15.0
+      }
+    ]
+  },
+  {
+    "id": "Regalite",
+    "pools": [
+      "Regent"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 2.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "ReptileTrinket",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "RingOfTheDrake",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Turns",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "RingOfTheSnake",
+    "pools": [
+      "Silent"
+    ],
+    "rarity": "Starter",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "RingingTriangle",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop"
+  },
+  {
+    "id": "RippleBasin",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 4.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "RoyalPoison",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 4.0,
+        "value_prop": "Unblockable"
+      }
+    ]
+  },
+  {
+    "id": "RoyalStamp",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 1.0
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "RuinedHelmet",
+    "pools": [
+      "Ironclad"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "RunicCapacitor",
+    "pools": [
+      "Defect"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Repeat",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "RunicPyramid",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "Sai",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 7.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "SandCastle",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 6.0
+      }
+    ]
+  },
+  {
+    "id": "ScreamingFlagon",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 20.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "ScrollBoxes",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "SeaGlass",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 15.0
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "SealOfGold",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Gold",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "SelfFormingClay",
+    "pools": [
+      "Ironclad"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "BlockNextTurn",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "SereTalon",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Curses",
+        "base_value": 2.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Wishes",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "Shovel",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "Shuriken",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "SignetRing",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Gold",
+        "base_value": 999.0
+      }
+    ]
+  },
+  {
+    "id": "SilverCrucible",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "SlingOfCourage",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "SmallCapsule",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "SneckoEye",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "SneckoSkull",
+    "pools": [
+      "Silent"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "PoisonPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Sozu",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "SparklingRouge",
+    "pools": [
+      "Event",
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Power",
+        "generic": "DexterityPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "SpikedGauntlets",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "StoneCalendar",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 52.0,
+        "value_prop": "Unpowered"
+      },
+      {
+        "kind": "Dynamic",
+        "key": "DamageTurn",
+        "base_value": 7.0
+      }
+    ]
+  },
+  {
+    "id": "StoneCracker",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "StoneHumidifier",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "Storybook",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "Strawberry",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "MaxHp",
+        "base_value": 7.0
+      }
+    ]
+  },
+  {
+    "id": "StrikeDummy",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "ExtraDamage",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "SturdyClamp",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 10.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "SwordOfJade",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "SwordOfStone",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Elites",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "SymbioticVirus",
+    "pools": [
+      "Defect"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Dark",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "TanxsWhistle",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "TeaOfDiscourtesy",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Heal",
+        "base_value": 1.0
+      },
+      {
+        "kind": "Dynamic"
+      },
+      {
+        "kind": "Dynamic",
+        "key": "DazedCount",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "TheAbacus",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 6.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "TheBoot",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "DamageMinimum",
+        "base_value": 5.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "DamageThreshold",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "TheCourier",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Discount",
+        "base_value": 20.0
+      }
+    ]
+  },
+  {
+    "id": "ThrowingAxe",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient"
+  },
+  {
+    "id": "Tingsha",
+    "pools": [
+      "Silent"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Damage",
+        "base_value": 3.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "TinyMailbox",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon"
+  },
+  {
+    "id": "ToastyMittens",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Toolbox",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "TouchOfOrobas",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "String"
+      },
+      {
+        "kind": "String"
+      }
+    ]
+  },
+  {
+    "id": "ToughBandages",
+    "pools": [
+      "Silent"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Block",
+        "base_value": 3.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "ToxicEgg",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "ToyBox",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Relics",
+        "base_value": 4.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "Combats",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "TriBoomerang",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "TungstenRod",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "HpLossReduction",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "TuningFork",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 10.0
+      },
+      {
+        "kind": "Block",
+        "base_value": 7.0,
+        "value_prop": "Unpowered"
+      }
+    ]
+  },
+  {
+    "id": "TwistedFunnel",
+    "pools": [
+      "Silent"
+    ],
+    "rarity": "Uncommon",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "PoisonPower",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "UnceasingTop",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "UndyingSigil",
+    "pools": [
+      "Necrobinder"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "DamageDecrease",
+        "base_value": 0.5
+      }
+    ]
+  },
+  {
+    "id": "UnsettlingLamp",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "Vajra",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Power",
+        "generic": "StrengthPower",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "Vambrace",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Uncommon"
+  },
+  {
+    "id": "VelvetChoker",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 6.0
+      },
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "VenerableTeaSet",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "VeryHotCocoa",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "VexingPuzzlebox",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "VitruvianMinion",
+    "pools": [
+      "Regent"
+    ],
+    "rarity": "Shop"
+  },
+  {
+    "id": "WarHammer",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 4.0
+      }
+    ]
+  },
+  {
+    "id": "WarPaint",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "Whetstone",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Common",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 2.0
+      }
+    ]
+  },
+  {
+    "id": "WhisperingEarring",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Energy",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "WhiteBeastStatue",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "WhiteStar",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Rare"
+  },
+  {
+    "id": "WingCharm",
+    "pools": [
+      "Shared"
+    ],
+    "rarity": "Shop",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "SwiftAmount",
+        "base_value": 1.0
+      }
+    ]
+  },
+  {
+    "id": "WingedBoots",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Dynamic",
+        "key": "Rooms",
+        "base_value": 3.0
+      }
+    ]
+  },
+  {
+    "id": "WongoCustomerAppreciationBadge",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event"
+  },
+  {
+    "id": "WongosMysteryTicket",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Event",
+    "canonical_vars": [
+      {
+        "kind": "Repeat",
+        "base_value": 3.0
+      },
+      {
+        "kind": "Dynamic",
+        "key": "RemainingCombats",
+        "base_value": 5.0
+      }
+    ]
+  },
+  {
+    "id": "YummyCookie",
+    "pools": [
+      "Event"
+    ],
+    "rarity": "Ancient",
+    "canonical_vars": [
+      {
+        "kind": "Cards",
+        "base_value": 4.0
+      }
+    ]
+  }
+]
