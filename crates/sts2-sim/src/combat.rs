@@ -1,9 +1,9 @@
-//! Combat data structures — Phase 0.2 scaffolding.
+//! Combat data structures + state-management primitives — Phase 0.2.
 //!
-//! Pure data; no behavior. Once these are stable the next sub-port adds the
-//! turn loop, damage pipeline, card-play resolution, and the deferred OnPlay
-//! / power-modify / monster-intent virtuals (which together are most of the
-//! remaining Phase 0.2 effort).
+//! Adds the pure-state machinery (turn flow, pile rotation, block clear)
+//! without any of the per-card / per-power / per-monster *behavior* virtuals.
+//! Those land in the next sub-port and constitute most of the remaining
+//! Phase 0.2 effort.
 //!
 //! Naming mirrors the C# decompile where reasonable:
 //!   - `CombatState.{Allies, Enemies, RoundNumber, CurrentSide, Encounter, Modifiers}`
@@ -23,6 +23,7 @@ use crate::card::{by_id as card_by_id, CardData};
 use crate::character::CharacterData;
 use crate::encounter::EncounterData;
 use crate::monster::MonsterData;
+use crate::rng::Rng;
 
 /// Default player energy at the start of each combat turn. (StS1/StS2
 /// standard; the actual game lookup includes relic/affliction modifiers that
@@ -255,6 +256,102 @@ impl CombatState {
             escaped: Vec::new(),
         }
     }
+
+    // ---------- Turn-loop state machine -----------------------------------
+    //
+    // The C# CombatManager runs an async turn loop that fires hooks at each
+    // boundary (BeforeSideTurnStart, AfterTurnEnd, ...). Those hooks land
+    // with the behavior port. The methods below are the pure-state pieces:
+    // they shuffle bookkeeping but don't run any model code.
+
+    /// Player turn → Enemy turn → Player turn. Each Player-side begin is the
+    /// start of a new round; we bump `round_number` then. Sets `current_side`.
+    pub fn begin_turn(&mut self, side: CombatSide) {
+        if side == CombatSide::Player && self.current_side == CombatSide::Enemy {
+            self.round_number += 1;
+        }
+        self.current_side = side;
+        // Block survives one creature's *own* turn end → wipe at the start
+        // of that side's next turn. This matches StS rules: block from
+        // Defend persists through enemy attacks, then resets when you play
+        // again. We clear on this side's begin, not on end.
+        match side {
+            CombatSide::Player => {
+                for ally in self.allies.iter_mut() {
+                    ally.block = 0;
+                }
+            }
+            CombatSide::Enemy => {
+                for enemy in self.enemies.iter_mut() {
+                    enemy.block = 0;
+                }
+            }
+            CombatSide::None => {}
+        }
+    }
+
+    /// Pure end-of-turn bookkeeping for the side just finishing:
+    ///   - Player side: discard the hand (StS rule; cards with retain
+    ///     keyword stay, but tag-based exemptions land with behavior).
+    ///   - Energy refresh for players happens at the *next* `begin_turn`
+    ///     after the behavior port wires in modifiers; we leave energy alone
+    ///     here so the test surface stays predictable.
+    pub fn end_turn(&mut self) {
+        if self.current_side == CombatSide::Player {
+            for ally in self.allies.iter_mut() {
+                let Some(ps) = ally.player.as_mut() else {
+                    continue;
+                };
+                // Move hand → discard wholesale. Retain handling lives in
+                // the behavior port (inspects CardInstance::tags_this_turn).
+                ps.discard.cards.append(&mut ps.hand.cards);
+            }
+        }
+    }
+
+    /// Draw up to `n` cards from the first player's draw pile, reshuffling
+    /// discard into draw when draw is exhausted. Stops early if both piles
+    /// are empty. Uses `rng.shuffle()` (== C# `Rng.Shuffle` Fisher-Yates),
+    /// matching `RunState.Rng.Shuffle` semantics. Returns the number drawn.
+    pub fn draw_cards(&mut self, player_idx: usize, n: i32, rng: &mut Rng) -> i32 {
+        let Some(creature) = self.allies.get_mut(player_idx) else {
+            return 0;
+        };
+        let Some(ps) = creature.player.as_mut() else {
+            return 0;
+        };
+        let mut drawn = 0;
+        for _ in 0..n {
+            if ps.draw.is_empty() {
+                if ps.discard.is_empty() {
+                    break;
+                }
+                // Reshuffle: drain discard into draw, then shuffle in place.
+                ps.draw.cards.append(&mut ps.discard.cards);
+                rng.shuffle(&mut ps.draw.cards);
+            }
+            // StS draws from the TOP of the draw pile; C# uses
+            // RemoveAt(Count-1)-style pops. The shuffle determines order
+            // before we pop, so pop_back is fine.
+            if let Some(card) = ps.draw.cards.pop() {
+                ps.hand.cards.push(card);
+                drawn += 1;
+            }
+        }
+        drawn
+    }
+
+    /// Move every card in the named player's hand to discard. Useful for
+    /// end-of-turn and effects like "Discard your hand."
+    pub fn discard_hand(&mut self, player_idx: usize) {
+        let Some(creature) = self.allies.get_mut(player_idx) else {
+            return;
+        };
+        let Some(ps) = creature.player.as_mut() else {
+            return;
+        };
+        ps.discard.cards.append(&mut ps.hand.cards);
+    }
 }
 
 /// Input bundle for setting up one player creature at combat start. The
@@ -412,5 +509,141 @@ mod tests {
         let upgraded = CardInstance::from_card(bc, 1);
         assert_eq!(unupgraded.current_energy_cost, 9);
         assert_eq!(upgraded.current_energy_cost, 7);
+    }
+
+    // ---------- Turn-loop primitive tests ---------------------------------
+
+    fn ironclad_combat() -> CombatState {
+        let ironclad = character::by_id("Ironclad").expect("Ironclad present");
+        let encounter =
+            encounter::by_id("AxebotsNormal").expect("AxebotsNormal present");
+        let deck = deck_from_ids(&ironclad.starting_deck);
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: ironclad.starting_hp.unwrap(),
+            max_hp: ironclad.starting_hp.unwrap(),
+            deck,
+        };
+        CombatState::start(encounter, vec![setup], Vec::new())
+    }
+
+    #[test]
+    fn side_flip_increments_round_on_player_reentry() {
+        let mut cs = ironclad_combat();
+        assert_eq!(cs.round_number, 1);
+        assert_eq!(cs.current_side, CombatSide::Player);
+
+        // Player → Enemy: still round 1.
+        cs.end_turn();
+        cs.begin_turn(CombatSide::Enemy);
+        assert_eq!(cs.round_number, 1);
+        assert_eq!(cs.current_side, CombatSide::Enemy);
+
+        // Enemy → Player: round 2.
+        cs.end_turn();
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.round_number, 2);
+        assert_eq!(cs.current_side, CombatSide::Player);
+
+        // Player → Enemy → Player: round 3.
+        cs.end_turn();
+        cs.begin_turn(CombatSide::Enemy);
+        cs.end_turn();
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.round_number, 3);
+    }
+
+    #[test]
+    fn block_clears_at_begin_turn() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].block = 7;
+        cs.enemies[0].block = 4;
+
+        // Player begin: clears player block, leaves enemy alone.
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.allies[0].block, 0);
+        assert_eq!(cs.enemies[0].block, 4);
+
+        // Now switch to Enemy: clears enemy block.
+        cs.end_turn();
+        cs.begin_turn(CombatSide::Enemy);
+        assert_eq!(cs.enemies[0].block, 0);
+    }
+
+    #[test]
+    fn draw_five_from_ten_card_deck_uses_no_reshuffle() {
+        let mut cs = ironclad_combat();
+        let mut rng = Rng::new(12345, 0);
+        let drawn = cs.draw_cards(0, 5, &mut rng);
+        assert_eq!(drawn, 5);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.hand.len(), 5);
+        assert_eq!(ps.draw.len(), 5);
+        assert!(ps.discard.is_empty());
+    }
+
+    #[test]
+    fn draw_more_than_deck_size_triggers_reshuffle() {
+        // 10-card deck. Manually move 7 cards to discard (simulating a
+        // mid-combat state), then ask for 5 — first 3 come from draw,
+        // discard is reshuffled into draw, last 2 come from the reshuffled
+        // pile. Total drawn = 5, both piles non-empty after.
+        let mut cs = ironclad_combat();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            for _ in 0..7 {
+                let card = ps.draw.cards.pop().unwrap();
+                ps.discard.cards.push(card);
+            }
+            assert_eq!(ps.draw.len(), 3);
+            assert_eq!(ps.discard.len(), 7);
+        }
+
+        let mut rng = Rng::new(42, 0);
+        let drawn = cs.draw_cards(0, 5, &mut rng);
+        assert_eq!(drawn, 5);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.hand.len(), 5);
+        // 3 + 7 = 10 total; minus 5 in hand = 5 remaining in draw,
+        // 0 in discard (was emptied during reshuffle).
+        assert_eq!(ps.draw.len(), 5);
+        assert!(ps.discard.is_empty());
+    }
+
+    #[test]
+    fn draw_stops_when_both_piles_empty() {
+        let mut cs = ironclad_combat();
+        {
+            // Empty the draw pile into exhaust to simulate burned-out hand.
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.exhaust.cards.append(&mut ps.draw.cards);
+        }
+        let mut rng = Rng::new(7, 0);
+        let drawn = cs.draw_cards(0, 5, &mut rng);
+        assert_eq!(drawn, 0);
+    }
+
+    #[test]
+    fn discard_hand_moves_all_to_discard() {
+        let mut cs = ironclad_combat();
+        let mut rng = Rng::new(1, 0);
+        cs.draw_cards(0, 5, &mut rng);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().hand.len(), 5);
+
+        cs.discard_hand(0);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.hand.is_empty());
+        assert_eq!(ps.discard.len(), 5);
+    }
+
+    #[test]
+    fn end_turn_on_player_side_discards_hand() {
+        let mut cs = ironclad_combat();
+        let mut rng = Rng::new(1, 0);
+        cs.draw_cards(0, 5, &mut rng);
+        cs.end_turn();
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.hand.is_empty());
+        assert_eq!(ps.discard.len(), 5);
     }
 }
