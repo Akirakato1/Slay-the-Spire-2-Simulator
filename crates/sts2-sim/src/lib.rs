@@ -7,6 +7,7 @@ pub mod act;
 pub mod affliction;
 pub mod card;
 pub mod character;
+pub mod combat;
 pub mod enchantment;
 pub mod encounter;
 pub mod event;
