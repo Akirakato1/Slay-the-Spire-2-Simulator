@@ -950,6 +950,72 @@ fn power_multiplicative_target(power: &PowerInstance, props: ValueProp) -> f64 {
     }
 }
 
+// ---------- Monster intent selection (Axebot) ---------------------------
+//
+// Reflects C# `MonsterMoveStateMachine` + `RandomBranchState.GetNextState`:
+//   total = sum of weights
+//   roll  = rng.NextFloat(total)   // in [0, total)
+//   subtract each weight in registration order; return the first state
+//   where roll <= 0
+//
+// We don't yet have the generic state-machine abstraction — Axebot's
+// pattern is direct-baked here. Once a second / third monster ports, the
+// shared pieces (RandomBranchState, MoveRepeatType, weighted pick) will
+// factor out cleanly.
+
+/// Axebot's selectable moves, in the C# state-machine declaration order.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum AxebotIntent {
+    BootUp,
+    OneTwo,
+    Sharpen,
+    HammerUppercut,
+}
+
+impl AxebotIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            AxebotIntent::BootUp => "BOOT_UP_MOVE",
+            AxebotIntent::OneTwo => "ONE_TWO_MOVE",
+            AxebotIntent::Sharpen => "SHARPEN_MOVE",
+            AxebotIntent::HammerUppercut => "HAMMER_UPPERCUT_MOVE",
+        }
+    }
+}
+
+/// Pick Axebot's next intent. C# Axebot.GenerateMoveStateMachine:
+///   - First turn (no `last_intent`): BOOT_UP_MOVE.
+///   - All subsequent turns: weighted random across
+///     {OneTwo:2, Sharpen:1 unless just played, HammerUppercut:2} with the
+///     C# subtract-and-compare iteration on `rng.NextFloat(total)`.
+///
+/// `rng` must be the monster's per-encounter `monster.Rng` instance (in
+/// C# derived from `RunState.Rng.Seed + map_coord`). Tests can pass a
+/// deterministically-seeded `Rng::new(seed, 0)`.
+pub fn pick_axebot_intent(rng: &mut Rng, last_intent: Option<AxebotIntent>) -> AxebotIntent {
+    if last_intent.is_none() {
+        return AxebotIntent::BootUp;
+    }
+    let sharpen_blocked = matches!(last_intent, Some(AxebotIntent::Sharpen));
+    let w_one_two: f32 = 2.0;
+    let w_sharpen: f32 = if sharpen_blocked { 0.0 } else { 1.0 };
+    let w_hammer: f32 = 2.0;
+    let total = w_one_two + w_sharpen + w_hammer;
+    let mut roll = rng.next_float(total);
+    // Iteration order matches C#'s RandomBranchState.States list order.
+    roll -= w_one_two;
+    if roll <= 0.0 {
+        return AxebotIntent::OneTwo;
+    }
+    roll -= w_sharpen;
+    if roll <= 0.0 {
+        return AxebotIntent::Sharpen;
+    }
+    // Last branch — math guarantees roll - w_hammer <= 0 since
+    // initial roll < total. Return without further check.
+    AxebotIntent::HammerUppercut
+}
+
 /// Result of a resolved combat. Reported by [`CombatState::is_combat_over`]
 /// when the combat ends.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -1925,6 +1991,88 @@ mod tests {
     }
 
     // ---------- Vertical-slice integration test --------------------------
+
+    // ---------- Axebot intent selection tests -----------------------------
+
+    #[test]
+    fn axebot_first_turn_is_boot_up() {
+        let mut rng = Rng::new(1234, 0);
+        let intent = pick_axebot_intent(&mut rng, None);
+        assert_eq!(intent, AxebotIntent::BootUp);
+    }
+
+    #[test]
+    fn axebot_subsequent_intent_is_from_random_set() {
+        let mut rng = Rng::new(1234, 0);
+        // After BootUp, the next pick must be one of the three random
+        // branches.
+        let next = pick_axebot_intent(&mut rng, Some(AxebotIntent::BootUp));
+        assert!(matches!(
+            next,
+            AxebotIntent::OneTwo | AxebotIntent::Sharpen | AxebotIntent::HammerUppercut
+        ));
+    }
+
+    #[test]
+    fn axebot_sharpen_cannot_repeat_immediately() {
+        // 100 picks following a Sharpen — none should be Sharpen.
+        let mut rng = Rng::new(9999, 0);
+        for _ in 0..100 {
+            let intent = pick_axebot_intent(&mut rng, Some(AxebotIntent::Sharpen));
+            assert_ne!(
+                intent,
+                AxebotIntent::Sharpen,
+                "Sharpen should be excluded after just playing Sharpen"
+            );
+        }
+    }
+
+    #[test]
+    fn axebot_intent_distribution_matches_weights() {
+        // Over many trials following a non-Sharpen intent, expect
+        // approximately {OneTwo: 2/5, Sharpen: 1/5, HammerUppercut: 2/5}.
+        let mut rng = Rng::new(424242, 0);
+        let trials = 10_000;
+        let mut one_two = 0;
+        let mut sharpen = 0;
+        let mut hammer = 0;
+        for _ in 0..trials {
+            match pick_axebot_intent(&mut rng, Some(AxebotIntent::OneTwo)) {
+                AxebotIntent::OneTwo => one_two += 1,
+                AxebotIntent::Sharpen => sharpen += 1,
+                AxebotIntent::HammerUppercut => hammer += 1,
+                AxebotIntent::BootUp => panic!("BootUp shouldn't appear post-first-turn"),
+            }
+        }
+        // Tolerance: 4 standard deviations on a binomial. Reaches 5%
+        // tolerance per category at 10k trials.
+        let expect_ot = 4000;
+        let expect_sh = 2000;
+        let expect_hm = 4000;
+        let tol = 250;
+        assert!(
+            (one_two - expect_ot as i32).abs() < tol,
+            "OneTwo: {one_two}"
+        );
+        assert!(
+            (sharpen - expect_sh as i32).abs() < tol,
+            "Sharpen: {sharpen}"
+        );
+        assert!(
+            (hammer - expect_hm as i32).abs() < tol,
+            "HammerUppercut: {hammer}"
+        );
+    }
+
+    #[test]
+    fn axebot_intent_id_strings_match_c_sharp() {
+        // String ids match the C# state ids — these get serialized into
+        // run logs eventually.
+        assert_eq!(AxebotIntent::BootUp.id(), "BOOT_UP_MOVE");
+        assert_eq!(AxebotIntent::OneTwo.id(), "ONE_TWO_MOVE");
+        assert_eq!(AxebotIntent::Sharpen.id(), "SHARPEN_MOVE");
+        assert_eq!(AxebotIntent::HammerUppercut.id(), "HAMMER_UPPERCUT_MOVE");
+    }
 
     /// End-to-end: Ironclad plays Strikes until both Axebots are dead.
     /// Validates state-management + modifier pipeline + OnPlay dispatch +
