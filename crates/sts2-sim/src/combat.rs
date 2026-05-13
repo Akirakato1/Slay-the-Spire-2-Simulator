@@ -92,6 +92,11 @@ pub struct PlayerState {
     /// Per-turn energy refresh amount. Modified by relics like Velvet
     /// Choker, afflictions, etc. — behavior port will plumb those.
     pub turn_energy: i32,
+    /// Relic ids the player has at combat time. Combat hooks (Burning
+    /// Blood's AfterCombatVictory, Anchor's BeforeCombatStart, etc.)
+    /// dispatch over this list. Mutated only by mid-combat effects that
+    /// add/remove relics; usually static for the duration.
+    pub relics: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -313,6 +318,29 @@ impl CombatState {
         // Hook firing order proper will land in #70; for now we run the
         // ticks directly so combat math stays correct.
         self.tick_start_of_turn_powers(side);
+    }
+
+    /// Fire each player's relic AfterCombatVictory hooks. Caller invokes
+    /// when `is_combat_over()` returns Victory. The hook dispatcher
+    /// walks each player's `relics` list and runs registered handlers.
+    ///
+    /// Hook firing order across hook-listening models (powers / relics
+    /// / modifiers) lives in #70. For now we only fire relic hooks since
+    /// they're the only `AfterCombatVictory` source we've ported.
+    pub fn fire_after_combat_victory_hooks(&mut self) {
+        // Snapshot (player_idx, relic_id) pairs so the dispatch can mutate
+        // freely without iterator invalidation.
+        let mut pairs: Vec<(usize, String)> = Vec::new();
+        for (player_idx, creature) in self.allies.iter().enumerate() {
+            if let Some(ps) = creature.player.as_ref() {
+                for relic in &ps.relics {
+                    pairs.push((player_idx, relic.clone()));
+                }
+            }
+        }
+        for (player_idx, relic_id) in pairs {
+            dispatch_relic_after_combat_victory(self, player_idx, &relic_id);
+        }
     }
 
     /// Apply each creature's start-of-turn power effects when that
@@ -1027,6 +1055,37 @@ fn canonical_int_value(card: &CardData, var_kind: &str, upgrade_level: i32) -> i
     total as i32
 }
 
+// ---------- Relic combat hook dispatch --------------------------------
+//
+// Each relic with a combat hook adds an arm to one of the dispatcher
+// functions below. Currently only AfterCombatVictory is plumbed; the
+// other hook points (BeforeCombatStart, AfterDamageTaken, BeforeSideTurnStart)
+// land alongside #70 (hook firing order infrastructure).
+
+/// Dispatch a single relic's `AfterCombatVictory` hook. Walks per-relic
+/// arms; relics with no AfterCombatVictory behavior fall through.
+fn dispatch_relic_after_combat_victory(
+    cs: &mut CombatState,
+    player_idx: usize,
+    relic_id: &str,
+) {
+    match relic_id {
+        // BurningBlood: if owner not dead, heal HealVar (6). Matches the
+        // C# guard `if (!base.Owner.Creature.IsDead)`.
+        "BurningBlood" => {
+            if cs
+                .allies
+                .get(player_idx)
+                .map(|c| c.current_hp > 0)
+                .unwrap_or(false)
+            {
+                cs.heal(CombatSide::Player, player_idx, 6);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn var_matches(v: &crate::card::CardVar, var_kind: &str) -> bool {
     if v.kind == var_kind {
         return true;
@@ -1364,6 +1423,9 @@ pub struct PlayerSetup<'a> {
     /// `CardInstance` list to load into the draw pile (already-upgraded,
     /// already-cloned).
     pub deck: Vec<CardInstance>,
+    /// Relic ids the player has at combat start. Combat hooks dispatch
+    /// over this list.
+    pub relics: Vec<String>,
 }
 
 impl Creature {
@@ -1384,6 +1446,7 @@ impl Creature {
                 exhaust: CardPile::new(PileType::Exhaust),
                 energy: DEFAULT_TURN_ENERGY,
                 turn_energy: DEFAULT_TURN_ENERGY,
+                relics: setup.relics,
             }),
             monster: None,
         }
@@ -1455,6 +1518,7 @@ mod tests {
             current_hp: ironclad.starting_hp.unwrap(),
             max_hp: ironclad.starting_hp.unwrap(),
             deck,
+            relics: ironclad.starting_relics.clone(),
         };
         let cs = CombatState::start(encounter, vec![setup], Vec::new());
 
@@ -1521,6 +1585,7 @@ mod tests {
             current_hp: ironclad.starting_hp.unwrap(),
             max_hp: ironclad.starting_hp.unwrap(),
             deck,
+            relics: ironclad.starting_relics.clone(),
         };
         CombatState::start(encounter, vec![setup], Vec::new())
     }
@@ -2593,6 +2658,60 @@ mod tests {
             assert_eq!(r, PlayResult::Ok, "{defend} did not dispatch");
             assert!(cs.allies[0].block > 0);
         }
+    }
+
+    // ---------- Relic combat hook tests ----------------------------------
+
+    #[test]
+    fn burning_blood_heals_six_on_victory() {
+        let mut cs = ironclad_combat();
+        // Take some damage first.
+        cs.allies[0].current_hp = 60;
+        // Kill enemies (no rewards / no auto-detection — caller invokes
+        // hooks explicitly upon detecting victory).
+        for e in cs.enemies.iter_mut() {
+            e.current_hp = 0;
+        }
+        assert_eq!(cs.is_combat_over(), Some(CombatResult::Victory));
+        cs.fire_after_combat_victory_hooks();
+        // BurningBlood heals 6, saturating at max_hp.
+        assert_eq!(cs.allies[0].current_hp, 66);
+    }
+
+    #[test]
+    fn burning_blood_caps_at_max_hp() {
+        let mut cs = ironclad_combat();
+        // Already at full HP.
+        for e in cs.enemies.iter_mut() {
+            e.current_hp = 0;
+        }
+        cs.fire_after_combat_victory_hooks();
+        assert_eq!(cs.allies[0].current_hp, 80);
+    }
+
+    #[test]
+    fn burning_blood_skips_when_owner_dead() {
+        // C# guards "if (!base.Owner.Creature.IsDead)". Mirror that.
+        let mut cs = ironclad_combat();
+        cs.allies[0].current_hp = 0;
+        for e in cs.enemies.iter_mut() {
+            e.current_hp = 0;
+        }
+        cs.fire_after_combat_victory_hooks();
+        assert_eq!(cs.allies[0].current_hp, 0);
+    }
+
+    #[test]
+    fn no_relics_means_no_hook_fires() {
+        let mut cs = ironclad_combat();
+        // Strip relics; fire — nothing happens.
+        cs.allies[0].player.as_mut().unwrap().relics.clear();
+        cs.allies[0].current_hp = 40;
+        for e in cs.enemies.iter_mut() {
+            e.current_hp = 0;
+        }
+        cs.fire_after_combat_victory_hooks();
+        assert_eq!(cs.allies[0].current_hp, 40);
     }
 
     // ---------- Vertical-slice integration test --------------------------
