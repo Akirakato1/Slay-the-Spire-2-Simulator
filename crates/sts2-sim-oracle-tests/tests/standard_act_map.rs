@@ -90,7 +90,11 @@ fn compare_one_with_pruning(
     enable_pruning: bool,
 ) {
     let rust_rng = Rng::new(seed, 0);
-    let rust_map = StandardActMap::new(rust_rng, rust_act, false, false, false, None, enable_pruning);
+    // Pass ascension=0 to match the oracle's uninitialized-RunManager state
+    // (HasAscension returns false → NumOfElites stays at 5).
+    let rust_map = StandardActMap::new(
+        rust_rng, rust_act, false, false, false, None, enable_pruning, 0,
+    );
 
     let rng_handle = new_rng_handle(oracle, seed, 0);
     let resp = oracle.call(

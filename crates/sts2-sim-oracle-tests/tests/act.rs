@@ -38,7 +38,9 @@ fn check_act(
     seed: u32,
 ) {
     let mut rust_rng = Rng::new(seed, 0);
-    let rust_counts = rust_act.get_map_point_types(&mut rust_rng);
+    // Oracle uses ascension=0 (RunManager singleton in the host process
+    // is uninitialized, so HasAscension returns false for SwarmingElites).
+    let rust_counts = rust_act.get_map_point_types(&mut rust_rng, 0);
 
     let rng_handle = new_rng_handle(oracle, seed, 0);
     let resp = oracle

@@ -189,7 +189,7 @@ impl RunState {
         // false until the modifier module lands.
         let map = StandardActMap::new(
             map_rng, act.as_ref(), is_multiplayer, false, has_second_boss,
-            None, true,
+            None, true, self.ascension,
         );
         self.current_act_index = act_index;
         self.act_floor = 0;

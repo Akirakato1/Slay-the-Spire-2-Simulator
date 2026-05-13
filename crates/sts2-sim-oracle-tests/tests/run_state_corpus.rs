@@ -15,20 +15,36 @@ use sts2_sim::map::MapPointType;
 use sts2_sim::run_log::{self, RunLog};
 use sts2_sim::run_state::{replay_act_log, RunState};
 
-const CORPUS_DIR: &str =
-    r"C:\Users\zhuyl\OneDrive\Desktop\sts2_stats\sample runs";
+const CORPUS_DIRS: &[&str] = &[
+    r"C:\Users\zhuyl\OneDrive\Desktop\sts2_stats\sample runs",
+    r"C:\Users\zhuyl\OneDrive\Desktop\STS2 RL\sample_run_103.2",
+];
 
 fn corpus() -> Vec<PathBuf> {
-    let dir = PathBuf::from(CORPUS_DIR);
-    if !dir.is_dir() {
-        return Vec::new();
+    let mut out = Vec::new();
+    let mut seen_names = std::collections::HashSet::new();
+    for d in CORPUS_DIRS {
+        let dir = PathBuf::from(d);
+        if !dir.is_dir() {
+            continue;
+        }
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for e in entries.filter_map(|e| e.ok()) {
+            let p = e.path();
+            if p.extension().and_then(|s| s.to_str()) != Some("run") {
+                continue;
+            }
+            // Skip duplicates across corpus dirs (one file appears in both).
+            let name = p.file_name().unwrap().to_owned();
+            if seen_names.insert(name) {
+                out.push(p);
+            }
+        }
     }
-    std::fs::read_dir(&dir)
-        .expect("read corpus dir")
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("run"))
-        .collect()
+    out
 }
 
 fn parse(p: &PathBuf) -> RunLog {
@@ -131,15 +147,19 @@ fn corpus_path_replay_best_effort() {
             None => continue,
         };
         for (act_idx, history) in log.map_point_history.iter().enumerate() {
-            // Structural: first node is starting ancient, last is boss.
+            // Structural: first node is starting ancient.
             assert_eq!(history.first().map(|n| n.map_point_type.as_str()),
                 Some("ancient"),
                 "{:?} act {}: first node should be ancient",
                 path.file_name(), act_idx);
-            assert_eq!(history.last().map(|n| n.map_point_type.as_str()),
-                Some("boss"),
-                "{:?} act {}: last node should be boss",
-                path.file_name(), act_idx);
+            // Skip acts where the player died mid-floor — replay only
+            // makes sense for complete acts that end at the boss.
+            let last_is_boss = history.last()
+                .map(|n| n.map_point_type == "boss")
+                .unwrap_or(false);
+            if !last_is_boss {
+                continue;
+            }
 
             rs.enter_act(act_idx as i32);
             total += 1;
@@ -191,6 +211,14 @@ fn corpus_node_counts_match_act_lengths() {
         let Some(rs) = RunState::from_run_log(&log) else { continue };
         for (act_idx, history_per_act) in log.map_point_history.iter().enumerate() {
             if log.players.len() > 1 {
+                continue;
+            }
+            // Skip incomplete acts (player died mid-floor).
+            let last_is_boss = history_per_act
+                .last()
+                .map(|n| n.map_point_type == "boss")
+                .unwrap_or(false);
+            if !last_is_boss {
                 continue;
             }
             let act = sts2_sim::act::act_for(rs.acts()[act_idx]);

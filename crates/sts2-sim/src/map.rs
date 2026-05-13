@@ -196,11 +196,31 @@ pub struct MapPointTypeCounts {
 impl MapPointTypeCounts {
     /// Mirrors the C# `new MapPointTypeCounts(int unknownCount, int restCount)`
     /// with the post-construction defaults: 5 elites, 3 shops, empty
-    /// ignored-rules set.
+    /// ignored-rules set. Defaults to ascension 0 (no SwarmingElites
+    /// scaling).
     pub fn new(unknown_count: i32, rest_count: i32) -> Self {
+        Self::for_ascension(unknown_count, rest_count, 0)
+    }
+
+    /// Same as `new`, but applies the ascension-driven `SwarmingElites`
+    /// scaling on `num_of_elites`. The C# initializer for `NumOfElites`
+    /// is `round(5 * (HasAscension(SwarmingElites) ? 1.6 : 1))`;
+    /// `SwarmingElites` is `AscensionLevel` value 1, and `HasLevel`
+    /// returns `current_level >= target_level`, so ascension >= 1 ⇒
+    /// `num_of_elites = round(5 * 1.6) = 8`.
+    pub fn for_ascension(
+        unknown_count: i32,
+        rest_count: i32,
+        ascension: i32,
+    ) -> Self {
+        let num_of_elites = if ascension >= 1 {
+            (5.0_f32 * 1.6_f32).round() as i32
+        } else {
+            5
+        };
         Self {
             point_types_that_ignore_rules: HashSet::new(),
-            num_of_elites: 5,
+            num_of_elites,
             num_of_shops: 3,
             num_of_unknowns: unknown_count,
             num_of_rests: rest_count,
@@ -296,5 +316,19 @@ mod tests {
         assert_eq!(c.num_of_elites, 5);
         assert!(c.point_types_that_ignore_rules.is_empty());
         assert!(!c.should_ignore_map_point_rules_for_map_point_type(MapPointType::Monster));
+    }
+
+    #[test]
+    fn swarming_elites_scales_num_of_elites_above_ascension_zero() {
+        // Below threshold: 5 elites.
+        assert_eq!(MapPointTypeCounts::for_ascension(12, 4, 0).num_of_elites, 5);
+        // At/above ascension 1, SwarmingElites kicks in → 8 elites.
+        for asc in [1, 2, 5, 9, 10, 20] {
+            assert_eq!(
+                MapPointTypeCounts::for_ascension(12, 4, asc).num_of_elites,
+                8,
+                "SwarmingElites scaling at ascension {asc}"
+            );
+        }
     }
 }

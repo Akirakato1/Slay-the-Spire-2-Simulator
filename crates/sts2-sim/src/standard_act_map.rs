@@ -56,6 +56,7 @@ impl StandardActMap {
         has_second_boss: bool,
         point_type_counts_override: Option<MapPointTypeCounts>,
         enable_pruning: bool,
+        ascension: i32,
     ) -> Self {
         let map_length = act.get_number_of_rooms(is_multiplayer) + 1;
         let cols = COLS;
@@ -65,7 +66,7 @@ impl StandardActMap {
         // C# uses null-coalescing: only call GetMapPointTypes if override is null.
         let point_type_counts = match point_type_counts_override {
             Some(c) => c,
-            None => act.get_map_point_types(&mut rng),
+            None => act.get_map_point_types(&mut rng, ascension),
         };
 
         // BossMapPoint = new MapPoint(cols/2, rows). StartingMapPoint = (cols/2, 0).
@@ -876,7 +877,7 @@ mod tests {
     #[test]
     fn overgrowth_map_has_correct_bounds() {
         let rng = Rng::new(12345, 0);
-        let map = StandardActMap::new(rng, &Overgrowth, false, false, false, None, false);
+        let map = StandardActMap::new(rng, &Overgrowth, false, false, false, None, false, 0);
         assert_eq!(map.cols(), 7);
         // Overgrowth: BaseNumberOfRooms = 15; rows = 16.
         assert_eq!(map.rows(), 16);
@@ -889,7 +890,7 @@ mod tests {
     #[test]
     fn every_grid_point_has_a_type_assigned() {
         let rng = Rng::new(98765, 0);
-        let map = StandardActMap::new(rng, &Overgrowth, false, false, false, None, false);
+        let map = StandardActMap::new(rng, &Overgrowth, false, false, false, None, false, 0);
         for p in map.iter_grid_points() {
             assert_ne!(
                 p.point_type,

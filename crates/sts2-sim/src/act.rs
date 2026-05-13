@@ -45,7 +45,10 @@ pub trait ActModel {
     /// `BaseNumberOfRooms` from the C# `ActModel` subclasses. Hard-coded per act.
     fn base_number_of_rooms(&self) -> i32;
     /// `GetMapPointTypes(Rng)`. Consumes PRNG state in a specific order per act.
-    fn get_map_point_types(&self, rng: &mut Rng) -> MapPointTypeCounts;
+    /// The C# initializer for `MapPointTypeCounts.NumOfElites` reads
+    /// `AscensionHelper.HasAscension(SwarmingElites)` (= ascension >= 1)
+    /// to scale 5 → 8 elites; pass the run's ascension level through.
+    fn get_map_point_types(&self, rng: &mut Rng, ascension: i32) -> MapPointTypeCounts;
     /// `HasSecondBoss`: in the C# class this delegates to `_rooms.HasSecondBoss`,
     /// which is set by run-state and is false for normal solo runs. Map gen
     /// itself only branches on this flag, so we expose a default false here
@@ -70,11 +73,11 @@ pub struct Overgrowth;
 impl ActModel for Overgrowth {
     fn id(&self) -> ActId { ActId::Overgrowth }
     fn base_number_of_rooms(&self) -> i32 { 15 }
-    fn get_map_point_types(&self, rng: &mut Rng) -> MapPointTypeCounts {
+    fn get_map_point_types(&self, rng: &mut Rng, ascension: i32) -> MapPointTypeCounts {
         // Order of PRNG consumption is load-bearing — mirror C# exactly.
         let rests = rng.next_gaussian_int(7, 1, 6, 7);
         let unknowns = MapPointTypeCounts::standard_random_unknown_count(rng);
-        MapPointTypeCounts::new(unknowns, rests)
+        MapPointTypeCounts::for_ascension(unknowns, rests, ascension)
     }
 }
 
@@ -84,10 +87,10 @@ pub struct Hive;
 impl ActModel for Hive {
     fn id(&self) -> ActId { ActId::Hive }
     fn base_number_of_rooms(&self) -> i32 { 14 }
-    fn get_map_point_types(&self, rng: &mut Rng) -> MapPointTypeCounts {
+    fn get_map_point_types(&self, rng: &mut Rng, ascension: i32) -> MapPointTypeCounts {
         let rests = rng.next_gaussian_int(6, 1, 6, 7);
         let unknowns = MapPointTypeCounts::standard_random_unknown_count(rng) - 1;
-        MapPointTypeCounts::new(unknowns, rests)
+        MapPointTypeCounts::for_ascension(unknowns, rests, ascension)
     }
 }
 
@@ -97,11 +100,11 @@ pub struct Glory;
 impl ActModel for Glory {
     fn id(&self) -> ActId { ActId::Glory }
     fn base_number_of_rooms(&self) -> i32 { 13 }
-    fn get_map_point_types(&self, rng: &mut Rng) -> MapPointTypeCounts {
+    fn get_map_point_types(&self, rng: &mut Rng, ascension: i32) -> MapPointTypeCounts {
         // Note: Glory uses NextInt(5, 7), not NextGaussianInt.
         let rests = rng.next_int_range(5, 7);
         let unknowns = MapPointTypeCounts::standard_random_unknown_count(rng) - 1;
-        MapPointTypeCounts::new(unknowns, rests)
+        MapPointTypeCounts::for_ascension(unknowns, rests, ascension)
     }
 }
 
@@ -111,10 +114,10 @@ pub struct Underdocks;
 impl ActModel for Underdocks {
     fn id(&self) -> ActId { ActId::Underdocks }
     fn base_number_of_rooms(&self) -> i32 { 15 }
-    fn get_map_point_types(&self, rng: &mut Rng) -> MapPointTypeCounts {
+    fn get_map_point_types(&self, rng: &mut Rng, ascension: i32) -> MapPointTypeCounts {
         let rests = rng.next_gaussian_int(7, 1, 6, 7);
         let unknowns = MapPointTypeCounts::standard_random_unknown_count(rng);
-        MapPointTypeCounts::new(unknowns, rests)
+        MapPointTypeCounts::for_ascension(unknowns, rests, ascension)
     }
 }
 
@@ -124,9 +127,11 @@ pub struct DeprecatedAct;
 impl ActModel for DeprecatedAct {
     fn id(&self) -> ActId { ActId::DeprecatedAct }
     fn base_number_of_rooms(&self) -> i32 { 0 }
-    fn get_map_point_types(&self, _rng: &mut Rng) -> MapPointTypeCounts {
-        // Deprecated act: returns (0, 0) without touching the Rng.
-        MapPointTypeCounts::new(0, 0)
+    fn get_map_point_types(&self, _rng: &mut Rng, ascension: i32) -> MapPointTypeCounts {
+        // Deprecated act: returns (0, 0) without touching the Rng. Still
+        // applies SwarmingElites scaling so the elite count is consistent
+        // if anything queries it.
+        MapPointTypeCounts::for_ascension(0, 0, ascension)
     }
 }
 
@@ -169,7 +174,7 @@ mod tests {
         // touching the Rng. Verify counter stays at 0 after the call.
         let mut rng = Rng::new(42, 0);
         let initial_counter = rng.counter();
-        let counts = DeprecatedAct.get_map_point_types(&mut rng);
+        let counts = DeprecatedAct.get_map_point_types(&mut rng, 0);
         assert_eq!(counts.num_of_unknowns, 0);
         assert_eq!(counts.num_of_rests, 0);
         assert_eq!(rng.counter(), initial_counter,
@@ -180,7 +185,7 @@ mod tests {
     fn overgrowth_rests_in_range() {
         let mut rng = Rng::new(123, 0);
         for _ in 0..50 {
-            let counts = Overgrowth.get_map_point_types(&mut rng);
+            let counts = Overgrowth.get_map_point_types(&mut rng, 0);
             assert!((6..=7).contains(&counts.num_of_rests),
                 "rests out of range: {}", counts.num_of_rests);
             assert!((10..=14).contains(&counts.num_of_unknowns),
@@ -197,7 +202,7 @@ mod tests {
         // NextInt). Verify counter advances by exactly 1 per call.
         let mut rng = Rng::new(7, 0);
         let initial = rng.counter();
-        Glory.get_map_point_types(&mut rng);
+        Glory.get_map_point_types(&mut rng, 0);
         // Glory: 1 NextInt call (counter +1), then StandardRandomUnknownCount
         // which is NextGaussianInt (counter unchanged). Total +1.
         assert_eq!(rng.counter(), initial + 1,
