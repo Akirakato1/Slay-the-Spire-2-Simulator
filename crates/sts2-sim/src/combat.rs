@@ -962,6 +962,40 @@ fn dispatch_on_play(
             cs.gain_block(CombatSide::Player, player_idx, block);
             true
         }
+        // Bash (Ironclad basic): 8 damage + 2 Vulnerable to single enemy.
+        // Upgrade: +2 damage, +1 Vulnerable.
+        "Bash" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let vuln = canonical_int_value(card, "Vulnerable", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.apply_power(target.0, target.1, "VulnerablePower", vuln);
+            true
+        }
+        // Neutralize (Silent basic): 3 damage + 1 Weak to single enemy.
+        // Upgrade: +1 damage, +1 Weak.
+        "Neutralize" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let weak = canonical_int_value(card, "Weak", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.apply_power(target.0, target.1, "WeakPower", weak);
+            true
+        }
         _ => false,
     }
 }
@@ -970,13 +1004,17 @@ fn dispatch_on_play(
 /// at a given upgrade level. Sums the base value with any
 /// `upgrade_deltas` whose `var_kind` matches, scaled by `upgrade_level`.
 ///
-/// For Strike (Damage var, base 6, delta +3) at level 1 this returns 9.
-/// For Defend (Block, base 5, delta +3) at level 1, 8.
+/// Var-matching rules (mirroring C# dot-accessor / indexer semantics):
+///   - exact `v.kind == var_kind` (Damage, Block)
+///   - `v.generic == var_kind` (StrengthPower)
+///   - `v.generic` stripped of "Power" suffix matches (Vulnerable ↔
+///     `PowerVar<VulnerablePower>`)
+///   - `v.key == var_kind` for keyed `DynamicVar("key", val)`
 fn canonical_int_value(card: &CardData, var_kind: &str, upgrade_level: i32) -> i32 {
     let base = card
         .canonical_vars
         .iter()
-        .find(|v| v.kind == var_kind)
+        .find(|v| var_matches(v, var_kind))
         .and_then(|v| v.base_value)
         .unwrap_or(0.0);
     let delta_sum: f64 = card
@@ -987,6 +1025,28 @@ fn canonical_int_value(card: &CardData, var_kind: &str, upgrade_level: i32) -> i
         .sum();
     let total = base + delta_sum * upgrade_level as f64;
     total as i32
+}
+
+fn var_matches(v: &crate::card::CardVar, var_kind: &str) -> bool {
+    if v.kind == var_kind {
+        return true;
+    }
+    if let Some(g) = &v.generic {
+        if g == var_kind {
+            return true;
+        }
+        if let Some(stripped) = g.strip_suffix("Power") {
+            if stripped == var_kind {
+                return true;
+            }
+        }
+    }
+    if let Some(k) = &v.key {
+        if k == var_kind {
+            return true;
+        }
+    }
+    false
 }
 
 /// `ValueProp` flags — mirrors C# `MegaCrit.Sts2.Core.ValueProps.ValueProp`.
@@ -2208,17 +2268,24 @@ mod tests {
     #[test]
     fn play_card_unhandled_still_spends_energy_and_routes_to_discard() {
         let mut cs = ironclad_combat();
-        // Bash isn't dispatched yet (will land in the archetype-expansion
-        // task). Confirm the "Unhandled but state-changes-still-happen"
-        // path: energy spent, card routed to discard.
-        draw_specific(&mut cs, "Bash");
-        let result = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        // Survivor isn't dispatched yet (its "discard 1 from hand" branch
+        // needs a card-selection prompt that isn't ported). Confirm the
+        // "Unhandled but state-changes-still-happen" path: energy spent,
+        // card routed to discard.
+        let survivor = card_by_id("Survivor").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(survivor, 0));
+        let result = cs.play_card(0, 0, None);
         assert_eq!(result, PlayResult::Unhandled);
         let ps = cs.allies[0].player.as_ref().unwrap();
-        assert_eq!(ps.energy, 1); // Bash costs 2.
+        assert_eq!(ps.energy, 2); // Survivor costs 1.
         assert!(ps.hand.is_empty());
-        assert_eq!(ps.discard.len(), 1);
-        assert_eq!(ps.discard.cards[0].id, "Bash");
+        assert_eq!(ps.discard.cards.iter().any(|c| c.id == "Survivor"), true);
     }
 
     #[test]
@@ -2419,6 +2486,66 @@ mod tests {
     /// All 5 Strike variants share the same OnPlay; confirm each dispatch
     /// arm fires (sanity: the long `|` chain in the match works for each
     /// id without subtle typos).
+    #[test]
+    fn bash_deals_damage_and_applies_vulnerable() {
+        let mut cs = ironclad_combat();
+        let bash = card_by_id("Bash").unwrap();
+        cs.allies[0].player.as_mut().unwrap().hand.cards.push(
+            CardInstance::from_card(bash, 0),
+        );
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 8 damage from Bash; Vulnerable not yet on target during the hit
+        // (apply happens after the damage), so no 1.5x amplification on
+        // this play.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 8);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            2
+        );
+    }
+
+    #[test]
+    fn upgraded_bash_does_ten_damage_and_three_vulnerable() {
+        let mut cs = ironclad_combat();
+        let bash = card_by_id("Bash").unwrap();
+        cs.allies[0].player.as_mut().unwrap().hand.cards.push(
+            CardInstance::from_card(bash, 1),
+        );
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 10);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            3
+        );
+    }
+
+    #[test]
+    fn neutralize_deals_damage_and_applies_weak() {
+        // Inject Neutralize into Ironclad's hand directly (it's a Silent
+        // card; the harness doesn't care which character runs the test
+        // for OnPlay routing).
+        let mut cs = ironclad_combat();
+        let n = card_by_id("Neutralize").unwrap();
+        cs.allies[0].player.as_mut().unwrap().hand.cards.push(
+            CardInstance::from_card(n, 0),
+        );
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 3);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "WeakPower"),
+            1
+        );
+    }
+
     #[test]
     fn all_strike_variants_dispatch() {
         for strike in &[
