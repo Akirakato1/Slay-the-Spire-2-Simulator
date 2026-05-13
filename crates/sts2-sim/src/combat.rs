@@ -280,6 +280,13 @@ impl CombatState {
             CombatSide::Player => {
                 for ally in self.allies.iter_mut() {
                     ally.block = 0;
+                    // Energy refresh: fill to per-turn allotment. C# routes
+                    // this through Hook.ModifyEnergyGain which lets relics
+                    // (Velvet Choker, etc.) tweak the amount; until those
+                    // hooks land, refill directly to turn_energy.
+                    if let Some(ps) = ally.player.as_mut() {
+                        ps.energy = ps.turn_energy;
+                    }
                 }
             }
             CombatSide::Enemy => {
@@ -983,6 +990,76 @@ impl AxebotIntent {
     }
 }
 
+// Per-move payload constants — C# Axebot.cs private getters. Ascension
+// scaling deferred: A0 values hardcoded for now (the higher branch of each
+// `AscensionHelper.GetValueIfAscension(...)` is what changes at the named
+// ascension level). When ascension is plumbed into CombatState, switch to
+// the conditional values.
+//
+//   OneTwoDamage: A0=5, A1+=6  (DeadlyEnemies)
+//   HammerUppercutDamage: A0=8, A1+=10  (DeadlyEnemies)
+//   BootUp block: const 10
+//   BootUp strength gain: const 1
+//   Sharpen strength gain: const 4
+const AXEBOT_ONE_TWO_DAMAGE: i32 = 5;
+const AXEBOT_ONE_TWO_HITS: i32 = 2;
+const AXEBOT_HAMMER_UPPERCUT_DAMAGE: i32 = 8;
+const AXEBOT_BOOT_UP_BLOCK: i32 = 10;
+const AXEBOT_BOOT_UP_STRENGTH_GAIN: i32 = 1;
+const AXEBOT_SHARPEN_STRENGTH_GAIN: i32 = 4;
+
+/// Execute one Axebot move's payload. Caller is responsible for picking
+/// the intent ahead of time and routing the appropriate target. Mirrors
+/// C# Axebot's per-move handlers (BootUpMove / OneTwoMove / SharpenMove /
+/// HammerUppercutMove), minus the audio/animation calls.
+pub fn execute_axebot_move(
+    cs: &mut CombatState,
+    axebot_idx: usize,
+    target_player_idx: usize,
+    intent: AxebotIntent,
+) {
+    let attacker = (CombatSide::Enemy, axebot_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        AxebotIntent::BootUp => {
+            // GainBlock(self, 10) + Apply<StrengthPower>(self, 1).
+            cs.gain_block(CombatSide::Enemy, axebot_idx, AXEBOT_BOOT_UP_BLOCK);
+            cs.apply_power(
+                CombatSide::Enemy,
+                axebot_idx,
+                "StrengthPower",
+                AXEBOT_BOOT_UP_STRENGTH_GAIN,
+            );
+        }
+        AxebotIntent::OneTwo => {
+            // Two attacks of OneTwoDamage. Each goes through modifiers
+            // independently (block recomputes between hits per StS rules).
+            for _ in 0..AXEBOT_ONE_TWO_HITS {
+                cs.deal_damage(attacker, player, AXEBOT_ONE_TWO_DAMAGE, ValueProp::MOVE);
+            }
+        }
+        AxebotIntent::Sharpen => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                axebot_idx,
+                "StrengthPower",
+                AXEBOT_SHARPEN_STRENGTH_GAIN,
+            );
+        }
+        AxebotIntent::HammerUppercut => {
+            // Single attack, then apply Weak + Frail to the player.
+            cs.deal_damage(
+                attacker,
+                player,
+                AXEBOT_HAMMER_UPPERCUT_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(CombatSide::Player, target_player_idx, "WeakPower", 1);
+            cs.apply_power(CombatSide::Player, target_player_idx, "FrailPower", 1);
+        }
+    }
+}
+
 /// Pick Axebot's next intent. C# Axebot.GenerateMoveStateMachine:
 ///   - First turn (no `last_intent`): BOOT_UP_MOVE.
 ///   - All subsequent turns: weighted random across
@@ -1263,6 +1340,19 @@ mod tests {
         cs.end_turn();
         cs.begin_turn(CombatSide::Player);
         assert_eq!(cs.round_number, 3);
+    }
+
+    #[test]
+    fn player_energy_refreshes_at_begin_player_turn() {
+        let mut cs = ironclad_combat();
+        // Spend energy down.
+        cs.allies[0].player.as_mut().unwrap().energy = 0;
+        // Enemy turn first (no refresh).
+        cs.begin_turn(CombatSide::Enemy);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 0);
+        // Player turn: refresh to turn_energy (3 default).
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 3);
     }
 
     #[test]
@@ -2062,6 +2152,95 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- Axebot move payload tests ---------------------------------
+
+    #[test]
+    fn axebot_boot_up_gains_block_and_strength() {
+        let mut cs = ironclad_combat();
+        execute_axebot_move(&mut cs, 0, 0, AxebotIntent::BootUp);
+        assert_eq!(cs.enemies[0].block, 10);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            1
+        );
+        // Player unaffected.
+        assert_eq!(cs.allies[0].current_hp, 80);
+    }
+
+    #[test]
+    fn axebot_one_two_hits_player_twice() {
+        let mut cs = ironclad_combat();
+        execute_axebot_move(&mut cs, 0, 0, AxebotIntent::OneTwo);
+        // 2 hits × 5 dmg, no block on player → 10 HP lost.
+        assert_eq!(cs.allies[0].current_hp, 80 - 10);
+    }
+
+    #[test]
+    fn axebot_one_two_block_partial() {
+        // Player has 7 block. Hit 1: blocks 5, 2 block remains.
+        // Hit 2: blocks 2, 3 HP lost.
+        let mut cs = ironclad_combat();
+        cs.allies[0].block = 7;
+        execute_axebot_move(&mut cs, 0, 0, AxebotIntent::OneTwo);
+        assert_eq!(cs.allies[0].block, 0);
+        assert_eq!(cs.allies[0].current_hp, 80 - 3);
+    }
+
+    #[test]
+    fn axebot_sharpen_adds_four_strength() {
+        let mut cs = ironclad_combat();
+        execute_axebot_move(&mut cs, 0, 0, AxebotIntent::Sharpen);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            4
+        );
+        // No damage or block effect on player.
+        assert_eq!(cs.allies[0].current_hp, 80);
+    }
+
+    #[test]
+    fn axebot_hammer_uppercut_damages_and_applies_weak_frail() {
+        let mut cs = ironclad_combat();
+        execute_axebot_move(&mut cs, 0, 0, AxebotIntent::HammerUppercut);
+        assert_eq!(cs.allies[0].current_hp, 80 - 8);
+        assert_eq!(cs.get_power_amount(CombatSide::Player, 0, "WeakPower"), 1);
+        assert_eq!(cs.get_power_amount(CombatSide::Player, 0, "FrailPower"), 1);
+    }
+
+    #[test]
+    fn axebot_strength_amplifies_one_two_hits() {
+        // Bootup gives +1 Strength, then OneTwo: 2 × (5+1) = 12 damage.
+        let mut cs = ironclad_combat();
+        execute_axebot_move(&mut cs, 0, 0, AxebotIntent::BootUp);
+        // Reset block on enemy so the next "turn" effect tests cleanly.
+        cs.enemies[0].block = 0;
+        execute_axebot_move(&mut cs, 0, 0, AxebotIntent::OneTwo);
+        assert_eq!(cs.allies[0].current_hp, 80 - 12);
+    }
+
+    /// Realistic round-1 flow: Axebot acts (BootUp), then player acts
+    /// (Strike). Validates that monster intent + power application is
+    /// orthogonal to the player's card-play pipeline.
+    #[test]
+    fn round_one_axebot_bootup_then_strike() {
+        let mut cs = ironclad_combat();
+        // Axebot does BootUp.
+        execute_axebot_move(&mut cs, 0, 0, AxebotIntent::BootUp);
+        assert_eq!(cs.enemies[0].block, 10);
+
+        // Player strikes the booted Axebot. 6 damage hits 10 block → no HP loss.
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            let strike = card_by_id("StrikeIronclad").unwrap();
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+        }
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].block, 4); // 10 - 6
+        assert_eq!(cs.enemies[0].current_hp, cs.enemies[0].max_hp);
     }
 
     #[test]
