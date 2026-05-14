@@ -472,6 +472,49 @@ power-VM is a follow-up after the effect-VM for cards/relics/potions lands.
 
 ---
 
+## 6a. Events — vocabulary
+
+(Added after the first closure audit revealed events were not surveyed.)
+
+Events live in `Models/Events/`. Sample structure from `AromaOfChaos.cs`
+and `WoodCarvings.cs`:
+
+```csharp
+private async Task LetGo() {
+    IEnumerable<CardModel> picks = await CardSelectCmd.FromDeckForTransformation(
+        base.Owner,
+        new CardSelectorPrefs(...), null);
+    var cardModel = picks.FirstOrDefault();
+    if (cardModel != null) {
+        await CardCmd.TransformToRandom(cardModel, base.Rng, CardPreviewStyle.EventLayout);
+    }
+    base.SetEventFinished(base.L10NLookup("AROMA_OF_CHAOS.pages.LET_GO.description"));
+}
+```
+
+Each event is a fixed list of `EventOption`s, each a `Task` that:
+1. Optionally pops a `CardSelectCmd.FromDeck*` modal to let the player
+   pick from their permanent deck.
+2. Mutates the deck or RunState via `CardCmd.*` / `CreatureCmd.*` /
+   `PlayerCmd.GainGold` / etc. — same Cmd vocabulary as cards/relics.
+3. Calls `SetEventFinished(localized_description)` to close the event.
+
+**Primitives events need that cards/relics didn't**:
+- `Pile::Deck` — the permanent run-state deck (already added as a Pile
+  variant; combat VM no-ops; run-state dispatcher will resolve).
+- Event-flow control: `SetEventFinished`, `MoveToEventPage`.
+- Run-state-layer effects (relic gain/loss, potion-to-belt, permanent
+  HP / gold mutations): added as stub Effect variants.
+
+**Hook-style primitives events don't need**: event bodies are linear
+imperative scripts. They don't subscribe to combat hooks.
+
+**Closure**: with `Pile::Deck` + run-state stubs + `SetEventFinished` /
+`MoveToEventPage`, the same Effect VM data model can encode every event
+body. The dispatch is currently combat-only; run-state dispatcher is a
+future step that walks the same Effect list and mutates RunState
+instead of CombatState.
+
 ## 7a. Closure summary (2026-05-14, post-batch implementation)
 
 | primitive category | full impl ✅ | stub (encode-able, deferred) | missing |
@@ -483,14 +526,59 @@ power-VM is a follow-up after the effect-VM for cards/relics/potions lands.
 | Orbs (Defect) | — | ChannelOrb · EvokeNextOrb · TriggerOrbPassive · ChangeOrbSlots | — |
 | Osty / Forge | — | SummonOsty · DamageFromOsty · Forge | — |
 | Monsters | SummonMonster · KillSelf · SetMaxHpAndHeal | — | OnPreventedDeath (relic hook) |
+| Control flow | Conditional { condition, then, else } · Repeat { count, body } | — | — |
+| Condition vocabulary | Always · Never · Not · And · Or · IsUpgraded · HasPowerOnTarget · HasPowerOnSelf · CardCountInPile · HandHasCardMatching · SourceCardHasKeyword · RandomChance | OwnerLostHpThisTurn · AttackKilledTarget (need combat-history scan) | — |
+| Actors | SelfPlayer · SelfActor · ChosenEnemy · AllEnemies · RandomEnemy | — | TargetLowestHpEnemy · TargetHighestHpEnemy (rare) |
+| Run-state (events / relic pickup) | — | GainRelic · LoseRelic · GainPotionToBelt · LoseRunStateHp · GainRunStateMaxHp · GainRunStateGold | — |
+| Event flow | — | SetEventFinished · MoveToEventPage | OptionGate (event option enabled-if predicate) |
+| Pile addressing | Hand · Discard · Draw · Exhaust · Deck (stub) | — | PotionBelt |
 
 **Closed-vocabulary status**: every primitive observed in the C# survey
-either has a real Rust implementation or an encode-able stub variant.
-Cards/relics/potions can be encoded as effect-list data **today**
-without missing any vocabulary; cards that depend on stub primitives
-encode cleanly but their state changes only land when the backing
-system (orb queue, Osty companion, Star economy, Forge mechanic,
-player-interactive multi-step actions) is implemented.
+of cards / relics / potions / monster moves / events either has a real
+Rust implementation or an encode-able stub variant. Effect bodies
+across all five entity types can be encoded as effect-list data
+**today** without missing any vocabulary.
+
+**Stubs route safely** (no state change) until the backing subsystem
+lands: orb queue, Osty companion, Star economy gating, Forge mechanic,
+multi-step player-interactive selection, run-state mutation, event
+flow.
+
+**What is NOT covered by this vocabulary** (deliberately out-of-scope
+or in a parallel layer):
+
+- **Hook dispatcher / firing-order infrastructure** (task #70). Every
+  hook-trigger point (~50 enumerated in §2.1) is a SUBSCRIPTION point,
+  not an effect primitive. When `Hook.AfterCardPlayed(...)` fires in
+  C#, it iterates every model on the listener list and calls their
+  override. The vocabulary tells us WHAT to run; the hook system
+  decides WHEN. Wiring this is the remaining structural work — once
+  it's in, relics whose hook bodies are already encode-able as effect
+  lists become live.
+- **Power lifecycle methods inside `PowerModel`** (task #169). Powers
+  like `MayhemPower`, `SetupStrikePower`, `DemonFormPower` have their
+  real logic in their own `OnTurnStart` / `OnCardPlayed` /
+  `BeforeDamageReceived` overrides. These need their own survey + VM
+  exposure. The card-level OnPlay for these is already trivial
+  (`ApplyPower<T>` = one effect step).
+- **Monster move VM routing**. The vocabulary has every primitive a
+  monster move needs (DealDamage, GainBlock, ApplyPower, AddCardToPile,
+  SummonMonster, etc.) and `Target::SelfActor` + `EffectContext::actor`
+  for monster authoring. But `monster_dispatch.rs` still uses match
+  arms per-monster. Migrating monster move payloads to data-driven
+  effect lists is a parallel migration to §0.2.6 for cards.
+- **Run-state dispatcher**. Effects like `GainRelic`, `LoseRunStateHp`,
+  `SetEventFinished` encode as data but no-op in the combat VM —
+  they need a separate dispatcher with a `&mut RunState` handle.
+- **History-derived predicates**. `OwnerLostHpThisTurn` and
+  `AttackKilledTarget` always return false today; need a per-turn
+  HP-delta scan over `combat_log`.
+
+**Summary**: the closed vocabulary CAN encode every card / relic /
+potion / event / monster-move body the C# decompile contains. The
+remaining gap is the dispatcher layers (hook system, run-state
+dispatcher, monster-move VM routing) and the power lifecycle —
+structural work, not vocabulary work.
 
 ## 8. Estimated implementation closure
 

@@ -72,16 +72,90 @@ pub enum Target {
     /// `DamageCmd.Attack(...).TargetingRandomOpponents(combatState, reroll_dead)`
     /// (SwordBoomerang).
     RandomEnemy,
+    /// "The actor itself" — the creature owning the effect list. For
+    /// player card OnPlay this collapses to SelfPlayer; for monster
+    /// move bodies authored as data, this resolves to the moving
+    /// monster (via `EffectContext.actor`).
+    SelfActor,
 }
 
-/// Pile-id mirror of `combat::PileType`, restricted to the in-combat piles
-/// that primitive payloads ever address.
+/// Closed condition vocabulary, derived from the C# survey
+/// (`docs/effect-vocabulary.md` §3 + §6). Used by `Effect::Conditional`
+/// to guard a step on game state.
+///
+/// Stubs (Always-true / Always-false) are explicit so the data layer
+/// can encode incomplete predicates without breaking. Real predicates
+/// resolve against `CombatState` + the `EffectContext`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Condition {
+    /// Trivially true. Useful for unconditional steps inside a
+    /// Conditional shell (lets the data layer always carry a guard).
+    Always,
+    /// Trivially false.
+    Never,
+    /// Negation.
+    Not(Box<Condition>),
+    /// Both must hold.
+    And(Box<Condition>, Box<Condition>),
+    /// Either holds.
+    Or(Box<Condition>, Box<Condition>),
+    /// Source card was upgraded.
+    IsUpgraded,
+    /// `target.HasPower<P>` with `target` from the EffectContext's
+    /// resolved target (or self if no target).
+    HasPowerOnTarget { power_id: String },
+    /// `target.HasPower<P>` resolved against the player executing
+    /// the effect.
+    HasPowerOnSelf { power_id: String },
+    /// `pile.Cards.Count <op> n` where `op` is one of the Comparison
+    /// variants below.
+    CardCountInPile {
+        pile: Pile,
+        op: Comparison,
+        value: i32,
+    },
+    /// Owner has lost HP this turn. Spite-family scan over combat
+    /// history.
+    OwnerLostHpThisTurn,
+    /// The last damage attack (the one wrapping this conditional in
+    /// an OnDamage-style step) killed its target. Feed / HandOfGreed.
+    AttackKilledTarget,
+    /// Hand has a card matching the filter.
+    HandHasCardMatching(CardFilter),
+    /// The played card has the given keyword (Exhaust / Ethereal / ...).
+    SourceCardHasKeyword(String),
+    /// Random-chance branch. Resolves via combat RNG.
+    /// `numerator / denominator` chance of true.
+    RandomChance { numerator: i32, denominator: i32 },
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Comparison {
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+}
+
+/// Pile-id mirror of `combat::PileType`, plus run-state piles that
+/// events / relics / potions need to address.
+///
+/// Combat piles (Hand, Discard, Draw, Exhaust) resolve to in-combat
+/// CardPiles on `PlayerState`. Run-state piles (Deck, PotionBelt)
+/// reference the strategic-layer state and are STUBS in this module —
+/// the dispatcher records the intent but cannot mutate `RunState`
+/// without a handle to it. Events run their own dispatcher; for now,
+/// these variants make the vocabulary closed even when they no-op.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Pile {
     Hand,
     Discard,
     Draw,
     Exhaust,
+    /// Run-state permanent deck. Event-layer-only.
+    Deck,
 }
 
 impl Pile {
@@ -91,6 +165,8 @@ impl Pile {
             Pile::Discard => PileType::Discard,
             Pile::Draw => PileType::Draw,
             Pile::Exhaust => PileType::Exhaust,
+            // Deck has a PileType::Deck variant but is run-state only.
+            Pile::Deck => PileType::Deck,
         }
     }
 }
@@ -321,6 +397,59 @@ pub enum Effect {
     /// Set max HP to `amount` and heal to full. TestSubject Revive,
     /// Doormaker DramaticOpen phase shift.
     SetMaxHpAndHeal { amount: AmountSpec, target: Target },
+
+    // ---------- Control flow ----------
+    /// Conditional branch. Run `then_branch` if `condition` evaluates
+    /// to true; otherwise run `else_branch` (empty if not specified).
+    Conditional {
+        condition: Condition,
+        then_branch: Vec<Effect>,
+        else_branch: Vec<Effect>,
+    },
+    /// Repeat `body` `count` times. Used by X-cost cards
+    /// (Whirlwind, Skewer) once `XEnergy` amount is bound — though
+    /// most card-level multi-hit goes through `DealDamage.hits`.
+    /// More general: lets event-layer steps loop ("for each X").
+    Repeat {
+        count: AmountSpec,
+        body: Vec<Effect>,
+    },
+
+    // ---------- Run-state (out-of-combat) — STUB layer ----------
+    /// Grant a relic to the player. Map-event rewards, ToyBox-style
+    /// "obtain another relic" effects.
+    /// STUB: requires a handle to RunState — combat effect VM cannot
+    /// mutate it directly. Will route through the event/relic-layer
+    /// VM once that lands.
+    GainRelic { relic_id: String },
+    /// Strip a relic permanently. Rare.
+    LoseRelic { relic_id: String },
+    /// Drop a specific potion into the player's potion belt.
+    /// AlchemicalCoffer / event rewards. STUB — see GainRelic.
+    GainPotionToBelt { potion_id: String },
+    /// Lose HP at run-state level (events that say "lose 8 HP").
+    /// STUB — bypasses combat block/modifier pipeline. Distinct from
+    /// `LoseHp` which mutates the combat-frame creature's current_hp.
+    LoseRunStateHp { amount: AmountSpec },
+    /// Add max HP outside combat. Most "+max HP" effects (Strawberry/
+    /// Pear/Mango relics, food events). STUB — currently
+    /// `ChangeMaxHp` covers in-combat; this variant signals run-state
+    /// scope so the eventual run-state dispatcher knows.
+    GainRunStateMaxHp { amount: AmountSpec },
+    /// Permanent gold gain (events, +gold relics). Distinct from the
+    /// combat-time `GainGold` which writes to pending_gold and folds
+    /// into combat rewards. STUB.
+    GainRunStateGold { amount: AmountSpec },
+
+    // ---------- Event flow — STUB ----------
+    /// Close the current event with a final description block.
+    /// `description_key` is the localization key for the C# loc
+    /// system; the Rust port records it without rendering. STUB
+    /// until the event-state machine lands.
+    SetEventFinished { description_key: String },
+    /// Transition to another event page (multi-page events).
+    /// STUB — events not yet modeled in run state.
+    MoveToEventPage { page_id: String },
 }
 
 /// Lifetime of a card-cost override.
@@ -350,6 +479,11 @@ pub struct EffectContext<'a> {
     pub enchantment: Option<&'a EnchantmentInstance>,
     /// Resolved X-energy value at play time (X-cost cards).
     pub x_value: i32,
+    /// The creature acting as the source of this effect list. For
+    /// card OnPlay this is `(Player, player_idx)`; for monster moves
+    /// authored as effect lists, this is the monster. `Target::SelfActor`
+    /// resolves to this.
+    pub actor: (CombatSide, usize),
 }
 
 impl<'a> EffectContext<'a> {
@@ -369,6 +503,26 @@ impl<'a> EffectContext<'a> {
             upgrade_level,
             enchantment,
             x_value,
+            actor: (CombatSide::Player, player_idx),
+        }
+    }
+
+    /// Convenience builder for monster-move authoring. The actor is
+    /// the moving enemy; player_idx is the targeted player (defaults
+    /// to 0 for single-player). `target` is the chosen-target slot
+    /// for moves that target a specific opponent.
+    pub fn for_monster_move(
+        actor_idx: usize,
+        target: Option<(CombatSide, usize)>,
+    ) -> Self {
+        Self {
+            player_idx: 0,
+            target,
+            source_card_id: None,
+            upgrade_level: 0,
+            enchantment: None,
+            x_value: 0,
+            actor: (CombatSide::Enemy, actor_idx),
         }
     }
 }
@@ -590,9 +744,17 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         }
         Effect::GainBlock { amount, target } => {
             let amt = amount.resolve(ctx);
-            if matches!(target, Target::SelfPlayer) {
-                cs.gain_block(CombatSide::Player, ctx.player_idx, amt);
-            }
+            // Route via for_each so SelfActor (monster authoring)
+            // lands on the right creature. Player-side block goes
+            // through the modifier pipeline (Frail/Dex); enemy-side
+            // skips it (monster block has no Frail/Dex equivalent).
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                if matches!(side, CombatSide::Player) {
+                    cs.gain_block(CombatSide::Player, idx, amt);
+                } else if let Some(c) = creature_at_mut(cs, side, idx) {
+                    c.block += amt.max(0);
+                }
+            });
         }
         Effect::ApplyPower {
             power_id,
@@ -621,9 +783,9 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         }
         Effect::ChangeMaxHp { amount, target } => {
             let amt = amount.resolve(ctx);
-            if matches!(target, Target::SelfPlayer) {
-                cs.change_max_hp(CombatSide::Player, ctx.player_idx, amt);
-            }
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                cs.change_max_hp(side, idx, amt);
+            });
         }
         Effect::GainEnergy { amount } => {
             let amt = amount.resolve(ctx);
@@ -635,36 +797,15 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         }
         Effect::Heal { amount, target } => {
             let amt = amount.resolve(ctx);
-            if matches!(target, Target::SelfPlayer) {
-                cs.heal(CombatSide::Player, ctx.player_idx, amt);
-            }
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                cs.heal(side, idx, amt);
+            });
         }
         Effect::LoseHp { amount, target } => {
             let amt = amount.resolve(ctx);
-            match target {
-                Target::SelfPlayer => {
-                    cs.lose_hp(CombatSide::Player, ctx.player_idx, amt);
-                }
-                Target::ChosenEnemy => {
-                    if let Some((side, idx)) = ctx.target {
-                        cs.lose_hp(side, idx, amt);
-                    }
-                }
-                Target::AllEnemies => {
-                    let n = cs.enemies.len();
-                    for i in 0..n {
-                        if cs.enemies[i].current_hp == 0 {
-                            continue;
-                        }
-                        cs.lose_hp(CombatSide::Enemy, i, amt);
-                    }
-                }
-                Target::RandomEnemy => {
-                    if let Some(idx) = pick_random_alive_enemy(cs) {
-                        cs.lose_hp(CombatSide::Enemy, idx, amt);
-                    }
-                }
-            }
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                cs.lose_hp(side, idx, amt);
+            });
         }
         Effect::LoseEnergy { amount } => {
             let amt = amount.resolve(ctx);
@@ -674,30 +815,11 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 }
             }
         }
-        Effect::RemovePower { power_id, target } => match target {
-            Target::SelfPlayer => {
-                cs.remove_power(CombatSide::Player, ctx.player_idx, power_id);
-            }
-            Target::ChosenEnemy => {
-                if let Some((side, idx)) = ctx.target {
-                    cs.remove_power(side, idx, power_id);
-                }
-            }
-            Target::AllEnemies => {
-                let n = cs.enemies.len();
-                for i in 0..n {
-                    if cs.enemies[i].current_hp == 0 {
-                        continue;
-                    }
-                    cs.remove_power(CombatSide::Enemy, i, power_id);
-                }
-            }
-            Target::RandomEnemy => {
-                if let Some(idx) = pick_random_alive_enemy(cs) {
-                    cs.remove_power(CombatSide::Enemy, idx, power_id);
-                }
-            }
-        },
+        Effect::RemovePower { power_id, target } => {
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                cs.remove_power(side, idx, power_id);
+            });
+        }
         Effect::Shuffle { pile } => {
             shuffle_pile(cs, ctx.player_idx, *pile);
         }
@@ -705,30 +827,11 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             cs.discard_hand(ctx.player_idx);
         }
         Effect::Kill { target } => {
-            match target {
-                Target::ChosenEnemy => {
-                    if let Some((side, idx)) = ctx.target {
-                        if let Some(c) = creature_at_mut(cs, side, idx) {
-                            c.current_hp = 0;
-                        }
-                    }
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                if let Some(c) = creature_at_mut(cs, side, idx) {
+                    c.current_hp = 0;
                 }
-                Target::AllEnemies => {
-                    let n = cs.enemies.len();
-                    for i in 0..n {
-                        cs.enemies[i].current_hp = 0;
-                    }
-                }
-                Target::RandomEnemy => {
-                    if let Some(idx) = pick_random_alive_enemy(cs) {
-                        cs.enemies[idx].current_hp = 0;
-                    }
-                }
-                Target::SelfPlayer => {
-                    // Card-driven player self-kill is not a real C#
-                    // pattern (no cards self-kill); leave as no-op.
-                }
-            }
+            });
         }
         Effect::LoseBlock { amount, target } => {
             let amt = amount.resolve(ctx);
@@ -831,7 +934,9 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         Effect::UpgradeCards { from, selector } => {
             let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
-                let cards = pile_mut(ps, *from);
+                let Some(cards) = pile_mut(ps, *from) else {
+                    return; // Deck not accessible from combat VM.
+                };
                 for idx in picks {
                     if let Some(card) = cards.cards.get_mut(idx) {
                         // Bumping upgrade_level past the card's allowed
@@ -878,6 +983,155 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 }
             });
         }
+        Effect::Conditional {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            if evaluate_condition(cs, ctx, condition) {
+                execute_effects(cs, then_branch, ctx);
+            } else {
+                execute_effects(cs, else_branch, ctx);
+            }
+        }
+        Effect::Repeat { count, body } => {
+            let n = count.resolve(ctx);
+            for _ in 0..n.max(0) {
+                execute_effects(cs, body, ctx);
+            }
+        }
+        // Run-state primitives — STUB layer. The combat VM cannot
+        // mutate RunState (no handle). Records intent so a future
+        // run-state dispatcher can replay these.
+        Effect::GainRelic { .. }
+        | Effect::LoseRelic { .. }
+        | Effect::GainPotionToBelt { .. }
+        | Effect::LoseRunStateHp { .. }
+        | Effect::GainRunStateMaxHp { .. }
+        | Effect::GainRunStateGold { .. } => {
+            // STUB: see Pile::Deck rationale.
+        }
+        // Event-flow primitives — STUB. Events run outside combat;
+        // these variants make event bodies encode-able as data.
+        Effect::SetEventFinished { .. } | Effect::MoveToEventPage { .. } => {
+            // STUB.
+        }
+    }
+}
+
+/// Evaluate a `Condition` against the current combat state + context.
+/// Truthiness rules:
+/// - `Always` → true · `Never` → false
+/// - Logical combinators: standard
+/// - Power-presence: looks up the target/self creature's powers
+/// - Pile counts: only meaningful for combat piles; Deck always 0
+/// - History-derived (OwnerLostHpThisTurn, AttackKilledTarget):
+///   currently FALSE — combat-history scan over `cs.combat_log`
+///   not yet plumbed for VM use. Conditions that reference them
+///   short-circuit to false; encoded cards stay safe.
+/// - RandomChance: draws from combat RNG.
+pub fn evaluate_condition(
+    cs: &mut CombatState,
+    ctx: &EffectContext,
+    cond: &Condition,
+) -> bool {
+    match cond {
+        Condition::Always => true,
+        Condition::Never => false,
+        Condition::Not(inner) => !evaluate_condition(cs, ctx, inner),
+        Condition::And(a, b) => {
+            evaluate_condition(cs, ctx, a) && evaluate_condition(cs, ctx, b)
+        }
+        Condition::Or(a, b) => {
+            evaluate_condition(cs, ctx, a) || evaluate_condition(cs, ctx, b)
+        }
+        Condition::IsUpgraded => ctx.upgrade_level > 0,
+        Condition::HasPowerOnTarget { power_id } => {
+            let (side, idx) = ctx.target.unwrap_or(ctx.actor);
+            creature_has_power(cs, side, idx, power_id)
+        }
+        Condition::HasPowerOnSelf { power_id } => {
+            creature_has_power(cs, ctx.actor.0, ctx.actor.1, power_id)
+        }
+        Condition::CardCountInPile { pile, op, value } => {
+            let Some(ps) = cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+            else {
+                return false;
+            };
+            let n = match pile {
+                Pile::Hand => ps.hand.cards.len() as i32,
+                Pile::Discard => ps.discard.cards.len() as i32,
+                Pile::Draw => ps.draw.cards.len() as i32,
+                Pile::Exhaust => ps.exhaust.cards.len() as i32,
+                Pile::Deck => 0, // Run-state pile not accessible here.
+            };
+            compare(n, *op, *value)
+        }
+        Condition::OwnerLostHpThisTurn | Condition::AttackKilledTarget => {
+            // STUB: history-derived predicates need a per-turn HP-delta
+            // scan that combat_log doesn't index yet. Returns false so
+            // encoded cards stay safe.
+            false
+        }
+        Condition::HandHasCardMatching(filter) => {
+            let Some(ps) = cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+            else {
+                return false;
+            };
+            ps.hand.cards.iter().any(|c| matches_filter(c, filter))
+        }
+        Condition::SourceCardHasKeyword(kw) => {
+            let Some(card_id) = ctx.source_card_id else {
+                return false;
+            };
+            let Some(data) = crate::card::by_id(card_id) else {
+                return false;
+            };
+            data.keywords.iter().any(|k| k.eq_ignore_ascii_case(kw))
+        }
+        Condition::RandomChance {
+            numerator,
+            denominator,
+        } => {
+            if *denominator <= 0 {
+                return false;
+            }
+            let roll = cs.rng.next_int_range(0, *denominator);
+            roll < *numerator
+        }
+    }
+}
+
+fn creature_has_power(
+    cs: &CombatState,
+    side: CombatSide,
+    idx: usize,
+    power_id: &str,
+) -> bool {
+    let creature = match side {
+        CombatSide::Player => cs.allies.get(idx),
+        CombatSide::Enemy => cs.enemies.get(idx),
+        CombatSide::None => None,
+    };
+    creature
+        .map(|c| c.powers.iter().any(|p| p.id == power_id && p.amount > 0))
+        .unwrap_or(false)
+}
+
+fn compare(a: i32, op: Comparison, b: i32) -> bool {
+    match op {
+        Comparison::Eq => a == b,
+        Comparison::Ne => a != b,
+        Comparison::Lt => a < b,
+        Comparison::Le => a <= b,
+        Comparison::Gt => a > b,
+        Comparison::Ge => a >= b,
     }
 }
 
@@ -891,6 +1145,7 @@ fn for_each_target_idx<F>(
 {
     match target {
         Target::SelfPlayer => f(cs, CombatSide::Player, ctx.player_idx),
+        Target::SelfActor => f(cs, ctx.actor.0, ctx.actor.1),
         Target::ChosenEnemy => {
             if let Some((side, idx)) = ctx.target {
                 f(cs, side, idx);
@@ -923,12 +1178,16 @@ fn player_state_mut(
 fn pile_mut<'a>(
     ps: &'a mut crate::combat::PlayerState,
     pile: Pile,
-) -> &'a mut crate::combat::CardPile {
+) -> Option<&'a mut crate::combat::CardPile> {
     match pile {
-        Pile::Hand => &mut ps.hand,
-        Pile::Discard => &mut ps.discard,
-        Pile::Draw => &mut ps.draw,
-        Pile::Exhaust => &mut ps.exhaust,
+        Pile::Hand => Some(&mut ps.hand),
+        Pile::Discard => Some(&mut ps.discard),
+        Pile::Draw => Some(&mut ps.draw),
+        Pile::Exhaust => Some(&mut ps.exhaust),
+        // Deck lives on RunState, not PlayerState — not accessible
+        // from the combat-scoped VM. Event-layer dispatcher will
+        // resolve this elsewhere.
+        Pile::Deck => None,
     }
 }
 
@@ -939,7 +1198,7 @@ fn remove_card_from_pile(
     idx: usize,
 ) -> Option<crate::combat::CardInstance> {
     let ps = player_state_mut(cs, player_idx)?;
-    let cards = pile_mut(ps, pile);
+    let cards = pile_mut(ps, pile)?;
     if idx >= cards.cards.len() {
         return None;
     }
@@ -953,7 +1212,9 @@ fn push_card_to_pile(
     card: crate::combat::CardInstance,
 ) {
     if let Some(ps) = player_state_mut(cs, player_idx) {
-        pile_mut(ps, pile).cards.push(card);
+        if let Some(p) = pile_mut(ps, pile) {
+            p.cards.push(card);
+        }
     }
 }
 
@@ -969,7 +1230,9 @@ fn select_card_indices(
     let Some(ps) = player_state_mut(cs, player_idx) else {
         return Vec::new();
     };
-    let cards = pile_mut(ps, pile);
+    let Some(cards) = pile_mut(ps, pile) else {
+        return Vec::new();
+    };
     let len = cards.cards.len();
     if len == 0 {
         return Vec::new();
@@ -1008,7 +1271,9 @@ fn select_card_indices(
             let Some(ps) = player_state_mut(cs, player_idx) else {
                 return Vec::new();
             };
-            let cards = pile_mut(ps, pile);
+            let Some(cards) = pile_mut(ps, pile) else {
+                return Vec::new();
+            };
             let n = (*n).max(0) as usize;
             let mut out = Vec::new();
             for (i, card) in cards.cards.iter().enumerate() {
@@ -1052,12 +1317,15 @@ fn shuffle_pile(cs: &mut CombatState, player_idx: usize, pile: Pile) {
     if let Some(creature) = cs.allies.get_mut(player_idx) {
         if let Some(ps) = creature.player.as_mut() {
             let cards = match pile {
-                Pile::Hand => &mut ps.hand.cards,
-                Pile::Discard => &mut ps.discard.cards,
-                Pile::Draw => &mut ps.draw.cards,
-                Pile::Exhaust => &mut ps.exhaust.cards,
+                Pile::Hand => Some(&mut ps.hand.cards),
+                Pile::Discard => Some(&mut ps.discard.cards),
+                Pile::Draw => Some(&mut ps.draw.cards),
+                Pile::Exhaust => Some(&mut ps.exhaust.cards),
+                Pile::Deck => None,
             };
-            rng.shuffle(cards);
+            if let Some(cards) = cards {
+                rng.shuffle(cards);
+            }
         }
     }
     cs.rng = rng;
@@ -1136,6 +1404,11 @@ fn deal_damage_to(cs: &mut CombatState, ctx: &EffectContext, target: Target, amo
             // Damage to self via the attack pipeline is not a real card
             // pattern (self-damage cards use `LoseHp`). No-op.
         }
+        Target::SelfActor => {
+            // Attack-pipeline damage from actor to self is not a real
+            // card / monster-move pattern; if a monster wants to lose
+            // HP, use LoseHp. No-op.
+        }
     }
 }
 
@@ -1146,30 +1419,9 @@ fn apply_power_to(
     power_id: &str,
     amount: i32,
 ) {
-    match target {
-        Target::SelfPlayer => {
-            cs.apply_power(CombatSide::Player, ctx.player_idx, power_id, amount);
-        }
-        Target::ChosenEnemy => {
-            if let Some((side, idx)) = ctx.target {
-                cs.apply_power(side, idx, power_id, amount);
-            }
-        }
-        Target::AllEnemies => {
-            let n = cs.enemies.len();
-            for i in 0..n {
-                if cs.enemies[i].current_hp == 0 {
-                    continue;
-                }
-                cs.apply_power(CombatSide::Enemy, i, power_id, amount);
-            }
-        }
-        Target::RandomEnemy => {
-            if let Some(idx) = pick_random_alive_enemy(cs) {
-                cs.apply_power(CombatSide::Enemy, idx, power_id, amount);
-            }
-        }
-    }
+    for_each_target_idx(cs, ctx, target, |cs, side, idx| {
+        cs.apply_power(side, idx, power_id, amount);
+    });
 }
 
 #[cfg(test)]
@@ -1731,6 +1983,188 @@ mod tests {
             .map(|p| p.amount)
             .unwrap_or(0);
         assert_eq!(vuln, 5);
+    }
+
+    /// Conditional with IsUpgraded picks the right branch based on
+    /// upgrade_level. Forms the basis of TrueGrit / MultiCast-style
+    /// upgrade-branched bodies.
+    #[test]
+    fn conditional_is_upgraded_picks_branch() {
+        // Base path (upgrade_level=0) → then_branch fires.
+        let mut cs = ironclad_combat();
+        let effects = vec![Effect::Conditional {
+            condition: Condition::IsUpgraded,
+            then_branch: vec![Effect::GainBlock {
+                amount: AmountSpec::Fixed(10),
+                target: Target::SelfPlayer,
+            }],
+            else_branch: vec![Effect::GainBlock {
+                amount: AmountSpec::Fixed(3),
+                target: Target::SelfPlayer,
+            }],
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        assert_eq!(cs.allies[0].block, 3);
+
+        // Upgraded path.
+        let mut cs2 = ironclad_combat();
+        let ctx_up = EffectContext::for_card(0, None, "StrikeIronclad", 1, None, 0);
+        execute_effects(&mut cs2, &effects, &ctx_up);
+        assert_eq!(cs2.allies[0].block, 10);
+    }
+
+    /// Repeat with a Fixed count loops the body the right number of times.
+    #[test]
+    fn repeat_loops_body() {
+        let mut cs = ironclad_combat();
+        let effects = vec![Effect::Repeat {
+            count: AmountSpec::Fixed(4),
+            body: vec![Effect::GainBlock {
+                amount: AmountSpec::Fixed(2),
+                target: Target::SelfPlayer,
+            }],
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        assert_eq!(cs.allies[0].block, 8);
+    }
+
+    /// Repeat with XEnergy resolves to ctx.x_value (Whirlwind shape).
+    #[test]
+    fn repeat_with_x_energy_resolves_dynamically() {
+        let mut cs = ironclad_combat();
+        let effects = vec![Effect::Repeat {
+            count: AmountSpec::XEnergy,
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::Fixed(5),
+                target: Target::AllEnemies,
+                hits: 1,
+            }],
+        }];
+        let ctx = EffectContext::for_card(0, None, "Whirlwind", 0, None, 3);
+        let hp_before: Vec<i32> = cs.enemies.iter().map(|e| e.current_hp).collect();
+        execute_effects(&mut cs, &effects, &ctx);
+        // 3 × 5 = 15 damage to each alive enemy.
+        for (i, before) in hp_before.iter().enumerate() {
+            if *before == 0 {
+                continue;
+            }
+            assert_eq!(cs.enemies[i].current_hp, before - 15);
+        }
+    }
+
+    /// SelfActor target routes via EffectContext.actor — useful for
+    /// monster-move authoring where the actor is the moving enemy.
+    #[test]
+    fn self_actor_targets_actor_creature() {
+        let mut cs = ironclad_combat();
+        // Manually craft a monster-author context.
+        let ctx = EffectContext::for_monster_move(0, None);
+        let effects = vec![Effect::ApplyPower {
+            power_id: "StrengthPower".to_string(),
+            amount: AmountSpec::Fixed(2),
+            target: Target::SelfActor,
+        }];
+        execute_effects(&mut cs, &effects, &ctx);
+        // The actor here is enemy 0, so Strength lands on the enemy.
+        let strength = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "StrengthPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(strength, 2);
+    }
+
+    /// Condition::HasPowerOnTarget reads the chosen-target's powers.
+    #[test]
+    fn has_power_on_target_works_for_chosen_enemy() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 3);
+        let ctx = EffectContext::for_card(
+            0,
+            Some((CombatSide::Enemy, 0)),
+            "StrikeIronclad",
+            0,
+            None,
+            0,
+        );
+        assert!(evaluate_condition(
+            &mut cs,
+            &ctx,
+            &Condition::HasPowerOnTarget {
+                power_id: "VulnerablePower".to_string(),
+            }
+        ));
+        assert!(!evaluate_condition(
+            &mut cs,
+            &ctx,
+            &Condition::HasPowerOnTarget {
+                power_id: "PoisonPower".to_string(),
+            }
+        ));
+    }
+
+    /// RandomChance with 1/1 fires; 0/1 never fires (deterministic
+    /// edge cases).
+    #[test]
+    fn random_chance_certainty_cases() {
+        let mut cs = ironclad_combat();
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        assert!(evaluate_condition(
+            &mut cs,
+            &ctx,
+            &Condition::RandomChance {
+                numerator: 1,
+                denominator: 1,
+            }
+        ));
+        assert!(!evaluate_condition(
+            &mut cs,
+            &ctx,
+            &Condition::RandomChance {
+                numerator: 0,
+                denominator: 1,
+            }
+        ));
+    }
+
+    /// Run-state stubs (GainRelic etc.) do not crash and do not
+    /// alter CombatState. Encode-able-but-inert tier.
+    #[test]
+    fn run_state_stubs_are_safe_noops() {
+        let mut cs = ironclad_combat();
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        let stubs = vec![
+            Effect::GainRelic {
+                relic_id: "BurningBlood".to_string(),
+            },
+            Effect::LoseRelic {
+                relic_id: "BurningBlood".to_string(),
+            },
+            Effect::GainPotionToBelt {
+                potion_id: "FirePotion".to_string(),
+            },
+            Effect::LoseRunStateHp {
+                amount: AmountSpec::Fixed(5),
+            },
+            Effect::GainRunStateMaxHp {
+                amount: AmountSpec::Fixed(10),
+            },
+            Effect::GainRunStateGold {
+                amount: AmountSpec::Fixed(50),
+            },
+            Effect::SetEventFinished {
+                description_key: "WOOD_CARVINGS.pages.BIRD.description".to_string(),
+            },
+            Effect::MoveToEventPage {
+                page_id: "PAGE_2".to_string(),
+            },
+        ];
+        let hp_before = cs.allies[0].current_hp;
+        execute_effects(&mut cs, &stubs, &ctx);
+        assert_eq!(cs.allies[0].current_hp, hp_before);
     }
 
     /// Stub primitives (orb / osty / forge / quest / end-turn /
