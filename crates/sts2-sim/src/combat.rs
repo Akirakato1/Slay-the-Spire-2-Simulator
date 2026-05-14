@@ -439,15 +439,17 @@ impl CombatState {
     }
 
     /// Apply each creature's start-of-turn power effects when that
-    /// creature's side begins its turn. Currently models PoisonPower:
-    /// deal `Amount` damage (Unblockable | Unpowered → block-bypassing),
-    /// then decrement the stack by 1.
+    /// creature's side begins its turn. Currently models:
+    ///   - PoisonPower: deal `Amount` damage (Unblockable | Unpowered →
+    ///     block-bypassing), then decrement the stack by 1.
+    ///   - DemonFormPower: apply StrengthPower(Amount) to owner.
     ///
     /// Snapshots ticks before applying so a death during one tick doesn't
-    /// disrupt iteration. Tick uses `lose_hp` (bypasses block) per the
+    /// disrupt iteration. Poison uses `lose_hp` (bypasses block) per the
     /// `ValueProp.Unblockable` flag the C# passes.
     pub fn tick_start_of_turn_powers(&mut self, side: CombatSide) {
-        let mut ticks: Vec<(usize, i32)> = Vec::new();
+        let mut poison_ticks: Vec<(usize, i32)> = Vec::new();
+        let mut demon_form_grants: Vec<(usize, i32)> = Vec::new();
         let list = match side {
             CombatSide::Player => &self.allies,
             CombatSide::Enemy => &self.enemies,
@@ -457,15 +459,24 @@ impl CombatState {
             if creature.current_hp == 0 {
                 continue;
             }
-            if let Some(p) = creature.powers.iter().find(|p| p.id == "PoisonPower") {
-                if p.amount > 0 {
-                    ticks.push((idx, p.amount));
+            for p in &creature.powers {
+                match p.id.as_str() {
+                    "PoisonPower" if p.amount > 0 => {
+                        poison_ticks.push((idx, p.amount));
+                    }
+                    "DemonFormPower" if p.amount != 0 => {
+                        demon_form_grants.push((idx, p.amount));
+                    }
+                    _ => {}
                 }
             }
         }
-        for (idx, amount) in ticks {
+        for (idx, amount) in poison_ticks {
             self.lose_hp(side, idx, amount);
             self.decrement_power(side, idx, "PoisonPower", 1);
+        }
+        for (idx, amount) in demon_form_grants {
+            self.apply_power(side, idx, "StrengthPower", amount);
         }
     }
 
@@ -1366,6 +1377,22 @@ fn dispatch_on_play(
                 player_idx,
                 "StrengthPower",
                 strength,
+            );
+            true
+        }
+        // DemonForm (Ironclad rare Power, 3 cost, Self): apply 2
+        // DemonFormPower (3 upgraded). DemonFormPower's
+        // AfterSideTurnStart hook then applies StrengthPower(Amount) to
+        // owner on each player-turn begin (wired into
+        // tick_start_of_turn_powers).
+        "DemonForm" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let stacks = canonical_int_value(card, "StrengthPower", upgrade_level);
+            cs.apply_power(
+                CombatSide::Player,
+                player_idx,
+                "DemonFormPower",
+                stacks,
             );
             true
         }
@@ -3677,6 +3704,88 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- DemonForm tests ------------------------------------------
+
+    #[test]
+    fn demon_form_applies_two_demon_form_power() {
+        let mut cs = ironclad_combat();
+        // Bump energy so we can afford a 3-cost card.
+        cs.allies[0].player.as_mut().unwrap().energy = 3;
+        let card = card_by_id("DemonForm").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DemonFormPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn upgraded_demon_form_applies_three() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 3;
+        let card = card_by_id("DemonForm").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DemonFormPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn demon_form_grants_strength_on_player_turn_start() {
+        // After playing DemonForm, the next begin_turn(Player) should
+        // apply 2 Strength via tick_start_of_turn_powers.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "DemonFormPower", 2);
+        // Initial Strength is 0.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            0
+        );
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            2
+        );
+        // Second turn: another +2 → 4 total.
+        cs.begin_turn(CombatSide::Enemy);
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            4
+        );
+    }
+
+    #[test]
+    fn demon_form_does_not_trigger_on_enemy_turn() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "DemonFormPower", 2);
+        cs.begin_turn(CombatSide::Enemy);
+        // Player's DemonForm should not have fired (wrong side).
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            0
+        );
     }
 
     // ---------- Breakthrough + BloodWall tests ---------------------------
