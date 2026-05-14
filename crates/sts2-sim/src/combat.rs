@@ -232,6 +232,15 @@ pub struct CombatState {
     /// When true, mutating methods push their effects to `combat_log`.
     /// Toggle with `set_log_enabled`. Off by default.
     pub log_enabled: bool,
+    /// Combat-scoped RNG stream. Used by OnPlay handlers that need
+    /// randomness (PommelStrike's draw, Cinder's random hand exhaust,
+    /// SwordBoomerang's random target, Juggernaut's random hit, ...).
+    /// In C# these route through specific RunState.Rng.* sub-streams
+    /// (CombatCardSelection / CombatTargets / ...); we squash them
+    /// into one combat-scoped stream for now since bit-exact replay
+    /// against a real .run already requires deeper RngSet plumbing
+    /// (deferred until corpus combat-replay integration in #72 lands).
+    pub rng: Rng,
 }
 
 impl CombatState {
@@ -248,6 +257,7 @@ impl CombatState {
             escaped: Vec::new(),
             combat_log: Vec::new(),
             log_enabled: false,
+            rng: Rng::new(0, 0),
         }
     }
 
@@ -292,6 +302,7 @@ impl CombatState {
             escaped: Vec::new(),
             combat_log: Vec::new(),
             log_enabled: false,
+            rng: Rng::new(0, 0),
         }
     }
 
@@ -582,6 +593,18 @@ impl CombatState {
                 drawn += 1;
             }
         }
+        drawn
+    }
+
+    /// Convenience wrapper: draw `n` using the combat-scoped `self.rng`.
+    /// OnPlay handlers call this rather than threading an external Rng
+    /// (which can't co-borrow with `&mut self` here). The temp-swap is
+    /// the standard workaround for "method that uses one field on `self`
+    /// while another field is also borrowed mutably."
+    pub fn draw_cards_self_rng(&mut self, player_idx: usize, n: i32) -> i32 {
+        let mut rng = std::mem::replace(&mut self.rng, Rng::new(0, 0));
+        let drawn = self.draw_cards(player_idx, n, &mut rng);
+        self.rng = rng;
         drawn
     }
 
@@ -1393,6 +1416,33 @@ fn dispatch_on_play(
                 "StrengthPower",
                 strength,
             );
+            true
+        }
+        // PommelStrike (Ironclad common Attack): 9 damage + draw N
+        // (N=1, 2 upgraded). Upgrade bumps both Damage and Cards.
+        "PommelStrike" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let cards = canonical_int_value(card, "Cards", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.draw_cards_self_rng(player_idx, cards);
+            true
+        }
+        // ShrugItOff (Ironclad common Skill): 8 block (11 upgraded) +
+        // draw 1. Block routes through gain_block so Frail/Dex apply.
+        "ShrugItOff" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            let cards = canonical_int_value(card, "Cards", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            cs.draw_cards_self_rng(player_idx, cards);
             true
         }
         // DemonForm (Ironclad rare Power, 3 cost, Self): apply 2
@@ -3763,6 +3813,132 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- PommelStrike + ShrugItOff (RNG draw) tests --------------
+
+    fn populate_draw_pile(cs: &mut CombatState, n: usize) {
+        let strike = card_by_id("StrikeIronclad").unwrap();
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        for _ in 0..n {
+            ps.draw
+                .cards
+                .push(CardInstance::from_card(strike, 0));
+        }
+    }
+
+    #[test]
+    fn pommel_strike_deals_nine_and_draws_one() {
+        let mut cs = ironclad_combat();
+        populate_draw_pile(&mut cs, 3);
+        let card = card_by_id("PommelStrike").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let hand_before = cs.allies[0].player.as_ref().unwrap().hand.len();
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 9);
+        // PommelStrike consumed (hand−1) then drew 1 (+1). Net hand_before.
+        // hand_before counted the PommelStrike itself; after play it's
+        // gone but +1 drawn → hand size = hand_before.
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().hand.len(),
+            hand_before
+        );
+    }
+
+    #[test]
+    fn upgraded_pommel_strike_draws_two() {
+        let mut cs = ironclad_combat();
+        populate_draw_pile(&mut cs, 5);
+        let card = card_by_id("PommelStrike").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let hand_before = cs.allies[0].player.as_ref().unwrap().hand.len();
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // Upgrade: damage 9+1=10, draw 1+1=2. Net hand: hand_before-1+2.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 10);
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().hand.len(),
+            hand_before + 1
+        );
+    }
+
+    #[test]
+    fn shrug_it_off_grants_eight_block_and_draws_one() {
+        let mut cs = ironclad_combat();
+        populate_draw_pile(&mut cs, 3);
+        let card = card_by_id("ShrugItOff").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hand_before = cs.allies[0].player.as_ref().unwrap().hand.len();
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 8);
+        // ShrugItOff itself consumed, then +1 drawn → net hand size
+        // equals hand_before.
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().hand.len(),
+            hand_before
+        );
+    }
+
+    #[test]
+    fn upgraded_shrug_it_off_grants_eleven_block_draws_one() {
+        let mut cs = ironclad_combat();
+        populate_draw_pile(&mut cs, 3);
+        let card = card_by_id("ShrugItOff").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        // 8 + 3 = 11. Upgrade does NOT bump Cards.
+        assert_eq!(cs.allies[0].block, 11);
+    }
+
+    #[test]
+    fn shrug_it_off_with_empty_draw_pile_draws_zero() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("ShrugItOff").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        // Block lands; draw is a no-op when both piles are empty.
+        assert_eq!(cs.allies[0].block, 8);
     }
 
     // ---------- Brimstone relic tests -----------------------------------

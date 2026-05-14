@@ -113,6 +113,11 @@ impl CombatEnv {
         rng_seed: u32,
     ) -> Self {
         let mut state = CombatState::start(encounter, players, modifier_ids);
+        // Seed the combat-scoped RNG inside the state. Cards that need
+        // randomness (PommelStrike draw, Cinder hand exhaust, ...) read
+        // it via `state.rng`. We use a derived seed so it doesn't share
+        // a stream with the env-level rng used for rewards.
+        state.rng = Rng::new(rng_seed.wrapping_add(0x1f_b7_d6_c5), 0);
         // Fire combat-start relic hooks. C# CombatManager does this as
         // part of opening combat; we run it eagerly so the agent's
         // first `observation()` reflects post-hook state.
