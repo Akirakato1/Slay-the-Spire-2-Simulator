@@ -4129,6 +4129,114 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: Doormaker (boss) ---------------------------
+//
+// Reflects C# `Doormaker.GenerateMoveStateMachine`. Init:
+// DramaticOpen. Chain DramaticOpen → Hunger → Scrutiny → Grasp →
+// Hunger (3-state loop after init).
+//
+// DramaticOpen in C# is the visual "door opens to reveal the
+// Doormaker" transformation — restores max HP, removes powers,
+// applies HungerPower. Encounter spawns a single Doormaker
+// creature directly (.run monster_ids has only "MONSTER.DOORMAKER"),
+// so the visual phase swap doesn't need a separate model. The
+// per-move HungerPower / ScrutinyPower / GraspPower markers
+// (used in C# for visuals + state-tracking) are skipped — the
+// state machine reads only last_intent, which is enough.
+//
+// A0 payloads:
+//   - DramaticOpen: no-op (visual reveal in C#)
+//   - Hunger:       30 damage (DeadlyEnemies: 35)
+//   - Scrutiny:     24 damage (DeadlyEnemies: 26)
+//   - Grasp:        10 damage × 2 hits + 3 self-Strength
+//                   (DeadlyEnemies: 11 / 4)
+
+const DOORMAKER_HUNGER_DAMAGE: i32 = 30;
+const DOORMAKER_SCRUTINY_DAMAGE: i32 = 24;
+const DOORMAKER_GRASP_DAMAGE: i32 = 10;
+const DOORMAKER_GRASP_HITS: i32 = 2;
+const DOORMAKER_GRASP_STRENGTH: i32 = 3;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum DoormakerIntent {
+    DramaticOpen,
+    Hunger,
+    Scrutiny,
+    Grasp,
+}
+
+impl DoormakerIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            DoormakerIntent::DramaticOpen => "DRAMATIC_OPEN_MOVE",
+            DoormakerIntent::Hunger => "HUNGER_MOVE",
+            DoormakerIntent::Scrutiny => "SCRUTINY_MOVE",
+            DoormakerIntent::Grasp => "GRASP_MOVE",
+        }
+    }
+}
+
+pub fn pick_doormaker_intent(
+    last_intent: Option<DoormakerIntent>,
+) -> DoormakerIntent {
+    match last_intent {
+        None => DoormakerIntent::DramaticOpen,
+        Some(DoormakerIntent::DramaticOpen) => DoormakerIntent::Hunger,
+        Some(DoormakerIntent::Hunger) => DoormakerIntent::Scrutiny,
+        Some(DoormakerIntent::Scrutiny) => DoormakerIntent::Grasp,
+        Some(DoormakerIntent::Grasp) => DoormakerIntent::Hunger,
+    }
+}
+
+pub fn execute_doormaker_move(
+    cs: &mut CombatState,
+    doormaker_idx: usize,
+    target_player_idx: usize,
+    intent: DoormakerIntent,
+) {
+    let attacker = (CombatSide::Enemy, doormaker_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        DoormakerIntent::DramaticOpen => {
+            // No-op — C# transforms visuals + restores HP + swaps
+            // to HungerPower. Encounter spawns Doormaker directly
+            // at full HP so the transform is purely cosmetic here.
+        }
+        DoormakerIntent::Hunger => {
+            cs.deal_damage(
+                attacker,
+                player,
+                DOORMAKER_HUNGER_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        DoormakerIntent::Scrutiny => {
+            cs.deal_damage(
+                attacker,
+                player,
+                DOORMAKER_SCRUTINY_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        DoormakerIntent::Grasp => {
+            for _ in 0..DOORMAKER_GRASP_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    DOORMAKER_GRASP_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+            cs.apply_power(
+                CombatSide::Enemy,
+                doormaker_idx,
+                "StrengthPower",
+                DOORMAKER_GRASP_STRENGTH,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: LagavulinMatriarch -------------------------
 //
 // Reflects C# `LagavulinMatriarch.GenerateMoveStateMachine`:
@@ -14124,6 +14232,68 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- Doormaker tests --------------------------------------------
+
+    #[test]
+    fn doormaker_walks_chain() {
+        assert_eq!(
+            pick_doormaker_intent(None),
+            DoormakerIntent::DramaticOpen
+        );
+        assert_eq!(
+            pick_doormaker_intent(Some(DoormakerIntent::DramaticOpen)),
+            DoormakerIntent::Hunger
+        );
+        assert_eq!(
+            pick_doormaker_intent(Some(DoormakerIntent::Hunger)),
+            DoormakerIntent::Scrutiny
+        );
+        assert_eq!(
+            pick_doormaker_intent(Some(DoormakerIntent::Scrutiny)),
+            DoormakerIntent::Grasp
+        );
+        assert_eq!(
+            pick_doormaker_intent(Some(DoormakerIntent::Grasp)),
+            DoormakerIntent::Hunger
+        );
+    }
+
+    #[test]
+    fn doormaker_dramatic_open_is_noop() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_doormaker_move(&mut cs, 0, 0, DoormakerIntent::DramaticOpen);
+        assert_eq!(cs.allies[0].current_hp, hp);
+    }
+
+    #[test]
+    fn doormaker_hunger_deals_thirty() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_doormaker_move(&mut cs, 0, 0, DoormakerIntent::Hunger);
+        assert_eq!(cs.allies[0].current_hp, hp - 30);
+    }
+
+    #[test]
+    fn doormaker_scrutiny_deals_twenty_four() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_doormaker_move(&mut cs, 0, 0, DoormakerIntent::Scrutiny);
+        assert_eq!(cs.allies[0].current_hp, hp - 24);
+    }
+
+    #[test]
+    fn doormaker_grasp_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_doormaker_move(&mut cs, 0, 0, DoormakerIntent::Grasp);
+        assert_eq!(cs.allies[0].current_hp, hp - 20);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            3
+        );
     }
 
     // ---------- LagavulinMatriarch + AsleepPower tests ---------------------

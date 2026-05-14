@@ -156,6 +156,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "Queen"
             | "HauntedShip"
             | "LagavulinMatriarch"
+            | "Doormaker"
     )
 }
 
@@ -770,6 +771,18 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "Doormaker" => {
+            let last = last_ref.and_then(|s| match s {
+                "DRAMATIC_OPEN_MOVE" => Some(DoormakerIntent::DramaticOpen),
+                "HUNGER_MOVE" => Some(DoormakerIntent::Hunger),
+                "SCRUTINY_MOVE" => Some(DoormakerIntent::Scrutiny),
+                "GRASP_MOVE" => Some(DoormakerIntent::Grasp),
+                _ => None,
+            });
+            let intent = pick_doormaker_intent(last);
+            execute_doormaker_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "LagavulinMatriarch" => {
