@@ -57,6 +57,15 @@ pub enum AmountSpec {
     XEnergy,
     /// Multiply the inner amount by `factor`. Composition helper.
     Multiplied { base: Box<AmountSpec>, factor: i32 },
+    /// Actor's current amount of the named power. Used inside
+    /// power-hook effect bodies that reference their own stack count
+    /// (RegenPower heals by `base.Amount`, PoisonPower damages by
+    /// `base.Amount`, etc.). The power-VM dispatcher binds the value
+    /// into `EffectContext::actor_amount` before invoking the body.
+    /// `power_id` is recorded for documentation / future per-power
+    /// disambiguation; current resolver ignores it and returns the
+    /// pre-bound amount.
+    OwnerPowerAmount(String),
 }
 
 /// Where an effect applies. Richer selectors (AllAllies, ChooseFromPile,
@@ -501,6 +510,11 @@ pub struct EffectContext<'a> {
     /// authored as effect lists, this is the monster. `Target::SelfActor`
     /// resolves to this.
     pub actor: (CombatSide, usize),
+    /// Pre-bound actor's power amount for the hook's host power.
+    /// `AmountSpec::OwnerPowerAmount` reads this. The power-VM
+    /// dispatcher sets it before invoking the body. 0 outside power
+    /// contexts.
+    pub actor_amount: i32,
 }
 
 impl<'a> EffectContext<'a> {
@@ -521,6 +535,7 @@ impl<'a> EffectContext<'a> {
             enchantment,
             x_value,
             actor: (CombatSide::Player, player_idx),
+            actor_amount: 0,
         }
     }
 
@@ -540,6 +555,26 @@ impl<'a> EffectContext<'a> {
             enchantment: None,
             x_value: 0,
             actor: (CombatSide::Enemy, actor_idx),
+            actor_amount: 0,
+        }
+    }
+
+    /// Builder for power-hook bodies. The actor is the power's owner;
+    /// `host_power_amount` pre-binds `AmountSpec::OwnerPowerAmount` to
+    /// the current stack count.
+    pub fn for_power_hook(
+        actor: (CombatSide, usize),
+        host_power_amount: i32,
+    ) -> Self {
+        Self {
+            player_idx: 0,
+            target: None,
+            source_card_id: None,
+            upgrade_level: 0,
+            enchantment: None,
+            x_value: 0,
+            actor,
+            actor_amount: host_power_amount,
         }
     }
 }
@@ -566,6 +601,7 @@ impl AmountSpec {
             }
             AmountSpec::XEnergy => ctx.x_value,
             AmountSpec::Multiplied { base, factor } => base.resolve(ctx) * factor,
+            AmountSpec::OwnerPowerAmount(_) => ctx.actor_amount,
         }
     }
 }
@@ -575,6 +611,130 @@ impl AmountSpec {
 pub fn execute_effects(cs: &mut CombatState, effects: &[Effect], ctx: &EffectContext) {
     for eff in effects {
         execute_effect(cs, eff, ctx);
+    }
+}
+
+// ========================================================================
+// Power VM — same shape as the card VM, applied to PowerModel lifecycle.
+// ========================================================================
+//
+// Powers have C# override methods on `AbstractModel` (BeforeAttack,
+// AfterTurnEnd, AfterCardPlayed, AfterApplied, …). The Power VM expresses
+// the body of each override as a `Vec<Effect>` keyed by a `PowerHook`
+// trigger variant — exactly the same dispatch pattern as card OnPlay
+// goes through `card_effects`.
+//
+// Initial scope is one hook trigger: `AfterTurnEnd`. RegenPower is the
+// first migration. The other ~25 trigger variants (audit §2, full list
+// in `project_pipeline_audit_2026_05_14.md`) get added incrementally
+// alongside their first consumer.
+
+/// Closed enum of power-lifecycle trigger points. Mirrors the C# hook
+/// surface declared on `AbstractModel`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PowerHook {
+    /// C# `AfterTurnEnd(side)`. Fires once per side turn end. The
+    /// `filter` discriminant gates on whether the ended side matches
+    /// the power owner's side.
+    AfterTurnEnd {
+        filter: HookSideFilter,
+        body: Vec<Effect>,
+    },
+    // TODO (audit §2): AfterSideTurnStart, BeforeSideTurnStart,
+    // BeforeTurnEnd, AfterApplied, AfterRemoved, BeforeAttack,
+    // AfterAttack, AfterDamageGiven, BeforeDamageReceived,
+    // AfterDamageReceived, AfterCardPlayed, BeforeCardPlayed,
+    // AfterDeath, OnHostDeath, ShouldClearBlock, ShouldDie, ...
+}
+
+/// Discriminant for hook side-filtering. Mirrors the C#
+/// `if (side == base.Owner.Side)` pattern.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HookSideFilter {
+    /// Body fires only when the ended/starting side matches the
+    /// power owner's side. C# default.
+    OwnerSide,
+    /// Body fires regardless of which side. Rare.
+    Any,
+}
+
+/// Registry of powers whose lifecycle behavior is expressed as data.
+///
+/// Migrating a power here means: (1) its overrides only call existing
+/// VM primitives, and (2) any pre-existing hardcoded behavior in
+/// combat.rs's match-arm `tick_*` paths is removed so we don't double-fire.
+///
+/// Plan §0.2.3 + audit §6 recommendation. First 10 migration order:
+///   1. RegenPower (this commit) — simplest: heal + decrement at turn end.
+///   2. Strength / Dexterity — already wired via additive table; would
+///      port for uniformity once damage-modifier hooks join the VM.
+///   3. Weak / Vulnerable / Frail — duration-tick variant.
+///   4. Poison — symmetric to Regen (damage, side=Owner).
+///   5. DemonForm / Ritual — AfterSideTurnStart bodies.
+///   6. Barricade — ShouldClearBlock gate.
+pub fn power_effects(power_id: &str) -> Vec<PowerHook> {
+    match power_id {
+        // RegenPower: at end of owner's turn, heal Owner by Amount and
+        // decrement the stack by 1. Mirrors RegenPower.cs:46-57.
+        "RegenPower" => vec![PowerHook::AfterTurnEnd {
+            filter: HookSideFilter::OwnerSide,
+            body: vec![
+                Effect::Heal {
+                    amount: AmountSpec::OwnerPowerAmount("RegenPower".to_string()),
+                    target: Target::SelfActor,
+                },
+                Effect::ApplyPower {
+                    power_id: "RegenPower".to_string(),
+                    amount: AmountSpec::Fixed(-1),
+                    target: Target::SelfActor,
+                },
+            ],
+        }],
+        _ => vec![],
+    }
+}
+
+/// Walk every living creature's powers and execute any matching
+/// `AfterTurnEnd` hook bodies. Called from `CombatState::end_turn`
+/// after the existing hardcoded tick paths.
+pub fn fire_power_hooks_after_turn_end(cs: &mut CombatState, ended_side: CombatSide) {
+    // Snapshot (side, idx, power_id, amount) so iteration is stable
+    // against mid-body mutations (heal/apply/remove etc. mutate the
+    // powers list).
+    let mut snapshot: Vec<(CombatSide, usize, String, i32)> = Vec::new();
+    for (i, c) in cs.allies.iter().enumerate() {
+        for p in &c.powers {
+            snapshot.push((CombatSide::Player, i, p.id.clone(), p.amount));
+        }
+    }
+    for (i, c) in cs.enemies.iter().enumerate() {
+        for p in &c.powers {
+            snapshot.push((CombatSide::Enemy, i, p.id.clone(), p.amount));
+        }
+    }
+    for (side, idx, power_id, amount) in snapshot {
+        // Skip dead actors (matches C# `if !base.Owner.IsDead`).
+        let alive = match side {
+            CombatSide::Player => cs.allies.get(idx).map(|c| c.current_hp > 0),
+            CombatSide::Enemy => cs.enemies.get(idx).map(|c| c.current_hp > 0),
+            CombatSide::None => Some(false),
+        }
+        .unwrap_or(false);
+        if !alive {
+            continue;
+        }
+        for hook in power_effects(&power_id) {
+            let PowerHook::AfterTurnEnd { filter, body } = &hook;
+            let matches = match filter {
+                HookSideFilter::OwnerSide => side == ended_side,
+                HookSideFilter::Any => true,
+            };
+            if !matches {
+                continue;
+            }
+            let ctx = EffectContext::for_power_hook((side, idx), amount);
+            execute_effects(cs, body, &ctx);
+        }
     }
 }
 
@@ -2215,6 +2375,52 @@ mod tests {
         let hp_before = cs.allies[0].current_hp;
         execute_effects(&mut cs, &stubs, &ctx);
         assert_eq!(cs.allies[0].current_hp, hp_before);
+    }
+
+    /// RegenPower migrated to the Power VM. AfterTurnEnd on owner-side:
+    /// heal Amount, then decrement stack by 1. Mirrors C# RegenPower.cs.
+    #[test]
+    fn regen_power_vm_heals_and_decrements_at_owner_turn_end() {
+        let mut cs = ironclad_combat();
+        // Wound the player a little so heal is observable.
+        cs.allies[0].current_hp = cs.allies[0].max_hp - 10;
+        cs.apply_power(CombatSide::Player, 0, "RegenPower", 5);
+        let hp_before = cs.allies[0].current_hp;
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        // Heal +5; Regen decremented to 4.
+        assert_eq!(cs.allies[0].current_hp, hp_before + 5);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "RegenPower"),
+            4
+        );
+    }
+
+    /// Regen on enemy doesn't fire when the player's turn ends —
+    /// `HookSideFilter::OwnerSide` mirrors C# `if side == Owner.Side`.
+    #[test]
+    fn regen_power_vm_only_fires_on_owner_turn_end() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = cs.enemies[0].max_hp - 10;
+        cs.apply_power(CombatSide::Enemy, 0, "RegenPower", 3);
+        let hp_before = cs.enemies[0].current_hp;
+        let regen_before = cs.get_power_amount(CombatSide::Enemy, 0, "RegenPower");
+        // End the PLAYER turn — enemy regen should NOT fire.
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(cs.enemies[0].current_hp, hp_before);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "RegenPower"),
+            regen_before
+        );
+        // Now end the ENEMY turn — regen fires.
+        cs.begin_turn(CombatSide::Enemy);
+        cs.end_turn();
+        assert_eq!(cs.enemies[0].current_hp, hp_before + 3);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "RegenPower"),
+            regen_before - 1
+        );
     }
 
     /// Stun sets the monster's stunned flag. dispatch_enemy_turn

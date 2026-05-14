@@ -800,6 +800,13 @@ impl CombatState {
         }
         // VigorPower drain moved to fire_after_attack (audit fix #178)
         // — matches C# AttackCommand envelope, not turn boundary.
+        //
+        // Power VM AfterTurnEnd dispatch — iterates living creatures'
+        // powers and runs any registered effect-list bodies. RegenPower
+        // is the first migration; future powers (Poison-on-self,
+        // duration debuffs, etc.) will fold in here as they port.
+        let ended_side = side;
+        crate::effects::fire_power_hooks_after_turn_end(self, ended_side);
         if self.log_enabled {
             let round = self.round_number;
             let side = self.current_side;
