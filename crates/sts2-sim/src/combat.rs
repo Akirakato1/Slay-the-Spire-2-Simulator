@@ -351,10 +351,25 @@ impl CombatState {
             }
             CombatSide::None => {}
         }
-        // AfterSideTurnStart hook pass — currently just Poison.
-        // Hook firing order proper will land in #70; for now we run the
-        // ticks directly so combat math stays correct.
+        // AfterSideTurnStart hook pass.
+        // Hook firing order proper will land in #70; for now powers
+        // (Poison / DemonForm) fire first, then relic AfterSideTurnStart
+        // hooks (Brimstone). This matches the casual reading of the
+        // C# dispatch but isn't formally validated against shipping
+        // ordering — adjust when #70 lands.
         self.tick_start_of_turn_powers(side);
+        self.fire_after_side_turn_start_hooks(side);
+    }
+
+    /// Fire each player's relic `AfterSideTurnStart` hooks. Called from
+    /// `begin_turn`. Each relic arm gates internally on whether the
+    /// passed-in side equals the owner's side.
+    pub fn fire_after_side_turn_start_hooks(&mut self, side: CombatSide) {
+        let pairs = self.collect_player_relics();
+        for (player_idx, relic_id) in pairs {
+            self.log_relic_hook("AfterSideTurnStart", player_idx, &relic_id);
+            dispatch_relic_after_side_turn_start(self, player_idx, &relic_id, side);
+        }
     }
 
     /// Generate the rewards earned by clearing this combat. Caller invokes
@@ -1653,6 +1668,50 @@ fn dispatch_relic_after_combat_victory(
         }
         _ => {}
     }
+}
+
+/// Dispatch a single relic's `AfterSideTurnStart` hook. Fires on every
+/// `begin_turn`; per-relic arms gate on side and any other state.
+fn dispatch_relic_after_side_turn_start(
+    cs: &mut CombatState,
+    player_idx: usize,
+    relic_id: &str,
+    side: CombatSide,
+) {
+    match relic_id {
+        // Brimstone: at start of owner-side turn, +2 Strength to self,
+        // +1 Strength to every alive enemy. C# uses keyed PowerVars
+        // ("SelfStrength" / "EnemyStrength"); we resolve via
+        // relic_var_value.
+        "Brimstone" => {
+            if side != CombatSide::Player {
+                return;
+            }
+            let self_s = relic_var_value("Brimstone", "SelfStrength").unwrap_or(0);
+            let enemy_s = relic_var_value("Brimstone", "EnemyStrength").unwrap_or(0);
+            cs.apply_power(CombatSide::Player, player_idx, "StrengthPower", self_s);
+            let n = cs.enemies.len();
+            for i in 0..n {
+                if cs.enemies[i].current_hp == 0 {
+                    continue;
+                }
+                cs.apply_power(CombatSide::Enemy, i, "StrengthPower", enemy_s);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Resolve a relic var's integer value by key. Relic vars don't upgrade,
+/// so this is just a flat lookup against the canonical_vars table.
+fn relic_var_value(relic_id: &str, key: &str) -> Option<i32> {
+    let relic = crate::relic::by_id(relic_id)?;
+    relic
+        .canonical_vars
+        .iter()
+        .find(|v| v.key.as_deref() == Some(key))
+        .and_then(|v| v.base_value)
+        .map(|x| x as i32)
 }
 
 fn var_matches(v: &crate::card::CardVar, var_kind: &str) -> bool {
@@ -3704,6 +3763,85 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Brimstone relic tests -----------------------------------
+
+    fn ironclad_combat_with_relic(relic_id: &str) -> CombatState {
+        let mut cs = ironclad_combat();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .relics
+            .push(relic_id.to_string());
+        cs
+    }
+
+    #[test]
+    fn brimstone_grants_strength_to_self_and_enemies_on_player_turn() {
+        let mut cs = ironclad_combat_with_relic("Brimstone");
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            2
+        );
+        for i in 0..cs.enemies.len() {
+            assert_eq!(
+                cs.get_power_amount(CombatSide::Enemy, i, "StrengthPower"),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn brimstone_does_not_fire_on_enemy_turn() {
+        let mut cs = ironclad_combat_with_relic("Brimstone");
+        cs.begin_turn(CombatSide::Enemy);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            0
+        );
+        for i in 0..cs.enemies.len() {
+            assert_eq!(
+                cs.get_power_amount(CombatSide::Enemy, i, "StrengthPower"),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn brimstone_skips_dead_enemies() {
+        let mut cs = ironclad_combat_with_relic("Brimstone");
+        cs.enemies[0].current_hp = 0;
+        cs.begin_turn(CombatSide::Player);
+        // Dead enemy stays at 0 Strength (no PowerInstance added).
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            0
+        );
+        assert!(cs.enemies[0]
+            .powers
+            .iter()
+            .all(|p| p.id != "StrengthPower"));
+        // Alive enemy still picks up the +1.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 1, "StrengthPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn brimstone_compounds_across_rounds() {
+        let mut cs = ironclad_combat_with_relic("Brimstone");
+        cs.begin_turn(CombatSide::Player);
+        cs.begin_turn(CombatSide::Enemy);
+        cs.begin_turn(CombatSide::Player);
+        // +2 each player turn → 4 total after two.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            4
+        );
     }
 
     // ---------- DemonForm tests ------------------------------------------
