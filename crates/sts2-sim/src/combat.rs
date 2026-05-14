@@ -1198,7 +1198,9 @@ impl CombatState {
         props: ValueProp,
     ) -> DamageOutcome {
         let modified = self.modify_damage(dealer, target, raw, props);
-        self.apply_damage(target.0, target.1, modified)
+        let outcome = self.apply_damage(target.0, target.1, modified);
+        self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
+        outcome
     }
 
     /// Enchantment-aware variant. Card OnPlay handlers route through this
@@ -1214,7 +1216,48 @@ impl CombatState {
     ) -> DamageOutcome {
         let modified =
             self.modify_damage_with_enchantment(dealer, target, raw, props, enchantment);
-        self.apply_damage(target.0, target.1, modified)
+        let outcome = self.apply_damage(target.0, target.1, modified);
+        self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
+        outcome
+    }
+
+    /// Fire `AfterDamageGiven` hooks for every per-power listener on
+    /// the dealer side. Currently models PaperCutsPower: when owner
+    /// deals powered-attack damage that gets through block to the
+    /// player, reduce player's max_hp by Amount.
+    ///
+    /// Hook firing order proper lands in #70; for now per-power arms
+    /// run inline. Snapshot-then-act pattern so mutations don't disrupt
+    /// power iteration.
+    fn fire_after_damage_given_hooks(
+        &mut self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        outcome: &DamageOutcome,
+        props: ValueProp,
+    ) {
+        if !props.is_powered_attack() || outcome.hp_lost <= 0 {
+            return;
+        }
+        let target_is_player = target.0 == CombatSide::Player;
+        // Snapshot (power_id, amount) pairs from dealer-side powers so
+        // subsequent mutations (max_hp changes etc.) don't disrupt
+        // iteration.
+        let dealer_powers: Vec<(String, i32)> = creature_powers(self, dealer)
+            .iter()
+            .map(|p| (p.id.clone(), p.amount))
+            .collect();
+        for (power_id, amount) in dealer_powers {
+            if amount <= 0 {
+                continue;
+            }
+            match power_id.as_str() {
+                "PaperCutsPower" if target_is_player => {
+                    self.change_max_hp(target.0, target.1, -amount);
+                }
+                _ => {}
+            }
+        }
     }
 
     // ---------- Card play action ------------------------------------------
@@ -3217,6 +3260,130 @@ pub fn execute_flail_knight_move(
                 player,
                 FLAIL_KNIGHT_RAM_DAMAGE,
                 ValueProp::MOVE,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: ScrollOfBiting -----------------------------
+//
+// Reflects C# `ScrollOfBiting.GenerateMoveStateMachine`:
+//   On spawn: applies PaperCutsPower(2) — wired into combat via the
+//   AfterDamageGiven hook (deal max_hp loss when owner damages player
+//   through block).
+//
+//   Init: branches on `StarterMoveIdx % 3`:
+//     - 0 → Chomp
+//     - 1 → Chew
+//     - 2 (and default) → MoreTeeth
+//
+//   FollowUpState chain:
+//     Chomp     → MoreTeeth
+//     MoreTeeth → Chew
+//     Chew      → RandomBranch(Chomp CannotRepeat, Chew weight 2)
+//
+//   Random pick (after Chew): weights Chomp=1 (CannotRepeat blocks
+//   when last was Chomp — but the path here means last was Chew, so
+//   Chomp is always allowed; weight 1) and Chew=2. The CannotRepeat
+//   guard would only matter if the random branch re-fires with last
+//   being a Chomp (Chomp→MoreTeeth, so it never does — kept for
+//   fidelity).
+//
+// A0 payloads:
+//   - Chomp: 14 damage (DeadlyEnemies: 16)
+//   - Chew: 5 damage × 2 hits (DeadlyEnemies: 6)
+//   - MoreTeeth: +2 self-Strength (const)
+
+const SCROLL_OF_BITING_CHOMP_DAMAGE: i32 = 14;
+const SCROLL_OF_BITING_CHEW_DAMAGE: i32 = 5;
+const SCROLL_OF_BITING_CHEW_HITS: i32 = 2;
+const SCROLL_OF_BITING_MORE_TEETH_STRENGTH: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ScrollOfBitingIntent {
+    Chomp,
+    Chew,
+    MoreTeeth,
+}
+
+impl ScrollOfBitingIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            ScrollOfBitingIntent::Chomp => "CHOMP",
+            ScrollOfBitingIntent::Chew => "CHEW",
+            ScrollOfBitingIntent::MoreTeeth => "MORE_TEETH",
+        }
+    }
+}
+
+/// Pick ScrollOfBiting's next intent.
+///   - First turn: branch on `starter_move_idx % 3`.
+///   - Subsequent: deterministic chain Chomp→MoreTeeth→Chew→Random.
+///     After Chew the picker rolls RNG: weight Chomp=1, Chew=2.
+pub fn pick_scroll_of_biting_intent(
+    rng: &mut Rng,
+    last_intent: Option<ScrollOfBitingIntent>,
+    starter_move_idx: i32,
+) -> ScrollOfBitingIntent {
+    match last_intent {
+        None => match starter_move_idx.rem_euclid(3) {
+            0 => ScrollOfBitingIntent::Chomp,
+            1 => ScrollOfBitingIntent::Chew,
+            _ => ScrollOfBitingIntent::MoreTeeth,
+        },
+        Some(ScrollOfBitingIntent::Chomp) => ScrollOfBitingIntent::MoreTeeth,
+        Some(ScrollOfBitingIntent::MoreTeeth) => ScrollOfBitingIntent::Chew,
+        Some(ScrollOfBitingIntent::Chew) => {
+            // Random pick: Chomp (1) + Chew (2). CannotRepeat on Chomp
+            // would only block if last was Chomp, which the chain
+            // forbids here — leave the guard implicit.
+            let w_chomp: f32 = 1.0;
+            let w_chew: f32 = 2.0;
+            let total = w_chomp + w_chew;
+            let mut roll = rng.next_float(total);
+            roll -= w_chomp;
+            if roll <= 0.0 {
+                return ScrollOfBitingIntent::Chomp;
+            }
+            ScrollOfBitingIntent::Chew
+        }
+    }
+}
+
+/// Execute one ScrollOfBiting move's payload.
+pub fn execute_scroll_of_biting_move(
+    cs: &mut CombatState,
+    scroll_idx: usize,
+    target_player_idx: usize,
+    intent: ScrollOfBitingIntent,
+) {
+    let attacker = (CombatSide::Enemy, scroll_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        ScrollOfBitingIntent::Chomp => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SCROLL_OF_BITING_CHOMP_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        ScrollOfBitingIntent::Chew => {
+            for _ in 0..SCROLL_OF_BITING_CHEW_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    SCROLL_OF_BITING_CHEW_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        ScrollOfBitingIntent::MoreTeeth => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                scroll_idx,
+                "StrengthPower",
+                SCROLL_OF_BITING_MORE_TEETH_STRENGTH,
             );
         }
     }
@@ -7762,6 +7929,163 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- ScrollOfBiting + PaperCutsPower tests ---------------------
+
+    #[test]
+    fn scroll_of_biting_starter_zero_is_chomp() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_scroll_of_biting_intent(&mut rng, None, 0),
+            ScrollOfBitingIntent::Chomp
+        );
+        assert_eq!(
+            pick_scroll_of_biting_intent(&mut rng, None, 3),
+            ScrollOfBitingIntent::Chomp
+        );
+    }
+
+    #[test]
+    fn scroll_of_biting_starter_one_is_chew() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_scroll_of_biting_intent(&mut rng, None, 1),
+            ScrollOfBitingIntent::Chew
+        );
+    }
+
+    #[test]
+    fn scroll_of_biting_starter_two_is_more_teeth() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_scroll_of_biting_intent(&mut rng, None, 2),
+            ScrollOfBitingIntent::MoreTeeth
+        );
+    }
+
+    #[test]
+    fn scroll_of_biting_chain_chomp_moreteeth_chew() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_scroll_of_biting_intent(
+                &mut rng,
+                Some(ScrollOfBitingIntent::Chomp),
+                0,
+            ),
+            ScrollOfBitingIntent::MoreTeeth
+        );
+        assert_eq!(
+            pick_scroll_of_biting_intent(
+                &mut rng,
+                Some(ScrollOfBitingIntent::MoreTeeth),
+                0,
+            ),
+            ScrollOfBitingIntent::Chew
+        );
+    }
+
+    #[test]
+    fn scroll_of_biting_chew_random_distribution_1_2() {
+        // After Chew: Chomp weight 1, Chew weight 2 → 33/67 distribution.
+        let mut rng = Rng::new(1234, 0);
+        let mut chomp = 0;
+        let mut chew = 0;
+        for _ in 0..10_000 {
+            match pick_scroll_of_biting_intent(
+                &mut rng,
+                Some(ScrollOfBitingIntent::Chew),
+                0,
+            ) {
+                ScrollOfBitingIntent::Chomp => chomp += 1,
+                ScrollOfBitingIntent::Chew => chew += 1,
+                ScrollOfBitingIntent::MoreTeeth => {
+                    panic!("MoreTeeth shouldn't appear after Chew");
+                }
+            }
+        }
+        // 4 SD tolerance.
+        let tol = 200;
+        assert!((chomp - 3333_i32).abs() < tol, "Chomp count: {chomp}");
+        assert!((chew - 6667_i32).abs() < tol, "Chew count: {chew}");
+    }
+
+    #[test]
+    fn scroll_of_biting_chomp_deals_fourteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_scroll_of_biting_move(&mut cs, 0, 0, ScrollOfBitingIntent::Chomp);
+        assert_eq!(cs.allies[0].current_hp, hp - 14);
+    }
+
+    #[test]
+    fn scroll_of_biting_chew_hits_player_twice_for_five() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_scroll_of_biting_move(&mut cs, 0, 0, ScrollOfBitingIntent::Chew);
+        assert_eq!(cs.allies[0].current_hp, hp - 10);
+    }
+
+    #[test]
+    fn scroll_of_biting_more_teeth_gains_two_strength() {
+        let mut cs = ironclad_combat();
+        execute_scroll_of_biting_move(
+            &mut cs,
+            0,
+            0,
+            ScrollOfBitingIntent::MoreTeeth,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn paper_cuts_drops_player_max_hp_on_unblocked_damage() {
+        // Enemy 0 holds PaperCutsPower(2). Direct damage to player
+        // through 0 block → max_hp drops by 2.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PaperCutsPower", 2);
+        let max_before = cs.allies[0].max_hp;
+        cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.allies[0].max_hp, max_before - 2);
+    }
+
+    #[test]
+    fn paper_cuts_no_max_hp_loss_when_damage_blocked() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PaperCutsPower", 2);
+        cs.allies[0].block = 50;
+        let max_before = cs.allies[0].max_hp;
+        cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        // Damage all absorbed by block → no max_hp loss.
+        assert_eq!(cs.allies[0].max_hp, max_before);
+    }
+
+    #[test]
+    fn paper_cuts_only_fires_on_powered_attacks() {
+        // Unpowered damage (e.g. Poison tick): PaperCuts doesn't fire.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PaperCutsPower", 2);
+        let max_before = cs.allies[0].max_hp;
+        cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            10,
+            ValueProp::UNPOWERED.with(ValueProp::MOVE),
+        );
+        assert_eq!(cs.allies[0].max_hp, max_before);
     }
 
     // ---------- BowlbugSilk intent + move payload tests -------------------
