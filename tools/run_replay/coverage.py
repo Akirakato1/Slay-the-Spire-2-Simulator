@@ -50,6 +50,8 @@ PORTED_INTENT_MACHINES = {
     "Entomancer",
     "MechaKnight",
     "BowlbugRock",
+    "SludgeSpinner",
+    "FuzzyWurmCrawler",
 }
 
 

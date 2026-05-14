@@ -3396,6 +3396,188 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: SludgeSpinner ------------------------------
+//
+// Reflects C# `SludgeSpinner.GenerateMoveStateMachine`. Init OilSpray;
+// subsequent: RandomBranch over all 3 moves with CannotRepeat on
+// every branch. So each turn after init picks uniformly between the
+// 2 not-just-played.
+//
+// A0 payloads:
+//   - OilSpray: 8 damage + 1 Weak (DeadlyEnemies dmg: 9)
+//   - Slam:     11 damage (DeadlyEnemies: 12)
+//   - Rage:     6 damage + 3 self-Strength (DeadlyEnemies dmg: 7)
+
+const SLUDGE_SPINNER_OIL_DAMAGE: i32 = 8;
+const SLUDGE_SPINNER_OIL_WEAK: i32 = 1;
+const SLUDGE_SPINNER_SLAM_DAMAGE: i32 = 11;
+const SLUDGE_SPINNER_RAGE_DAMAGE: i32 = 6;
+const SLUDGE_SPINNER_RAGE_STRENGTH: i32 = 3;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SludgeSpinnerIntent {
+    OilSpray,
+    Slam,
+    Rage,
+}
+
+impl SludgeSpinnerIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            SludgeSpinnerIntent::OilSpray => "OIL_SPRAY_MOVE",
+            SludgeSpinnerIntent::Slam => "SLAM_MOVE",
+            SludgeSpinnerIntent::Rage => "RAGE_MOVE",
+        }
+    }
+}
+
+pub fn pick_sludge_spinner_intent(
+    rng: &mut Rng,
+    last_intent: Option<SludgeSpinnerIntent>,
+) -> SludgeSpinnerIntent {
+    if last_intent.is_none() {
+        return SludgeSpinnerIntent::OilSpray;
+    }
+    // Each branch weight 1, CannotRepeat: pick uniformly between the
+    // 2 branches that weren't just played.
+    let allowed: Vec<SludgeSpinnerIntent> = [
+        SludgeSpinnerIntent::OilSpray,
+        SludgeSpinnerIntent::Slam,
+        SludgeSpinnerIntent::Rage,
+    ]
+    .into_iter()
+    .filter(|i| Some(*i) != last_intent)
+    .collect();
+    let pick = rng.next_int_range(0, allowed.len() as i32) as usize;
+    allowed[pick]
+}
+
+pub fn execute_sludge_spinner_move(
+    cs: &mut CombatState,
+    spinner_idx: usize,
+    target_player_idx: usize,
+    intent: SludgeSpinnerIntent,
+) {
+    let attacker = (CombatSide::Enemy, spinner_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        SludgeSpinnerIntent::OilSpray => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SLUDGE_SPINNER_OIL_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                SLUDGE_SPINNER_OIL_WEAK,
+            );
+        }
+        SludgeSpinnerIntent::Slam => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SLUDGE_SPINNER_SLAM_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        SludgeSpinnerIntent::Rage => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SLUDGE_SPINNER_RAGE_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                spinner_idx,
+                "StrengthPower",
+                SLUDGE_SPINNER_RAGE_STRENGTH,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: FuzzyWurmCrawler ---------------------------
+//
+// Reflects C# `FuzzyWurmCrawler.GenerateMoveStateMachine`. Deterministic
+// 3-cycle init FirstAcidGoop:
+//   FirstAcidGoop → Inhale → AcidGoop → FirstAcidGoop → …
+//
+// FirstAcidGoop and AcidGoop share the same payload (separate state
+// nodes for chain ordering). Both clear IsPuffed (animation-only —
+// not modeled). Inhale grants +7 self-Strength.
+//
+// A0 payloads:
+//   - FirstAcidGoop / AcidGoop: 4 damage (DeadlyEnemies: 6)
+//   - Inhale: +7 self-Strength (const)
+
+const FUZZY_WURM_ACID_GOOP_DAMAGE: i32 = 4;
+const FUZZY_WURM_INHALE_STRENGTH: i32 = 7;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FuzzyWurmCrawlerIntent {
+    FirstAcidGoop,
+    Inhale,
+    AcidGoop,
+}
+
+impl FuzzyWurmCrawlerIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            FuzzyWurmCrawlerIntent::FirstAcidGoop => "FIRST_ACID_GOOP",
+            FuzzyWurmCrawlerIntent::Inhale => "INHALE",
+            FuzzyWurmCrawlerIntent::AcidGoop => "ACID_GOOP",
+        }
+    }
+}
+
+pub fn pick_fuzzy_wurm_crawler_intent(
+    last_intent: Option<FuzzyWurmCrawlerIntent>,
+) -> FuzzyWurmCrawlerIntent {
+    match last_intent {
+        None => FuzzyWurmCrawlerIntent::FirstAcidGoop,
+        Some(FuzzyWurmCrawlerIntent::FirstAcidGoop) => {
+            FuzzyWurmCrawlerIntent::Inhale
+        }
+        Some(FuzzyWurmCrawlerIntent::Inhale) => FuzzyWurmCrawlerIntent::AcidGoop,
+        Some(FuzzyWurmCrawlerIntent::AcidGoop) => {
+            FuzzyWurmCrawlerIntent::FirstAcidGoop
+        }
+    }
+}
+
+pub fn execute_fuzzy_wurm_crawler_move(
+    cs: &mut CombatState,
+    wurm_idx: usize,
+    target_player_idx: usize,
+    intent: FuzzyWurmCrawlerIntent,
+) {
+    let attacker = (CombatSide::Enemy, wurm_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        FuzzyWurmCrawlerIntent::FirstAcidGoop
+        | FuzzyWurmCrawlerIntent::AcidGoop => {
+            cs.deal_damage(
+                attacker,
+                player,
+                FUZZY_WURM_ACID_GOOP_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        FuzzyWurmCrawlerIntent::Inhale => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                wurm_idx,
+                "StrengthPower",
+                FUZZY_WURM_INHALE_STRENGTH,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: BowlbugRock --------------------------------
 //
 // Reflects C# `BowlbugRock.GenerateMoveStateMachine`:
@@ -9324,6 +9506,124 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- SludgeSpinner + FuzzyWurmCrawler tests --------------------
+
+    #[test]
+    fn sludge_spinner_first_turn_is_oil_spray() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_sludge_spinner_intent(&mut rng, None),
+            SludgeSpinnerIntent::OilSpray
+        );
+    }
+
+    #[test]
+    fn sludge_spinner_cannot_repeat_after_any_move() {
+        let mut rng = Rng::new(42, 0);
+        for _ in 0..50 {
+            for &start in &[
+                SludgeSpinnerIntent::OilSpray,
+                SludgeSpinnerIntent::Slam,
+                SludgeSpinnerIntent::Rage,
+            ] {
+                let next = pick_sludge_spinner_intent(&mut rng, Some(start));
+                assert_ne!(next, start);
+            }
+        }
+    }
+
+    #[test]
+    fn sludge_spinner_oil_spray_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_sludge_spinner_move(&mut cs, 0, 0, SludgeSpinnerIntent::OilSpray);
+        assert_eq!(cs.allies[0].current_hp, hp - 8);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn sludge_spinner_slam_deals_eleven() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_sludge_spinner_move(&mut cs, 0, 0, SludgeSpinnerIntent::Slam);
+        assert_eq!(cs.allies[0].current_hp, hp - 11);
+    }
+
+    #[test]
+    fn sludge_spinner_rage_dmg_and_strength() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_sludge_spinner_move(&mut cs, 0, 0, SludgeSpinnerIntent::Rage);
+        assert_eq!(cs.allies[0].current_hp, hp - 6);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn fuzzy_wurm_chain_first_acid_inhale_acid() {
+        assert_eq!(
+            pick_fuzzy_wurm_crawler_intent(None),
+            FuzzyWurmCrawlerIntent::FirstAcidGoop
+        );
+        assert_eq!(
+            pick_fuzzy_wurm_crawler_intent(Some(
+                FuzzyWurmCrawlerIntent::FirstAcidGoop
+            )),
+            FuzzyWurmCrawlerIntent::Inhale
+        );
+        assert_eq!(
+            pick_fuzzy_wurm_crawler_intent(Some(FuzzyWurmCrawlerIntent::Inhale)),
+            FuzzyWurmCrawlerIntent::AcidGoop
+        );
+        assert_eq!(
+            pick_fuzzy_wurm_crawler_intent(Some(
+                FuzzyWurmCrawlerIntent::AcidGoop
+            )),
+            FuzzyWurmCrawlerIntent::FirstAcidGoop
+        );
+    }
+
+    #[test]
+    fn fuzzy_wurm_acid_goop_variants_share_damage() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_fuzzy_wurm_crawler_move(
+            &mut cs,
+            0,
+            0,
+            FuzzyWurmCrawlerIntent::FirstAcidGoop,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 4);
+        let hp2 = cs.allies[0].current_hp;
+        execute_fuzzy_wurm_crawler_move(
+            &mut cs,
+            0,
+            0,
+            FuzzyWurmCrawlerIntent::AcidGoop,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp2 - 4);
+    }
+
+    #[test]
+    fn fuzzy_wurm_inhale_gains_seven_strength() {
+        let mut cs = ironclad_combat();
+        execute_fuzzy_wurm_crawler_move(
+            &mut cs,
+            0,
+            0,
+            FuzzyWurmCrawlerIntent::Inhale,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            7
         );
     }
 
