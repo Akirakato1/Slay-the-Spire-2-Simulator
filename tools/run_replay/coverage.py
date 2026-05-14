@@ -58,6 +58,7 @@ PORTED_INTENT_MACHINES = {
     "Toadpole",
     "DevotedSculptor",
     "Exoskeleton",
+    "SoulNexus",
 }
 
 

@@ -3636,6 +3636,112 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: SoulNexus ----------------------------------
+//
+// Reflects C# `SoulNexus.GenerateMoveStateMachine`:
+//   Init: SoulBurn.
+//   Thereafter: RandomBranch over all 3 moves, CannotRepeat per branch
+//   — picks uniformly from the 2 not-just-played.
+//
+// A0 payloads:
+//   - SoulBurn:  29 damage (DeadlyEnemies: 31)
+//   - Maelstrom: 6 damage × 4 (DeadlyEnemies: 7 dmg × 4)
+//   - DrainLife: 18 damage + 2 Vulnerable + 2 Weak on player
+//                (DeadlyEnemies: 19 dmg)
+
+const SOUL_NEXUS_SOUL_BURN_DAMAGE: i32 = 29;
+const SOUL_NEXUS_MAELSTROM_DAMAGE: i32 = 6;
+const SOUL_NEXUS_MAELSTROM_HITS: i32 = 4;
+const SOUL_NEXUS_DRAIN_LIFE_DAMAGE: i32 = 18;
+const SOUL_NEXUS_DRAIN_LIFE_VULN: i32 = 2;
+const SOUL_NEXUS_DRAIN_LIFE_WEAK: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SoulNexusIntent {
+    SoulBurn,
+    Maelstrom,
+    DrainLife,
+}
+
+impl SoulNexusIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            SoulNexusIntent::SoulBurn => "SOUL_BURN_MOVE",
+            SoulNexusIntent::Maelstrom => "MAELSTROM_MOVE",
+            SoulNexusIntent::DrainLife => "DRAIN_LIFE_MOVE",
+        }
+    }
+}
+
+pub fn pick_soul_nexus_intent(
+    rng: &mut Rng,
+    last_intent: Option<SoulNexusIntent>,
+) -> SoulNexusIntent {
+    if last_intent.is_none() {
+        return SoulNexusIntent::SoulBurn;
+    }
+    let allowed: Vec<SoulNexusIntent> = [
+        SoulNexusIntent::SoulBurn,
+        SoulNexusIntent::Maelstrom,
+        SoulNexusIntent::DrainLife,
+    ]
+    .into_iter()
+    .filter(|i| Some(*i) != last_intent)
+    .collect();
+    let pick = rng.next_int_range(0, allowed.len() as i32) as usize;
+    allowed[pick]
+}
+
+pub fn execute_soul_nexus_move(
+    cs: &mut CombatState,
+    nexus_idx: usize,
+    target_player_idx: usize,
+    intent: SoulNexusIntent,
+) {
+    let attacker = (CombatSide::Enemy, nexus_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        SoulNexusIntent::SoulBurn => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SOUL_NEXUS_SOUL_BURN_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        SoulNexusIntent::Maelstrom => {
+            for _ in 0..SOUL_NEXUS_MAELSTROM_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    SOUL_NEXUS_MAELSTROM_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        SoulNexusIntent::DrainLife => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SOUL_NEXUS_DRAIN_LIFE_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "VulnerablePower",
+                SOUL_NEXUS_DRAIN_LIFE_VULN,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                SOUL_NEXUS_DRAIN_LIFE_WEAK,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: DevotedSculptor ----------------------------
 //
 // Reflects C# `DevotedSculptor.GenerateMoveStateMachine`:
@@ -10697,6 +10803,64 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- SoulNexus tests --------------------------------------------
+
+    #[test]
+    fn soul_nexus_first_turn_is_soul_burn() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_soul_nexus_intent(&mut rng, None),
+            SoulNexusIntent::SoulBurn
+        );
+    }
+
+    #[test]
+    fn soul_nexus_cannot_repeat() {
+        let mut rng = Rng::new(42, 0);
+        for _ in 0..40 {
+            for &start in &[
+                SoulNexusIntent::SoulBurn,
+                SoulNexusIntent::Maelstrom,
+                SoulNexusIntent::DrainLife,
+            ] {
+                let next = pick_soul_nexus_intent(&mut rng, Some(start));
+                assert_ne!(next, start);
+            }
+        }
+    }
+
+    #[test]
+    fn soul_nexus_soul_burn_deals_twentynine() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_soul_nexus_move(&mut cs, 0, 0, SoulNexusIntent::SoulBurn);
+        assert_eq!(cs.allies[0].current_hp, hp - 29);
+    }
+
+    #[test]
+    fn soul_nexus_maelstrom_six_times_four() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_soul_nexus_move(&mut cs, 0, 0, SoulNexusIntent::Maelstrom);
+        assert_eq!(cs.allies[0].current_hp, hp - 24);
+    }
+
+    #[test]
+    fn soul_nexus_drain_life_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_soul_nexus_move(&mut cs, 0, 0, SoulNexusIntent::DrainLife);
+        assert_eq!(cs.allies[0].current_hp, hp - 18);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "VulnerablePower"),
+            2
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            2
+        );
     }
 
     // ---------- DevotedSculptor + Exoskeleton tests ------------------------
