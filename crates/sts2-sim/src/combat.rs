@@ -1234,6 +1234,59 @@ fn dispatch_on_play(
             }
             true
         }
+        // Anger (Ironclad common): 6 damage + add a copy of self to
+        // discard pile. Upgrade: +2 damage. The clone is `played_card`
+        // pre-routing, so we can't directly access it from here —
+        // instead instantiate a fresh CardInstance via from_card.
+        // Enchantment is NOT inherited by the clone (matches C# —
+        // CreateClone strips enchantments from cloned cards).
+        "Anger" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            // Append clone to discard at the same upgrade level.
+            let clone = CardInstance::from_card(card, upgrade_level);
+            if let Some(ps) = cs.allies[player_idx].player.as_mut() {
+                ps.discard.cards.push(clone);
+            }
+            true
+        }
+        // Inflame (Ironclad uncommon): apply 2 Strength to self.
+        // Upgrade: +1 Strength.
+        "Inflame" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let strength = canonical_int_value(card, "StrengthPower", upgrade_level);
+            cs.apply_power(
+                CombatSide::Player,
+                player_idx,
+                "StrengthPower",
+                strength,
+            );
+            true
+        }
+        // BodySlam (Ironclad common): damage equals caster's current
+        // block. C# uses CalculatedDamage = CalculationBase(0) +
+        // ExtraDamage(1) * Owner.Creature.Block — i.e. just `block`.
+        // Upgrade reduces energy cost by 1 (already in data table).
+        "BodySlam" => {
+            let Some(target) = target else { return false; };
+            let block = cs.allies[player_idx].block;
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                block,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            true
+        }
         _ => false,
     }
 }
@@ -2962,6 +3015,144 @@ mod tests {
         assert_eq!(r, PlayResult::Ok);
         // 7 × 2 = 14.
         assert_eq!(cs.enemies[0].current_hp, hp_before - 14);
+    }
+
+    #[test]
+    fn anger_deals_damage_and_clones_to_discard() {
+        let mut cs = ironclad_combat();
+        let anger = card_by_id("Anger").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(anger, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let discard_before = cs.allies[0].player.as_ref().unwrap().discard.len();
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 6 damage.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 6);
+        // Played card + clone — discard grew by 2.
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.discard.len(), discard_before + 2);
+        // Both entries are Anger.
+        let n_anger = ps
+            .discard
+            .cards
+            .iter()
+            .filter(|c| c.id == "Anger")
+            .count();
+        assert_eq!(n_anger, 2);
+    }
+
+    #[test]
+    fn upgraded_anger_does_eight_damage() {
+        let mut cs = ironclad_combat();
+        let anger = card_by_id("Anger").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(anger, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 8);
+    }
+
+    #[test]
+    fn inflame_applies_strength_to_self() {
+        let mut cs = ironclad_combat();
+        let inflame = card_by_id("Inflame").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(inflame, 0));
+        // Need enough energy — Inflame costs 1.
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn upgraded_inflame_grants_three_strength() {
+        let mut cs = ironclad_combat();
+        let inflame = card_by_id("Inflame").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(inflame, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn body_slam_damage_equals_block() {
+        let mut cs = ironclad_combat();
+        let bs = card_by_id("BodySlam").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(bs, 0));
+        cs.allies[0].block = 17;
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // Damage = 17 (block); player block unchanged by playing
+        // BodySlam (block only spends on incoming damage).
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 17);
+        assert_eq!(cs.allies[0].block, 17);
+    }
+
+    #[test]
+    fn body_slam_with_zero_block_deals_zero() {
+        let mut cs = ironclad_combat();
+        let bs = card_by_id("BodySlam").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(bs, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before);
+    }
+
+    #[test]
+    fn upgraded_body_slam_costs_zero_energy() {
+        // BodySlam upgrade reduces cost from 1 -> 0 via energy_cost_upgrade_delta.
+        let bs = card_by_id("BodySlam").unwrap();
+        let upgraded = CardInstance::from_card(bs, 1);
+        assert_eq!(upgraded.current_energy_cost, 0);
     }
 
     #[test]
