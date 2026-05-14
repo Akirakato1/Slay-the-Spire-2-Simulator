@@ -46,6 +46,7 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
             "Byrdonis" => byrdonis_spawn(cs, i),
             "Chomper" => chomper_spawn(cs, i),
             "CorpseSlug" => corpse_slug_spawn(cs, i),
+            "SkulkingColony" => skulking_colony_spawn(cs, i),
             _ => {}
         }
     }
@@ -99,6 +100,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "GlobeHead"
             | "SlimedBerserker"
             | "BygoneEffigy"
+            | "SkulkingColony"
     )
 }
 
@@ -606,6 +608,18 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_bygone_effigy_intent(last);
             execute_bygone_effigy_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "SkulkingColony" => {
+            let last = last_ref.and_then(|s| match s {
+                "SMASH_MOVE" => Some(SkulkingColonyIntent::Smash),
+                "ZOOM_MOVE" => Some(SkulkingColonyIntent::Zoom),
+                "INERTIA_MOVE" => Some(SkulkingColonyIntent::Inertia),
+                "PIERCING_STABS_MOVE" => Some(SkulkingColonyIntent::PiercingStabs),
+                _ => None,
+            });
+            let intent = pick_skulking_colony_intent(last);
+            execute_skulking_colony_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {

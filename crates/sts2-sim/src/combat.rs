@@ -120,6 +120,14 @@ pub struct MonsterState {
     ///     ImbalancedPower's AfterDamageGiven when this monster's
     ///     attack is fully blocked; cleared by its Dizzy move.
     pub flags: std::collections::HashMap<String, bool>,
+    /// Per-monster integer counters tied to a specific Power instance
+    /// when the Power model needs cross-turn state that the stack
+    /// amount alone can't represent. Keyed by short id.
+    /// Current users:
+    ///   - "hardened_shell_taken": HardenedShellPower —
+    ///     `damageReceivedThisTurn` per C#'s Data class. Reset to 0
+    ///     at start of the Player's turn (BeforeSideTurnStart).
+    pub counters: std::collections::HashMap<String, i32>,
 }
 
 impl MonsterState {
@@ -128,6 +136,7 @@ impl MonsterState {
             intent_move: None,
             intent_values: Vec::new(),
             flags: std::collections::HashMap::new(),
+            counters: std::collections::HashMap::new(),
         }
     }
 
@@ -137,6 +146,19 @@ impl MonsterState {
 
     pub fn set_flag(&mut self, key: &str, value: bool) {
         self.flags.insert(key.to_string(), value);
+    }
+
+    pub fn counter(&self, key: &str) -> i32 {
+        self.counters.get(key).copied().unwrap_or(0)
+    }
+
+    pub fn set_counter(&mut self, key: &str, value: i32) {
+        self.counters.insert(key.to_string(), value);
+    }
+
+    pub fn add_counter(&mut self, key: &str, delta: i32) {
+        let v = self.counter(key) + delta;
+        self.set_counter(key, v);
     }
 }
 
@@ -419,6 +441,21 @@ impl CombatState {
         // Walks enemies and grants block to their TurretOperator allies.
         if side == CombatSide::Player {
             self.tick_rampart_powers();
+            // HardenedShellPower.BeforeSideTurnStart (Player only):
+            // reset `damageReceivedThisTurn` to 0 for any monster
+            // holding HardenedShell. The counter tracks across the
+            // enemy turn — we zero it on the next Player turn.
+            for enemy in self.enemies.iter_mut() {
+                let has_shell = enemy
+                    .powers
+                    .iter()
+                    .any(|p| p.id == "HardenedShellPower");
+                if has_shell {
+                    if let Some(ms) = enemy.monster.as_mut() {
+                        ms.set_counter("hardened_shell_taken", 0);
+                    }
+                }
+            }
         }
     }
 
@@ -977,12 +1014,46 @@ impl CombatState {
         target_idx: usize,
         amount: i32,
     ) -> DamageOutcome {
+        // HardenedShellPower budget: per-turn HP-loss cap. Computed
+        // BEFORE block resolution so block still soaks normally; the
+        // cap only clips the residual HP loss. Mirrors C#
+        // HardenedShellPower.ModifyHpLostBeforeOstyLate. None if the
+        // target doesn't have HardenedShell (the common case).
+        let hp_loss_cap = {
+            let target = match creature(self, side, target_idx) {
+                Some(t) => t,
+                None => return DamageOutcome::default(),
+            };
+            let shell_amount = target
+                .powers
+                .iter()
+                .find(|p| p.id == "HardenedShellPower")
+                .map(|p| p.amount);
+            shell_amount.map(|amt| {
+                let taken = target
+                    .monster
+                    .as_ref()
+                    .map(|m| m.counter("hardened_shell_taken"))
+                    .unwrap_or(0);
+                (amt - taken).max(0)
+            })
+        };
         let outcome = {
             let Some(target) = creature_mut(self, side, target_idx) else {
                 return DamageOutcome::default();
             };
-            damage_creature(target, amount)
+            damage_creature(target, amount, hp_loss_cap)
         };
+        // HardenedShellPower bookkeeping: bump damageReceivedThisTurn
+        // by the realized hp_lost. C# AfterDamageReceived adds
+        // result.UnblockedDamage (i.e. hp_lost in our model).
+        if hp_loss_cap.is_some() && outcome.hp_lost > 0 {
+            if let Some(target) = creature_mut(self, side, target_idx) {
+                if let Some(ms) = target.monster.as_mut() {
+                    ms.add_counter("hardened_shell_taken", outcome.hp_lost);
+                }
+            }
+        }
         if self.log_enabled && (outcome.blocked > 0 || outcome.hp_lost > 0) {
             let round = self.round_number;
             self.combat_log.push(CombatEvent::DamageDealt {
@@ -3637,6 +3708,122 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: SkulkingColony -----------------------------
+//
+// Reflects C# `SkulkingColony.GenerateMoveStateMachine`:
+//   Init: Smash.
+//   Chain: Smash → Zoom → Inertia → PiercingStabs → Smash (loop).
+//
+// Spawn (AfterAddedToRoom): apply HardenedShellPower(15) to self.
+//
+// A0 payloads:
+//   - Smash:         12 damage (DeadlyEnemies: 13)
+//   - Zoom:          14 damage + 10 block (DeadlyEnemies: 16, ToughEnemies: 13)
+//   - Inertia:       9 damage + 2 self-Strength (DeadlyEnemies: 11, 3)
+//   - PiercingStabs: 7 damage × 2 (DeadlyEnemies: 8)
+
+const SKULKING_COLONY_HARDENED_SHELL_AMOUNT: i32 = 15;
+const SKULKING_COLONY_SMASH_DAMAGE: i32 = 12;
+const SKULKING_COLONY_ZOOM_DAMAGE: i32 = 14;
+const SKULKING_COLONY_ZOOM_BLOCK: i32 = 10;
+const SKULKING_COLONY_INERTIA_DAMAGE: i32 = 9;
+const SKULKING_COLONY_INERTIA_STRENGTH: i32 = 2;
+const SKULKING_COLONY_PIERCING_STABS_DAMAGE: i32 = 7;
+const SKULKING_COLONY_PIERCING_STABS_HITS: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SkulkingColonyIntent {
+    Smash,
+    Zoom,
+    Inertia,
+    PiercingStabs,
+}
+
+impl SkulkingColonyIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            SkulkingColonyIntent::Smash => "SMASH_MOVE",
+            SkulkingColonyIntent::Zoom => "ZOOM_MOVE",
+            SkulkingColonyIntent::Inertia => "INERTIA_MOVE",
+            SkulkingColonyIntent::PiercingStabs => "PIERCING_STABS_MOVE",
+        }
+    }
+}
+
+pub fn skulking_colony_spawn(cs: &mut CombatState, colony_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        colony_idx,
+        "HardenedShellPower",
+        SKULKING_COLONY_HARDENED_SHELL_AMOUNT,
+    );
+}
+
+pub fn pick_skulking_colony_intent(
+    last_intent: Option<SkulkingColonyIntent>,
+) -> SkulkingColonyIntent {
+    match last_intent {
+        None => SkulkingColonyIntent::Smash,
+        Some(SkulkingColonyIntent::Smash) => SkulkingColonyIntent::Zoom,
+        Some(SkulkingColonyIntent::Zoom) => SkulkingColonyIntent::Inertia,
+        Some(SkulkingColonyIntent::Inertia) => SkulkingColonyIntent::PiercingStabs,
+        Some(SkulkingColonyIntent::PiercingStabs) => SkulkingColonyIntent::Smash,
+    }
+}
+
+pub fn execute_skulking_colony_move(
+    cs: &mut CombatState,
+    colony_idx: usize,
+    target_player_idx: usize,
+    intent: SkulkingColonyIntent,
+) {
+    let attacker = (CombatSide::Enemy, colony_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        SkulkingColonyIntent::Smash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SKULKING_COLONY_SMASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        SkulkingColonyIntent::Zoom => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SKULKING_COLONY_ZOOM_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.gain_block(CombatSide::Enemy, colony_idx, SKULKING_COLONY_ZOOM_BLOCK);
+        }
+        SkulkingColonyIntent::Inertia => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SKULKING_COLONY_INERTIA_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                colony_idx,
+                "StrengthPower",
+                SKULKING_COLONY_INERTIA_STRENGTH,
+            );
+        }
+        SkulkingColonyIntent::PiercingStabs => {
+            for _ in 0..SKULKING_COLONY_PIERCING_STABS_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    SKULKING_COLONY_PIERCING_STABS_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
         }
     }
 }
@@ -6621,13 +6808,32 @@ fn creature_mut(
     }
 }
 
-fn damage_creature(target: &mut Creature, amount: i32) -> DamageOutcome {
+fn creature(cs: &CombatState, side: CombatSide, idx: usize) -> Option<&Creature> {
+    match side {
+        CombatSide::Player => cs.allies.get(idx),
+        CombatSide::Enemy => cs.enemies.get(idx),
+        CombatSide::None => None,
+    }
+}
+
+/// Apply `amount` damage to one creature. Block soaks first; the
+/// remainder hits HP. If `hp_loss_cap` is Some, the post-block HP
+/// loss is also clamped to that many — used by HardenedShellPower
+/// for the per-turn HP-loss budget.
+fn damage_creature(
+    target: &mut Creature,
+    amount: i32,
+    hp_loss_cap: Option<i32>,
+) -> DamageOutcome {
     if amount <= 0 {
         return DamageOutcome::default();
     }
     let blocked = amount.min(target.block);
     target.block -= blocked;
     let mut hp_lost = amount - blocked;
+    if let Some(cap) = hp_loss_cap {
+        hp_lost = hp_lost.min(cap.max(0));
+    }
     if hp_lost > target.current_hp {
         hp_lost = target.current_hp;
     }
@@ -11280,6 +11486,155 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- SkulkingColony + HardenedShellPower tests ------------------
+
+    #[test]
+    fn skulking_colony_walks_four_state_chain() {
+        assert_eq!(
+            pick_skulking_colony_intent(None),
+            SkulkingColonyIntent::Smash
+        );
+        assert_eq!(
+            pick_skulking_colony_intent(Some(SkulkingColonyIntent::Smash)),
+            SkulkingColonyIntent::Zoom
+        );
+        assert_eq!(
+            pick_skulking_colony_intent(Some(SkulkingColonyIntent::Zoom)),
+            SkulkingColonyIntent::Inertia
+        );
+        assert_eq!(
+            pick_skulking_colony_intent(Some(SkulkingColonyIntent::Inertia)),
+            SkulkingColonyIntent::PiercingStabs
+        );
+        assert_eq!(
+            pick_skulking_colony_intent(Some(SkulkingColonyIntent::PiercingStabs)),
+            SkulkingColonyIntent::Smash
+        );
+    }
+
+    #[test]
+    fn skulking_colony_spawn_applies_hardened_shell_fifteen() {
+        let mut cs = ironclad_combat();
+        skulking_colony_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "HardenedShellPower"),
+            15
+        );
+    }
+
+    #[test]
+    fn skulking_colony_smash_deals_twelve() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_skulking_colony_move(
+            &mut cs,
+            0,
+            0,
+            SkulkingColonyIntent::Smash,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 12);
+    }
+
+    #[test]
+    fn skulking_colony_zoom_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_skulking_colony_move(&mut cs, 0, 0, SkulkingColonyIntent::Zoom);
+        assert_eq!(cs.allies[0].current_hp, hp - 14);
+        assert_eq!(cs.enemies[0].block, 10);
+    }
+
+    #[test]
+    fn skulking_colony_inertia_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_skulking_colony_move(&mut cs, 0, 0, SkulkingColonyIntent::Inertia);
+        assert_eq!(cs.allies[0].current_hp, hp - 9);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn skulking_colony_piercing_stabs_seven_times_two() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_skulking_colony_move(
+            &mut cs,
+            0,
+            0,
+            SkulkingColonyIntent::PiercingStabs,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 14);
+    }
+
+    #[test]
+    fn hardened_shell_caps_cumulative_hp_loss_per_turn() {
+        // 100 hp, HardenedShell(15). Two 50-damage hits same turn:
+        // first lands 15, second 0 (budget exhausted).
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "HardenedShellPower", 15);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            50,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 15);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            50,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 15);
+    }
+
+    #[test]
+    fn hardened_shell_resets_on_player_turn_start() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "HardenedShellPower", 15);
+        let hp = cs.enemies[0].current_hp;
+        // Exhaust the budget this turn.
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            50,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 15);
+        // Next player turn — counter resets, budget restored.
+        cs.current_side = CombatSide::Enemy;
+        cs.begin_turn(CombatSide::Player);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            50,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 30);
+    }
+
+    #[test]
+    fn hardened_shell_lets_block_soak_first() {
+        // Enemy with 100 block + HardenedShell(15). 50 damage hit:
+        // block absorbs all 50, no HP loss.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "HardenedShellPower", 15);
+        cs.gain_block(CombatSide::Enemy, 0, 100);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            50,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp);
+        assert_eq!(cs.enemies[0].block, 50);
     }
 
     // ---------- BygoneEffigy tests -----------------------------------------
