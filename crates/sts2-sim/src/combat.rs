@@ -379,6 +379,55 @@ impl CombatState {
         // ordering — adjust when #70 lands.
         self.tick_start_of_turn_powers(side);
         self.fire_after_side_turn_start_hooks(side);
+        // RampartPower fires on Player-side start regardless of owner.
+        // Walks enemies and grants block to their TurretOperator allies.
+        if side == CombatSide::Player {
+            self.tick_rampart_powers();
+        }
+    }
+
+    /// RampartPower.AfterSideTurnStart hook (fires on Player-side
+    /// start): every enemy with RampartPower grants `Amount` unpowered
+    /// block to every alive enemy teammate whose model_id is
+    /// `TurretOperator`. C# filters by `c.Monster is TurretOperator`.
+    fn tick_rampart_powers(&mut self) {
+        // Snapshot ramparts (owner_idx, amount) and beneficiary indices
+        // up-front so the gain_block calls don't disrupt iteration.
+        let mut grants: Vec<(usize, i32)> = Vec::new();
+        for owner_idx in 0..self.enemies.len() {
+            let owner = &self.enemies[owner_idx];
+            if owner.current_hp == 0 {
+                continue;
+            }
+            let Some(rampart) = owner.powers.iter().find(|p| p.id == "RampartPower")
+            else {
+                continue;
+            };
+            if rampart.amount <= 0 {
+                continue;
+            }
+            let amount = rampart.amount;
+            for (idx, ally) in self.enemies.iter().enumerate() {
+                if idx == owner_idx {
+                    continue;
+                }
+                if ally.current_hp == 0 {
+                    continue;
+                }
+                if ally.model_id == "TurretOperator" {
+                    grants.push((idx, amount));
+                }
+            }
+        }
+        for (idx, amount) in grants {
+            // C# uses ValueProp.Unpowered → bypasses block modifiers.
+            self.gain_block_with_props(
+                CombatSide::Enemy,
+                idx,
+                amount,
+                ValueProp::UNPOWERED,
+            );
+        }
     }
 
     /// Fire each player's relic `AfterSideTurnStart` hooks. Called from
@@ -3297,6 +3346,105 @@ pub fn execute_flail_knight_move(
                 player,
                 FLAIL_KNIGHT_RAM_DAMAGE,
                 ValueProp::MOVE,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: LivingShield -------------------------------
+//
+// Reflects C# `LivingShield.GenerateMoveStateMachine`:
+//   Init: SHIELD_SLAM_MOVE.
+//   Chain: ShieldSlam → ConditionalBranch(allies > 0 → ShieldSlam,
+//                                          allies == 0 → Smash);
+//          Smash → Smash (forever once alone).
+//
+// On spawn: applies RampartPower(25) — wired into tick_rampart_powers
+// in begin_turn (Player-side only).
+//
+// A0 payloads:
+//   - ShieldSlam: 6 damage (const)
+//   - Smash:      16 damage (DeadlyEnemies: 18) + 3 self-Strength
+//                 (const "EnrageStr")
+
+const LIVING_SHIELD_SLAM_DAMAGE: i32 = 6;
+const LIVING_SHIELD_SMASH_DAMAGE: i32 = 16;
+const LIVING_SHIELD_ENRAGE_STRENGTH: i32 = 3;
+const LIVING_SHIELD_RAMPART_AMOUNT: i32 = 25;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum LivingShieldIntent {
+    ShieldSlam,
+    Smash,
+}
+
+impl LivingShieldIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            LivingShieldIntent::ShieldSlam => "SHIELD_SLAM_MOVE",
+            LivingShieldIntent::Smash => "SMASH_MOVE",
+        }
+    }
+}
+
+pub fn living_shield_spawn(cs: &mut CombatState, shield_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        shield_idx,
+        "RampartPower",
+        LIVING_SHIELD_RAMPART_AMOUNT,
+    );
+}
+
+/// Pick LivingShield's next intent. `has_alive_allies` is the
+/// caller-provided count check: in C# `GetAllyCount() > 0` (excludes
+/// self, excludes dead). When alone, Smash forever.
+pub fn pick_living_shield_intent(
+    last_intent: Option<LivingShieldIntent>,
+    has_alive_allies: bool,
+) -> LivingShieldIntent {
+    match last_intent {
+        None => LivingShieldIntent::ShieldSlam,
+        Some(LivingShieldIntent::ShieldSlam) => {
+            if has_alive_allies {
+                LivingShieldIntent::ShieldSlam
+            } else {
+                LivingShieldIntent::Smash
+            }
+        }
+        Some(LivingShieldIntent::Smash) => LivingShieldIntent::Smash,
+    }
+}
+
+pub fn execute_living_shield_move(
+    cs: &mut CombatState,
+    shield_idx: usize,
+    target_player_idx: usize,
+    intent: LivingShieldIntent,
+) {
+    let attacker = (CombatSide::Enemy, shield_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        LivingShieldIntent::ShieldSlam => {
+            cs.deal_damage(
+                attacker,
+                player,
+                LIVING_SHIELD_SLAM_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        LivingShieldIntent::Smash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                LIVING_SHIELD_SMASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                shield_idx,
+                "StrengthPower",
+                LIVING_SHIELD_ENRAGE_STRENGTH,
             );
         }
     }
@@ -8805,6 +8953,163 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- LivingShield + RampartPower tests -------------------------
+
+    fn add_enemy(cs: &mut CombatState, model_id: &str, hp: i32) {
+        // Helper to inject a fake enemy for ally-count tests. Mirrors
+        // Creature::from_monster_spawn minus the data-table lookup.
+        cs.enemies.push(Creature {
+            kind: CreatureKind::Monster,
+            model_id: model_id.to_string(),
+            slot: String::new(),
+            current_hp: hp,
+            max_hp: hp,
+            block: 0,
+            powers: Vec::new(),
+            afflictions: Vec::new(),
+            player: None,
+            monster: None,
+        });
+    }
+
+    #[test]
+    fn living_shield_first_turn_is_shield_slam() {
+        assert_eq!(
+            pick_living_shield_intent(None, false),
+            LivingShieldIntent::ShieldSlam
+        );
+        assert_eq!(
+            pick_living_shield_intent(None, true),
+            LivingShieldIntent::ShieldSlam
+        );
+    }
+
+    #[test]
+    fn living_shield_with_allies_stays_shield_slam() {
+        assert_eq!(
+            pick_living_shield_intent(
+                Some(LivingShieldIntent::ShieldSlam),
+                true,
+            ),
+            LivingShieldIntent::ShieldSlam
+        );
+    }
+
+    #[test]
+    fn living_shield_alone_smashes_forever() {
+        assert_eq!(
+            pick_living_shield_intent(
+                Some(LivingShieldIntent::ShieldSlam),
+                false,
+            ),
+            LivingShieldIntent::Smash
+        );
+        // Smash self-loops.
+        assert_eq!(
+            pick_living_shield_intent(Some(LivingShieldIntent::Smash), true),
+            LivingShieldIntent::Smash
+        );
+        assert_eq!(
+            pick_living_shield_intent(Some(LivingShieldIntent::Smash), false),
+            LivingShieldIntent::Smash
+        );
+    }
+
+    #[test]
+    fn living_shield_smash_damage_and_strength_gain() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_living_shield_move(&mut cs, 0, 0, LivingShieldIntent::Smash);
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn living_shield_spawn_applies_rampart_25() {
+        let mut cs = ironclad_combat();
+        living_shield_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "RampartPower"),
+            25
+        );
+    }
+
+    #[test]
+    fn rampart_grants_block_to_turret_operator_at_player_turn_start() {
+        let mut cs = CombatState::empty();
+        // Player + 2 enemies (LivingShield in slot 0, TurretOperator
+        // in slot 1).
+        cs.allies.push(Creature {
+            kind: CreatureKind::Player,
+            model_id: "Ironclad".to_string(),
+            slot: String::new(),
+            current_hp: 80,
+            max_hp: 80,
+            block: 0,
+            powers: Vec::new(),
+            afflictions: Vec::new(),
+            player: None,
+            monster: None,
+        });
+        add_enemy(&mut cs, "LivingShield", 55);
+        add_enemy(&mut cs, "TurretOperator", 41);
+        cs.apply_power(CombatSide::Enemy, 0, "RampartPower", 25);
+        cs.current_side = CombatSide::Enemy;
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.enemies[1].block, 25);
+        // LivingShield itself doesn't get block.
+        assert_eq!(cs.enemies[0].block, 0);
+    }
+
+    #[test]
+    fn rampart_does_not_grant_block_to_non_turret_teammates() {
+        let mut cs = CombatState::empty();
+        cs.allies.push(Creature {
+            kind: CreatureKind::Player,
+            model_id: "Ironclad".to_string(),
+            slot: String::new(),
+            current_hp: 80,
+            max_hp: 80,
+            block: 0,
+            powers: Vec::new(),
+            afflictions: Vec::new(),
+            player: None,
+            monster: None,
+        });
+        add_enemy(&mut cs, "LivingShield", 55);
+        add_enemy(&mut cs, "Axebot", 42); // not a TurretOperator
+        cs.apply_power(CombatSide::Enemy, 0, "RampartPower", 25);
+        cs.current_side = CombatSide::Enemy;
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.enemies[1].block, 0);
+    }
+
+    #[test]
+    fn rampart_only_fires_on_player_turn_start() {
+        let mut cs = CombatState::empty();
+        cs.allies.push(Creature {
+            kind: CreatureKind::Player,
+            model_id: "Ironclad".to_string(),
+            slot: String::new(),
+            current_hp: 80,
+            max_hp: 80,
+            block: 0,
+            powers: Vec::new(),
+            afflictions: Vec::new(),
+            player: None,
+            monster: None,
+        });
+        add_enemy(&mut cs, "LivingShield", 55);
+        add_enemy(&mut cs, "TurretOperator", 41);
+        cs.apply_power(CombatSide::Enemy, 0, "RampartPower", 25);
+        cs.current_side = CombatSide::Player;
+        cs.begin_turn(CombatSide::Enemy);
+        assert_eq!(cs.enemies[1].block, 0);
     }
 
     // ---------- ShrinkerBeetle + ShrinkPower tests ------------------------
