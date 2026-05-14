@@ -60,6 +60,12 @@ pub struct CardData {
     /// `CanonicalTags` set. Captured names like "Strike", "Defend".
     #[serde(default)]
     pub tags: Vec<String>,
+    /// `CanonicalKeywords` set. Captured names like "Exhaust", "Innate",
+    /// "Ethereal", "Retain", "EndTurn", "Volatile". play_card routes
+    /// Exhaust cards to the exhaust pile after OnPlay; the other
+    /// keywords gate draw/discard/play timing.
+    #[serde(default)]
+    pub keywords: Vec<String>,
     /// `CanonicalVars`: the base values for damage / block / cards / power
     /// stacks / etc. Order matches the C# source.
     #[serde(default)]

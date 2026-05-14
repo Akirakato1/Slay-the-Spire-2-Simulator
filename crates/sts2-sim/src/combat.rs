@@ -1101,12 +1101,16 @@ impl CombatState {
             x_value,
         );
 
-        // 6. Route the card per its type. Status/Curse cards exhaust
-        //    by default; Attack/Skill/Power go to discard unless the
-        //    card's keyword set includes Exhaust (not yet ported).
-        let dest = match card_data.card_type {
-            CardType::Status | CardType::Curse => PileType::Exhaust,
-            _ => PileType::Discard,
+        // 6. Route the card per its type / keywords. Status/Curse cards
+        //    auto-exhaust on play; non-status cards check their
+        //    CanonicalKeywords for "Exhaust" (Cinder, MoltenFist,
+        //    TrueGrit, ...). Everything else discards.
+        let dest = if matches!(card_data.card_type, CardType::Status | CardType::Curse)
+            || card_data.keywords.iter().any(|k| k == "Exhaust")
+        {
+            PileType::Exhaust
+        } else {
+            PileType::Discard
         };
         let ps = self.allies[player_idx].player.as_mut().unwrap();
         match dest {
@@ -1363,6 +1367,41 @@ fn dispatch_on_play(
                 "StrengthPower",
                 strength,
             );
+            true
+        }
+        // MoltenFist (Ironclad common Exhaust Attack): 10 damage (14
+        // upgraded) + if target is alive AND already Vulnerable,
+        // re-apply that many stacks. C# samples the count BEFORE the
+        // re-apply (so the doubling-each-play behavior is the natural
+        // outcome: 2 → 4 → 8 → ...). Exhaust routing is handled by the
+        // keyword-driven pile selection above; this dispatcher arm only
+        // executes the effect.
+        "MoltenFist" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            // Sample Vulnerable AFTER damage (C# uses cardPlay.Target.IsAlive
+            // and re-fetches Vulnerable post-damage).
+            let still_alive = match target.0 {
+                CombatSide::Player => cs.allies.get(target.1).map(|c| c.current_hp > 0),
+                CombatSide::Enemy => cs.enemies.get(target.1).map(|c| c.current_hp > 0),
+                CombatSide::None => None,
+            }
+            .unwrap_or(false);
+            if still_alive {
+                let cur_vuln =
+                    cs.get_power_amount(target.0, target.1, "VulnerablePower");
+                if cur_vuln > 0 {
+                    cs.apply_power(target.0, target.1, "VulnerablePower", cur_vuln);
+                }
+            }
             true
         }
         // Bloodletting (Ironclad common Skill, 0 cost): lose 3 HP +
@@ -3575,6 +3614,121 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- MoltenFist / Exhaust routing tests -----------------------
+
+    #[test]
+    fn molten_fist_exhausts_after_play() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("MoltenFist").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        // Card is in exhaust, not discard.
+        assert_eq!(ps.exhaust.len(), 1);
+        assert_eq!(ps.exhaust.cards[0].id, "MoltenFist");
+        assert!(ps.discard.is_empty());
+    }
+
+    #[test]
+    fn molten_fist_no_vulnerable_just_damage() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("MoltenFist").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 10 damage. Vulnerable wasn't there → no re-apply.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 10);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            0
+        );
+    }
+
+    #[test]
+    fn molten_fist_reapplies_vulnerable_count() {
+        // Target has 2 Vulnerable. Damage = 10 * 1.5 = 15. Then reapply
+        // 2 stacks → final Vulnerable = 4.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 2);
+        let card = card_by_id("MoltenFist").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 15);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            4
+        );
+    }
+
+    #[test]
+    fn molten_fist_no_reapply_if_target_killed() {
+        // Set enemy HP to 1; MoltenFist kills it (would have been Vulnerable
+        // after, but we skip the reapply on dead targets).
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 2);
+        cs.enemies[0].current_hp = 1;
+        let card = card_by_id("MoltenFist").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, 0);
+        // Vulnerable stack stays at 2 (no reapply on dead target).
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            2
+        );
+    }
+
+    #[test]
+    fn upgraded_molten_fist_does_fourteen_damage() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("MoltenFist").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 14);
     }
 
     // ---------- Bloodletting tests ---------------------------------------

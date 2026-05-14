@@ -45,6 +45,12 @@ struct CardData {
     #[serde(default, skip_serializing_if = "is_zero_i32")]
     energy_cost_upgrade_delta: i32,
     tags: Vec<String>,
+    /// `CanonicalKeywords` set. Names like "Exhaust", "Innate", "Ethereal",
+    /// "Retain", "EndTurn", "Volatile". Routing keywords (Exhaust) drive
+    /// hand→pile placement in play_card; others (Innate/Retain/Ethereal)
+    /// gate draw/discard timing.
+    #[serde(default)]
+    keywords: Vec<String>,
     canonical_vars: Vec<DynamicVarSpec>,
     upgrade_deltas: Vec<UpgradeDelta>,
 }
@@ -186,6 +192,7 @@ fn parse_card(id: &str, pool: &str, source: &str) -> Result<CardData> {
     let has_energy_cost_x =
         parse_bool_property(source, "HasEnergyCostX").unwrap_or(false);
     let tags = parse_canonical_tags(source);
+    let keywords = parse_canonical_keywords(source);
     let canonical_vars = parse_canonical_vars(source);
     let (upgrade_deltas, energy_cost_upgrade_delta) = parse_upgrade_body(source);
 
@@ -201,6 +208,7 @@ fn parse_card(id: &str, pool: &str, source: &str) -> Result<CardData> {
         max_upgrade_level,
         energy_cost_upgrade_delta,
         tags,
+        keywords,
         canonical_vars,
         upgrade_deltas,
     })
@@ -235,6 +243,20 @@ fn parse_canonical_tags(source: &str) -> Vec<String> {
     tags.sort();
     tags.dedup();
     tags
+}
+
+fn parse_canonical_keywords(source: &str) -> Vec<String> {
+    let Some(body) = extract_property_body(source, "CanonicalKeywords") else {
+        return Vec::new();
+    };
+    let rx = Regex::new(r"CardKeyword\.(\w+)").unwrap();
+    let mut keywords: Vec<String> = rx
+        .captures_iter(&body)
+        .map(|c| c[1].to_string())
+        .collect();
+    keywords.sort();
+    keywords.dedup();
+    keywords
 }
 
 fn parse_upgrade_body(source: &str) -> (Vec<UpgradeDelta>, i32) {

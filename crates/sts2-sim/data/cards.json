@@ -10,6 +10,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Sly"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -40,6 +43,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -65,6 +69,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -90,6 +95,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -116,6 +122,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -141,6 +148,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -169,6 +179,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -189,6 +200,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -213,6 +227,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -228,6 +243,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -242,6 +260,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -266,6 +285,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -291,6 +311,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -316,6 +337,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -330,6 +354,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -356,6 +381,10 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Exhaust",
+      "Innate"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -370,6 +399,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal",
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -390,6 +423,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -410,6 +444,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -430,6 +465,11 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Eternal",
+      "Ethereal",
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -446,6 +486,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -477,6 +518,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust",
+      "Innate"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -511,6 +556,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -537,6 +583,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -556,6 +603,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -585,6 +633,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust",
+      "Innate"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -610,6 +662,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Eternal",
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "HpLoss",
@@ -629,6 +685,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -655,6 +712,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -2,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -679,6 +737,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -716,6 +775,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -730,6 +790,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -764,6 +825,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -788,6 +850,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -802,6 +865,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -836,6 +900,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -860,6 +925,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -904,6 +970,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "HpLoss",
@@ -923,6 +990,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -937,6 +1005,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -961,6 +1030,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -991,6 +1061,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -1022,6 +1095,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -1047,6 +1121,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -1071,6 +1148,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -1097,6 +1175,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -1122,6 +1201,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "HpLoss",
@@ -1151,6 +1231,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "HpLoss",
@@ -1179,6 +1260,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -1204,6 +1286,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -1235,6 +1318,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -1261,6 +1345,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -1285,6 +1370,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -1310,6 +1396,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -1337,6 +1426,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -1371,6 +1461,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -1396,6 +1487,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust",
+      "Innate"
+    ],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -1421,6 +1516,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -1450,6 +1546,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -1479,6 +1576,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "HpLoss",
@@ -1508,6 +1606,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -1542,6 +1641,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -1571,6 +1671,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "MaxHp",
@@ -1607,6 +1708,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -1632,6 +1734,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -1657,6 +1760,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -1697,6 +1801,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -1711,6 +1816,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -1742,6 +1848,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -1775,6 +1882,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -1799,6 +1909,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -1819,6 +1932,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -1843,6 +1957,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -1868,6 +1983,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -1893,6 +2009,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -1918,6 +2035,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -1933,6 +2053,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -1947,6 +2068,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -1972,6 +2094,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -1986,6 +2111,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -2005,6 +2131,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -2030,6 +2157,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Repeat",
@@ -2054,6 +2182,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2087,6 +2216,7 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -2101,6 +2231,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -2125,6 +2256,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2154,6 +2286,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Repeat",
@@ -2178,6 +2311,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -2197,6 +2331,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -2226,6 +2361,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -2251,6 +2387,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -2265,6 +2404,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2290,6 +2430,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2315,6 +2456,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2349,6 +2491,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -2373,6 +2516,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -2402,6 +2546,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -2427,6 +2572,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Ethereal",
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -2441,6 +2590,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2466,6 +2616,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2491,6 +2642,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -2521,6 +2673,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2556,6 +2709,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -2581,6 +2735,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2617,6 +2772,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -2652,6 +2808,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Forge",
@@ -2676,6 +2833,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Repeat",
@@ -2705,6 +2863,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -2733,6 +2892,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -2758,6 +2918,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -2782,6 +2943,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -2807,6 +2969,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -2833,6 +2996,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -2853,6 +3017,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -2878,6 +3043,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -2903,6 +3069,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -2929,6 +3096,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -2949,6 +3117,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -2980,6 +3149,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -3005,6 +3175,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -3030,6 +3201,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -3064,6 +3236,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Eternal",
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -3078,6 +3254,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -3103,6 +3280,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -3128,6 +3306,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -3158,6 +3337,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -3172,6 +3352,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -3197,6 +3380,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -3211,6 +3395,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -3245,6 +3430,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Ethereal",
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -3259,6 +3448,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -3284,6 +3474,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -3319,6 +3510,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -3349,6 +3541,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -3378,6 +3571,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -3412,6 +3606,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -3426,6 +3623,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "Gold",
@@ -3445,6 +3645,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -3465,6 +3668,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -3495,6 +3701,7 @@
     "tags": [
       "Defend"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -3522,6 +3729,7 @@
     "tags": [
       "Defend"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -3549,6 +3757,7 @@
     "tags": [
       "Defend"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -3576,6 +3785,7 @@
     "tags": [
       "Defend"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -3603,6 +3813,7 @@
     "tags": [
       "Defend"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -3628,6 +3839,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -3653,6 +3867,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -3678,6 +3893,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -3703,6 +3919,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -3733,6 +3952,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -3767,6 +3987,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -3790,6 +4013,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -3815,6 +4039,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -3845,6 +4072,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -3859,6 +4089,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -3884,6 +4115,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -3909,6 +4141,9 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -3933,6 +4168,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -3947,6 +4185,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -3967,6 +4206,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -3993,6 +4233,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -4007,6 +4250,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -4032,6 +4276,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -4063,6 +4310,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -4077,6 +4327,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -4097,6 +4350,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -4130,6 +4384,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust",
+      "Innate"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -4155,6 +4413,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -4174,6 +4435,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -4203,6 +4465,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -4228,6 +4491,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -4242,6 +4506,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -4276,6 +4543,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -4296,6 +4566,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -4322,6 +4593,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -4336,6 +4608,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -4361,6 +4634,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -4385,6 +4661,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -4410,6 +4689,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -4424,6 +4706,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Eternal"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -4439,6 +4724,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -4453,6 +4739,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -4472,6 +4759,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -4497,6 +4785,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -4527,6 +4816,9 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Retain"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -4552,6 +4844,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -4577,6 +4870,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -4602,6 +4896,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -4628,6 +4923,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -4658,6 +4954,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -4682,6 +4979,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -4707,6 +5007,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -4736,6 +5037,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -4771,6 +5073,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -4796,6 +5099,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -4821,6 +5125,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -4855,6 +5162,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -4888,6 +5198,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -4913,6 +5224,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -4939,6 +5251,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -4961,6 +5274,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -4990,6 +5304,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5015,6 +5332,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5058,6 +5376,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -5083,6 +5402,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -5112,6 +5432,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5148,6 +5469,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5173,6 +5495,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5209,6 +5532,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -5244,6 +5568,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -5258,6 +5583,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5289,6 +5615,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -5314,6 +5641,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5350,6 +5678,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Sly"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5377,6 +5708,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5411,6 +5743,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5441,6 +5774,12 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Eternal",
+      "Ethereal",
+      "Innate",
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -5455,6 +5794,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -5481,6 +5821,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Eternal"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -5495,6 +5838,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -5519,6 +5863,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -5543,6 +5890,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -5557,6 +5905,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -5586,6 +5935,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5624,6 +5974,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -5652,6 +6005,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Forge",
@@ -5677,6 +6031,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -5691,6 +6046,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5726,6 +6082,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -5757,6 +6114,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -5786,6 +6144,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -5811,6 +6170,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Block"
@@ -5839,6 +6201,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -5864,6 +6227,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -5889,6 +6253,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -5914,6 +6279,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -5943,6 +6309,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -5967,6 +6336,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -6002,6 +6372,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Stars",
@@ -6030,6 +6401,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6064,6 +6436,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -6090,6 +6463,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6115,6 +6489,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -6144,6 +6519,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6169,6 +6547,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Eternal",
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -6183,6 +6565,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -6197,6 +6582,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6230,6 +6616,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -6250,6 +6639,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6279,6 +6669,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -6305,6 +6696,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -6319,6 +6711,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6353,6 +6746,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -6378,6 +6772,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6403,6 +6798,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "HpLoss",
@@ -6428,6 +6824,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -6442,6 +6839,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Sly"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -6467,6 +6867,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6492,6 +6893,7 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6521,6 +6923,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6554,6 +6957,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6583,6 +6987,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6619,6 +7024,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -6634,6 +7040,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -6648,6 +7055,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "HpLoss",
@@ -6677,6 +7085,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Stars",
@@ -6706,6 +7115,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -6730,6 +7140,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Int",
@@ -6757,6 +7168,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -6791,6 +7203,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -6816,6 +7231,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -6836,6 +7254,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6861,6 +7280,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -6885,6 +7307,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6915,6 +7338,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -6940,6 +7364,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -6969,6 +7394,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -6983,6 +7411,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -7007,6 +7436,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -7032,6 +7464,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7053,6 +7488,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -7067,6 +7505,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -7092,6 +7531,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -7106,6 +7546,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -7131,6 +7572,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -7145,6 +7589,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -7170,6 +7615,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -7202,6 +7648,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7236,6 +7683,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -7261,6 +7709,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -7285,6 +7736,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7314,6 +7766,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -7339,6 +7792,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -7353,6 +7807,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7378,6 +7833,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7412,6 +7868,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -7438,6 +7895,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7472,6 +7930,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7501,6 +7960,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -7526,6 +7988,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -7540,6 +8005,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -7556,6 +8022,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -7586,6 +8053,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -7611,6 +8079,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -7645,6 +8114,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -7669,6 +8141,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -7694,6 +8169,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -7719,6 +8195,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -7749,6 +8226,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -7774,6 +8252,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust",
+      "Retain"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -7798,6 +8280,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7834,6 +8317,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -7853,6 +8337,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7928,6 +8413,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -7957,6 +8443,9 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -7971,6 +8460,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8005,6 +8495,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -8030,6 +8521,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -8055,6 +8549,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -8069,6 +8564,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8104,6 +8600,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -8118,6 +8615,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -8147,6 +8645,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -8182,6 +8681,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -8206,6 +8708,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8243,6 +8746,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8268,6 +8772,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -8295,6 +8802,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Innate"
+    ],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -8321,6 +8831,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -8342,6 +8853,9 @@
     "max_upgrade_level": 1,
     "tags": [
       "Minion"
+    ],
+    "keywords": [
+      "Exhaust"
     ],
     "canonical_vars": [
       {
@@ -8370,6 +8884,9 @@
     "tags": [
       "Minion"
     ],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -8397,6 +8914,9 @@
     "tags": [
       "Minion",
       "Strike"
+    ],
+    "keywords": [
+      "Exhaust"
     ],
     "canonical_vars": [
       {
@@ -8428,6 +8948,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -8454,6 +8977,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8479,6 +9003,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Repeat",
@@ -8507,6 +9032,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8534,6 +9062,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8560,6 +9089,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -8580,6 +9110,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -8600,6 +9131,7 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -8615,6 +9147,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -8641,6 +9174,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -8665,6 +9199,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -8699,6 +9234,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8732,6 +9270,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -8765,6 +9304,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8799,6 +9339,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -8825,6 +9366,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -8839,6 +9383,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -8875,6 +9420,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -8902,6 +9450,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -8916,6 +9465,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Heal",
@@ -8940,6 +9492,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -8965,6 +9518,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -8999,6 +9553,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -9024,6 +9579,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "HpLoss",
@@ -9056,6 +9614,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9081,6 +9640,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -9107,6 +9667,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -9126,6 +9687,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -9155,6 +9717,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -9179,6 +9742,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -9203,6 +9767,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9233,6 +9798,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -9252,6 +9818,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -9281,6 +9848,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -9306,6 +9874,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -9336,6 +9907,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -9361,6 +9933,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -9385,6 +9960,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -9410,6 +9986,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -9444,6 +10021,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9475,6 +10053,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -9506,6 +10085,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -9531,6 +10111,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9569,6 +10150,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -9594,6 +10178,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9619,6 +10204,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -9644,6 +10230,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9669,6 +10256,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9705,6 +10293,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -9732,6 +10321,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9765,6 +10355,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Retain",
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -9779,6 +10373,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9804,6 +10399,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -9835,6 +10431,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -9860,6 +10457,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -9885,6 +10483,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -9909,6 +10508,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -9923,6 +10523,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -9947,6 +10550,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -9961,6 +10567,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -9988,6 +10595,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -10019,6 +10627,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -10053,6 +10662,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -10086,6 +10696,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -10122,6 +10733,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust",
+      "Retain"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -10146,6 +10761,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -10171,6 +10789,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -10196,6 +10815,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Repeat",
@@ -10215,6 +10835,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -10229,6 +10850,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -10269,6 +10891,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -10294,6 +10917,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -10308,6 +10934,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -10333,6 +10960,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -10365,6 +10993,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -10401,6 +11030,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -10425,6 +11057,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Retain"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -10450,6 +11085,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -10464,6 +11100,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -10493,6 +11130,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -10517,6 +11157,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -10542,6 +11183,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Forge",
@@ -10570,6 +11212,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -10595,6 +11238,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Sly"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -10619,6 +11265,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Repeat",
@@ -10648,6 +11295,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -10662,6 +11312,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -10703,6 +11356,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -10738,6 +11392,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -10763,6 +11418,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Retain"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -10795,6 +11453,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Sly"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -10826,6 +11487,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -10855,6 +11517,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -10880,6 +11543,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -10913,6 +11577,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -10943,6 +11608,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Stars",
@@ -10962,6 +11630,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Gold",
@@ -10986,6 +11655,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -11012,6 +11682,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Retain"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -11026,6 +11699,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11051,6 +11725,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -11075,6 +11750,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -11108,6 +11784,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11141,6 +11818,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -11157,6 +11837,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11183,6 +11864,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -11202,6 +11886,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -11227,6 +11912,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -11241,6 +11929,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -11257,6 +11948,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11286,6 +11978,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Forge",
@@ -11311,6 +12004,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -11331,6 +12025,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -11358,6 +12053,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11393,6 +12089,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11417,6 +12114,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11442,6 +12140,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -11468,6 +12167,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -11488,6 +12188,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -11508,6 +12209,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -11528,6 +12232,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -11558,6 +12265,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11585,6 +12293,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11616,6 +12325,9 @@
     "tags": [
       "Shiv"
     ],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11641,6 +12353,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -11666,6 +12381,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -11691,6 +12407,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -11722,6 +12439,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -11757,6 +12475,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -11777,6 +12498,7 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11802,6 +12524,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -11826,6 +12549,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -11851,6 +12575,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -11876,6 +12601,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -11895,6 +12623,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -11915,6 +12644,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -11940,6 +12670,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Retain"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -11967,6 +12700,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -11992,6 +12726,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Sly"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -12019,6 +12756,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12052,6 +12790,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -12066,6 +12807,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -12090,6 +12834,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -12122,6 +12867,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Retain"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12157,6 +12905,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Retain"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12183,6 +12934,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -12202,6 +12954,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -12222,6 +12975,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -12242,6 +12996,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -12267,6 +13022,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12296,6 +13052,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -12310,6 +13067,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "Gold",
@@ -12329,6 +13089,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Forge",
@@ -12357,6 +13118,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -12371,6 +13135,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Retain"
+    ],
     "canonical_vars": [
       {
         "kind": "Summon",
@@ -12403,6 +13170,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12439,6 +13207,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -12474,6 +13243,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -12506,6 +13276,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -12526,6 +13297,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12551,6 +13323,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -12565,6 +13338,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12590,6 +13364,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -12615,6 +13390,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -12640,6 +13416,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -12654,6 +13431,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12689,6 +13467,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -12705,6 +13484,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12732,6 +13512,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12759,6 +13540,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12786,6 +13568,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12813,6 +13596,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12839,6 +13623,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -12853,6 +13638,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12887,6 +13673,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Forge",
@@ -12911,6 +13698,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -12940,6 +13728,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -12964,6 +13755,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -12995,6 +13787,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Innate"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13029,6 +13824,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -13054,6 +13850,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13085,6 +13882,10 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [
+      "Ethereal",
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "OstyDamage",
@@ -13110,6 +13911,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13140,6 +13942,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -13160,6 +13963,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -13186,6 +13992,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13211,6 +14018,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Sly"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -13235,6 +14045,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13261,6 +14072,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -13275,6 +14087,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -13309,6 +14122,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13349,6 +14163,7 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -13363,6 +14178,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -13388,6 +14204,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13413,6 +14230,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -13443,6 +14261,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -13468,6 +14287,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13493,6 +14315,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage"
@@ -13521,6 +14346,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -13535,6 +14361,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Forge",
@@ -13559,6 +14386,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -13578,6 +14408,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13603,6 +14434,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13628,6 +14460,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -13653,6 +14486,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13683,6 +14517,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -13710,6 +14547,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -13724,6 +14562,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -13754,6 +14593,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13775,6 +14617,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -13789,6 +14632,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -13808,6 +14654,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -13822,6 +14669,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -13847,6 +14697,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -13872,6 +14723,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -13898,6 +14750,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13923,6 +14776,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -13939,6 +14793,7 @@
     "tags": [
       "Defend"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -13966,6 +14821,7 @@
     "tags": [
       "Strike"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -13991,6 +14847,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -14018,6 +14875,7 @@
     "tags": [
       "OstyAttack"
     ],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -14050,6 +14908,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -14064,6 +14923,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -14089,6 +14949,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Sly"
+    ],
     "canonical_vars": [
       {
         "kind": "Block",
@@ -14114,6 +14977,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -14138,6 +15002,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -14168,6 +15033,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -14193,6 +15059,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -14218,6 +15085,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Stars",
@@ -14242,6 +15110,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Cards",
@@ -14266,6 +15135,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Ethereal",
+      "Unplayable"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -14285,6 +15158,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Ethereal"
+    ],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -14305,6 +15181,7 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -14330,6 +15207,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "CalculationBase",
@@ -14356,6 +15236,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -14376,6 +15257,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Dynamic",
@@ -14401,6 +15283,7 @@
     "has_energy_cost_x": true,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -14426,6 +15309,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -14452,6 +15338,9 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -14466,6 +15355,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -14480,6 +15372,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [
+      "Exhaust"
+    ],
     "canonical_vars": [
       {
         "kind": "Energy",
@@ -14499,6 +15394,9 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -14513,6 +15411,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Power",
@@ -14543,6 +15442,10 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 0,
     "tags": [],
+    "keywords": [
+      "Innate",
+      "Unplayable"
+    ],
     "canonical_vars": [],
     "upgrade_deltas": []
   },
@@ -14557,6 +15460,7 @@
     "has_energy_cost_x": false,
     "max_upgrade_level": 1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [
       {
         "kind": "Damage",
@@ -14591,6 +15495,7 @@
     "max_upgrade_level": 1,
     "energy_cost_upgrade_delta": -1,
     "tags": [],
+    "keywords": [],
     "canonical_vars": [],
     "upgrade_deltas": []
   }
