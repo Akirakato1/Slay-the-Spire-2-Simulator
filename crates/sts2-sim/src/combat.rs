@@ -675,6 +675,29 @@ impl CombatState {
         drawn
     }
 
+    /// Append a freshly-instantiated card to the player's hand at the
+    /// given upgrade level. Used by OnPlay handlers that conjure Shivs
+    /// (CloakAndDagger / LeadingStrike) or temporary cards. Returns
+    /// whether the append succeeded (false on bad ids / players).
+    pub fn add_card_to_hand(
+        &mut self,
+        player_idx: usize,
+        card_id: &str,
+        upgrade_level: i32,
+    ) -> bool {
+        let Some(card) = crate::card::by_id(card_id) else {
+            return false;
+        };
+        let Some(ps) = self.allies.get_mut(player_idx).and_then(|c| c.player.as_mut())
+        else {
+            return false;
+        };
+        ps.hand
+            .cards
+            .push(CardInstance::from_card(card, upgrade_level));
+        true
+    }
+
     /// Pick one card from the player's hand uniformly at random via
     /// `self.rng` and move it to the exhaust pile. No-op if the hand is
     /// empty. Returns the exhausted card's id (for logging / tests).
@@ -1509,6 +1532,67 @@ fn dispatch_on_play(
                 "StrengthPower",
                 strength,
             );
+            true
+        }
+        // Shiv (Token Attack, 0 cost, AnyEnemy): 4 damage (6 upgraded).
+        // Exhaust keyword routes the played card to exhaust. Generated
+        // in hand by Silent Shiv-creating cards (CloakAndDagger,
+        // LeadingStrike, etc.).
+        "Shiv" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            true
+        }
+        // Backflip (Silent common Skill, 1 cost, Self): 5 block (8
+        // upgraded) + draw 2. Cards count doesn't upgrade.
+        "Backflip" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            let cards = canonical_int_value(card, "Cards", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            cs.draw_cards_self_rng(player_idx, cards);
+            true
+        }
+        // CloakAndDagger (Silent common Skill, 1 cost, Self): 6 block
+        // + add N Shivs to hand (N=1, 2 upgraded). Block doesn't
+        // upgrade.
+        "CloakAndDagger" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            let shivs = canonical_int_value(card, "Cards", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            for _ in 0..shivs {
+                cs.add_card_to_hand(player_idx, "Shiv", 0);
+            }
+            true
+        }
+        // LeadingStrike (Silent common Strike-tagged Attack, 1 cost,
+        // AnyEnemy): 3 damage (6 upgraded) + add 2 Shivs to hand.
+        // Damage upgrades, Shiv count doesn't. The keyed CardsVar
+        // "Shivs" tracks the count.
+        "LeadingStrike" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let shivs = canonical_int_value(card, "Shivs", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            for _ in 0..shivs {
+                cs.add_card_to_hand(player_idx, "Shiv", 0);
+            }
             true
         }
         // ---------- Silent commons batch ---------------------------
@@ -4255,6 +4339,111 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Shiv-creating cards tests --------------------------------
+
+    fn populate_draw_pile_strikes(cs: &mut CombatState, n: usize) {
+        let strike = card_by_id("StrikeIronclad").unwrap();
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        for _ in 0..n {
+            ps.draw.cards.push(CardInstance::from_card(strike, 0));
+        }
+    }
+
+    #[test]
+    fn shiv_deals_four() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(&mut cs, "Shiv", 0, Some((CombatSide::Enemy, 0)));
+        assert_eq!(cs.enemies[0].current_hp, hp - 4);
+    }
+
+    #[test]
+    fn shiv_routes_to_exhaust_via_keyword() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "Shiv", 0, Some((CombatSide::Enemy, 0)));
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.exhaust.cards.iter().any(|c| c.id == "Shiv"));
+    }
+
+    #[test]
+    fn backflip_grants_five_block_and_draws_two() {
+        let mut cs = ironclad_combat();
+        populate_draw_pile_strikes(&mut cs, 5);
+        let hand_before = cs.allies[0].player.as_ref().unwrap().hand.len();
+        inject_card_and_play(&mut cs, "Backflip", 0, None);
+        assert_eq!(cs.allies[0].block, 5);
+        // hand_before + Backflip (+1) → play removes Backflip (-1) →
+        // draw 2 (+2). Net delta: +2 vs starting hand_before.
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().hand.len(),
+            hand_before + 2
+        );
+    }
+
+    #[test]
+    fn upgraded_backflip_grants_eight_block_two_cards() {
+        let mut cs = ironclad_combat();
+        populate_draw_pile_strikes(&mut cs, 5);
+        inject_card_and_play(&mut cs, "Backflip", 1, None);
+        assert_eq!(cs.allies[0].block, 8);
+    }
+
+    #[test]
+    fn cloak_and_dagger_grants_six_block_and_adds_shiv() {
+        let mut cs = ironclad_combat();
+        let hand_before = cs.allies[0].player.as_ref().unwrap().hand.len();
+        inject_card_and_play(&mut cs, "CloakAndDagger", 0, None);
+        assert_eq!(cs.allies[0].block, 6);
+        // hand_before + Cloak (+1) → play removes Cloak (-1) → add
+        // 1 Shiv (+1). Net delta: +1 vs starting hand_before.
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.hand.len(), hand_before + 1);
+        assert!(ps.hand.cards.iter().any(|c| c.id == "Shiv"));
+    }
+
+    #[test]
+    fn upgraded_cloak_and_dagger_adds_two_shivs() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "CloakAndDagger", 1, None);
+        assert_eq!(cs.allies[0].block, 6);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        let shivs = ps.hand.cards.iter().filter(|c| c.id == "Shiv").count();
+        assert_eq!(shivs, 2);
+    }
+
+    #[test]
+    fn leading_strike_deals_three_and_adds_two_shivs() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "LeadingStrike",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 3);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        let shivs = ps.hand.cards.iter().filter(|c| c.id == "Shiv").count();
+        assert_eq!(shivs, 2);
+    }
+
+    #[test]
+    fn upgraded_leading_strike_deals_six_still_two_shivs() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "LeadingStrike",
+            1,
+            Some((CombatSide::Enemy, 0)),
+        );
+        // Damage upgrades, Shiv count doesn't.
+        assert_eq!(cs.enemies[0].current_hp, hp - 6);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        let shivs = ps.hand.cards.iter().filter(|c| c.id == "Shiv").count();
+        assert_eq!(shivs, 2);
     }
 
     // ---------- Silent commons batch tests -------------------------------
