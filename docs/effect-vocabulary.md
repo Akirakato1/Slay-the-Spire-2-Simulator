@@ -499,3 +499,35 @@ card/relic/potion as a JSON effect list is a single bulk session (auto-classify
 
 Validation bar unchanged: spec-derived tests are the floor; C# oracle-diff is
 the real bar (see [[oracle-diff-is-the-real-bar]]).
+
+---
+
+## 9. Constraint: observer layer is a pure function of the data
+
+The Effect VM data model is also the schema the **observer layer / RL feature
+extractor** is keyed by. `crates/sts2-sim/src/features.rs::card_features`
+and `relic_features` must compute their feature vectors **directly from
+the item's effect-list, amount-specs, conditions, keywords, and rarity** —
+never from a per-card hand-curated lookup, never by matching on card id.
+
+Concretely, every `Effect` enum variant corresponds to one or more feature
+columns. Adding a new card adds a new *data row* (its effect-list) but
+no new feature column.
+
+Implications for design:
+- The agent sees cards as embeddings derived from the same primitive
+  vocabulary the simulator runs on. No "card name" channel.
+- A balance patch (Strike 6 → 7) changes the data, changes the embedding,
+  and the agent adapts in-place — no retraining.
+- A novel new card that is a composition of existing primitives produces
+  a new embedding the agent has seen the building blocks of — partial
+  generalization for free.
+- A genuinely new mechanic (a primitive the game adds that the vocabulary
+  does not yet contain) is the only case requiring a Rust core change AND
+  agent retraining. That's intentional and rare.
+- If a card needs special-case logic to be ported correctly, that's a
+  signal that a primitive is missing from the vocabulary — extend the
+  vocabulary, don't special-case the card.
+
+This is why the vocabulary-first port matters for RL, not just for porting
+efficiency. See memory [[feedback-observer-layer-pure-function]].
