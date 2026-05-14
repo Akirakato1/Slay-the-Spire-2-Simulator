@@ -135,7 +135,7 @@
         "Prolong" => Some(vec![Effect::ApplyPower { power_id: "BlockNextTurnPower".to_string(), amount: AmountSpec::SelfBlock, target: Target::SelfPlayer }]),
 
 // PullAggro: OstyCmd.Summon(self, SummonVar) + GainBlock self.
-        "PullAggro" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string() }, Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        "PullAggro" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: None }, Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
 
 // PullFromBelow: Damage with hit count = ethereal-cards-played-this-turn count. History scan.
 // SKIP PullFromBelow: hit count reads CardPlayFinishedEntry.WasEthereal history (unsupported).

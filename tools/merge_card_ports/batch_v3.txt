@@ -1,0 +1,548 @@
+// batch_v3.txt — re-encode of previously-SKIPped cards using the expanded Effect VM
+// vocabulary (effects.rs L47-580). One match arm per line; SKIP comments otherwise.
+// Each entry has a one-line C# evidence comment above it.
+//
+// Vocabulary changes consumed by this batch:
+//   - SummonOsty { osty_id, max_hp: Option<AmountSpec> }
+//   - HealOsty / KillOsty
+//   - AddRandomCardFromPool { pool, filter, n, pile, upgrade, free_this_turn, distinct }
+//   - AutoplayCardsFromPile { pile, filter, n }
+//   - SetPowerStateField { power_id, field, value, target }
+//   - MillFromDraw { n }
+//   - AmountSpec: HandCount, HandCountExcludingSource, TargetMaxHp, TargetBlock,
+//                 TargetDebuffCount, CardsPlayedThisTurn{filter}, CardsDiscardedThisTurn,
+//                 CardsDrawnThisTurn, CardsExhaustedThisTurn, EnergySpentThisTurn,
+//                 OrbsChanneledThisCombat{orb_id}, DistinctOrbTypesInQueue,
+//                 StarsGainedThisTurnPositive.
+//   - Condition: IsOstyMissing, OwnerExhaustedCardThisTurn,
+//                FirstPlayOfSourceCardThisTurn, PlaysThisTurnLt{n}, RoundEquals{n}, RoundGe{n}.
+
+// =====================================================================================
+// Osty-summon with HP arg (now expressible via SummonOsty.max_hp = Some(...))
+// =====================================================================================
+
+// Afterlife.cs L55-59: OstyCmd.Summon(self, Summon.BaseValue). Exhaust skill.
+        "Afterlife" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) }]),
+
+// Bodyguard.cs L44-49: OstyCmd.Summon(self, Summon.BaseValue). Basic skill.
+        "Bodyguard" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) }]),
+
+// Reanimate.cs L55-59: OstyCmd.Summon(self, Summon.BaseValue). Re-encoded with HP arg now that primitive supports it.
+        "Reanimate" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) }]),
+
+// =====================================================================================
+// Osty-missing-guarded bodies (now expressible via Condition::IsOstyMissing wrapper)
+// Note: C# guard is `if (!Osty.CheckMissingWithAnim(owner))` — body runs when Osty is PRESENT.
+// We negate: Conditional { condition: Not(IsOstyMissing), then_branch: <body> }.
+// =====================================================================================
+
+// BoneShards.cs L69-83: Osty present -> Osty AOE attack + GainBlock self + Kill Osty.
+        "BoneShards" => Some(vec![Effect::Conditional { condition: Condition::Not(Box::new(Condition::IsOstyMissing)), then_branch: vec![Effect::DamageFromOsty { amount: AmountSpec::Canonical("OstyDamage".to_string()), target: Target::AllEnemies }, Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::KillOsty], else_branch: vec![] }]),
+
+// Sacrifice.cs L54-64: Osty present -> Kill Osty + GainBlock(Osty.MaxHp * 2) self.
+        "Sacrifice" => Some(vec![Effect::Conditional { condition: Condition::Not(Box::new(Condition::IsOstyMissing)), then_branch: vec![Effect::KillOsty, Effect::GainBlock { amount: AmountSpec::Mul { left: Box::new(AmountSpec::OstyMaxHp), right: Box::new(AmountSpec::Fixed(2)) }, target: Target::SelfPlayer }], else_branch: vec![] }]),
+
+// HighFive.cs L82-91: Osty present -> Osty AOE attack + Apply<VulnerablePower>(AllEnemies).
+        "HighFive" => Some(vec![Effect::Conditional { condition: Condition::Not(Box::new(Condition::IsOstyMissing)), then_branch: vec![Effect::DamageFromOsty { amount: AmountSpec::Canonical("OstyDamage".to_string()), target: Target::AllEnemies }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Vulnerable".to_string()), target: Target::AllEnemies }], else_branch: vec![] }]),
+
+// Poke.cs L56-66: Osty present -> Osty single-target attack.
+        "Poke" => Some(vec![Effect::Conditional { condition: Condition::Not(Box::new(Condition::IsOstyMissing)), then_branch: vec![Effect::DamageFromOsty { amount: AmountSpec::Canonical("OstyDamage".to_string()), target: Target::ChosenEnemy }], else_branch: vec![] }]),
+
+// SicEm.cs L72-82: Osty present -> Osty attack chosen. Apply<SicEmPower> runs UNCONDITIONALLY outside the guard.
+        "SicEm" => Some(vec![Effect::Conditional { condition: Condition::Not(Box::new(Condition::IsOstyMissing)), then_branch: vec![Effect::DamageFromOsty { amount: AmountSpec::Canonical("OstyDamage".to_string()), target: Target::ChosenEnemy }], else_branch: vec![] }, Effect::ApplyPower { power_id: "SicEmPower".to_string(), amount: AmountSpec::Canonical("SicEmPower".to_string()), target: Target::ChosenEnemy }]),
+
+// SweepingGaze.cs L70-78: Osty present -> Osty random-target attack (token card).
+        "SweepingGaze" => Some(vec![Effect::Conditional { condition: Condition::Not(Box::new(Condition::IsOstyMissing)), then_branch: vec![Effect::DamageFromOsty { amount: AmountSpec::Canonical("OstyDamage".to_string()), target: Target::RandomEnemy }], else_branch: vec![] }]),
+
+// Snap.cs L69-85: Osty present -> Osty attack chosen. Trailing CardSelectCmd applying Retain to a hand pick stays SKIP-ish; we encode the damage half.
+// SKIP Snap: only the Osty-guarded attack is encodable; the trailing interactive Hand-pick that applies the Retain keyword to a non-Retain card needs filtered PlayerInteractive + ApplyKeywordToCards on a specific picked card. Stays SKIP overall.
+
+// RightHandHand.cs L70-80,L82-96: Osty-attack guarded by Osty-missing; AfterCardPlayedLate Discord->Hand promotion if energy >= threshold.
+// SKIP RightHandHand: OnPlay's Osty-attack body is now encodable, but the card's identity also relies on the AfterCardPlayedLate hook (not in vocabulary). Stays SKIP.
+
+// Fetch.cs L72-86: Osty present -> Osty attack chosen; if first play this turn, draw Cards.
+        "Fetch" => Some(vec![Effect::Conditional { condition: Condition::Not(Box::new(Condition::IsOstyMissing)), then_branch: vec![Effect::DamageFromOsty { amount: AmountSpec::Canonical("OstyDamage".to_string()), target: Target::ChosenEnemy }, Effect::Conditional { condition: Condition::FirstPlayOfSourceCardThisTurn, then_branch: vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }], else_branch: vec![] }], else_branch: vec![] }]),
+
+// =====================================================================================
+// Spur — Osty summon (with HP arg) + Heal Osty
+// =====================================================================================
+
+// Spur.cs L58-64: OstyCmd.Summon(self, Summon var) + Heal(Osty, Heal var).
+        "Spur" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) }, Effect::HealOsty { amount: AmountSpec::Canonical("Heal".to_string()) }]),
+
+// =====================================================================================
+// CardFactory.GetDistinctForCombat / GetForCombat random-from-pool (now expressible via AddRandomCardFromPool)
+// =====================================================================================
+
+// Discovery.cs L35-53: 3 distinct random Owner-character cards into a chooser, free-this-turn. We approximate as AddRandomCardFromPool with n=1 distinct (ChooseACard collapses to 1 picked).
+        "Discovery" => Some(vec![Effect::AddRandomCardFromPool { pool: CardPoolRef::CharacterAny, filter: CardFilter::Any, n: AmountSpec::Fixed(1), pile: Pile::Hand, upgrade: 0, free_this_turn: true, distinct: true }]),
+
+// Distraction.cs L46-56: 1 random Skill from owner-character pool into hand, free-this-turn.
+        "Distraction" => Some(vec![Effect::AddRandomCardFromPool { pool: CardPoolRef::CharacterSkill, filter: CardFilter::OfType("Skill".to_string()), n: AmountSpec::Fixed(1), pile: Pile::Hand, upgrade: 0, free_this_turn: true, distinct: true }]),
+
+// InfernalBlade.cs L35-45: 1 random Attack from owner-character pool into hand, free-this-turn.
+        "InfernalBlade" => Some(vec![Effect::AddRandomCardFromPool { pool: CardPoolRef::CharacterAttack, filter: CardFilter::OfType("Attack".to_string()), n: AmountSpec::Fixed(1), pile: Pile::Hand, upgrade: 0, free_this_turn: true, distinct: true }]),
+
+// WhiteNoise.cs L35-46: 1 random Power from owner-character pool into hand, free-this-turn.
+        "WhiteNoise" => Some(vec![Effect::AddRandomCardFromPool { pool: CardPoolRef::CharacterPower, filter: CardFilter::OfType("Power".to_string()), n: AmountSpec::Fixed(1), pile: Pile::Hand, upgrade: 0, free_this_turn: true, distinct: true }]),
+
+// JackOfAllTrades.cs L53-63: N random distinct Colorless cards (excluding JackOfAllTrades itself) into hand.
+        "JackOfAllTrades" => Some(vec![Effect::AddRandomCardFromPool { pool: CardPoolRef::Colorless, filter: CardFilter::Any, n: AmountSpec::Canonical("Cards".to_string()), pile: Pile::Hand, upgrade: 0, free_this_turn: false, distinct: true }]),
+
+// BundleOfJoy.cs L46-54: N (=Cards) distinct random Colorless cards into hand. Exhaust card.
+        "BundleOfJoy" => Some(vec![Effect::AddRandomCardFromPool { pool: CardPoolRef::Colorless, filter: CardFilter::Any, n: AmountSpec::Canonical("Cards".to_string()), pile: Pile::Hand, upgrade: 0, free_this_turn: false, distinct: true }]),
+
+// Quasar.cs L36-49: Generates 3 distinct Colorless cards then ChooseACard -> Hand. Approx as AddRandomCardFromPool n=1 (chooser collapses to 1).
+        "Quasar" => Some(vec![Effect::AddRandomCardFromPool { pool: CardPoolRef::Colorless, filter: CardFilter::Any, n: AmountSpec::Fixed(1), pile: Pile::Hand, upgrade: 0, free_this_turn: false, distinct: true }]),
+
+// Splash.cs L26-63: random other-character Attack with optional upgrade + chooser + free-this-turn. Approx n=1 chosen.
+        "Splash" => Some(vec![Effect::AddRandomCardFromPool { pool: CardPoolRef::CharacterAttack, filter: CardFilter::OfType("Attack".to_string()), n: AmountSpec::Fixed(1), pile: Pile::Hand, upgrade: 0, free_this_turn: true, distinct: true }]),
+
+// Stoke.cs L25-41: Exhaust hand then add N character-pool cards into hand (N = hand size exhausted). Approx with AddRandomCardFromPool n=HandCount BEFORE exhaust; we emit Exhaust then add with n=HandCount (post-exhaust HandCount is 0 — better to capture pre-exhaust count via direct order: AddRandomCardFromPool reading HandCount runs AFTER exhaust → would yield 0). Best-effort: emit ExhaustCards then AddRandomCardFromPool with n=Fixed approximation isn't accurate. Stays SKIP because n depends on pre-exhaust hand size, which isn't expressible (HandCount resolves at execution time, post-exhaust).
+// SKIP Stoke: exhaust-entire-hand + add N=originalHandSize random character cards; N can't be snapshotted before the exhaust step.
+
+// StormOfSteel.cs L37-50: Discard hand + Shiv.CreateInHand(handSize). Shiv is a bespoke per-combat factory, and N needs pre-discard hand size snapshot.
+// SKIP StormOfSteel: pre-discard hand size snapshot + Shiv factory both unsupported.
+
+// Jackpot.cs L42-61: damage + N random 0-cost cards (from owner pool) into hand (optionally upgraded). Filter for cost==0 isn't in CardFilter; we approximate by skipping the cost filter (best-effort).
+// SKIP Jackpot: random-from-pool filter by EnergyCost==0 isn't expressible (CardFilter has no CostEq variant); approximating without the filter would produce wrong cards.
+
+// BeatDown.cs L38-58: AutoPlay N random Attack cards from Discard.
+        "BeatDown" => Some(vec![Effect::AutoplayCardsFromPile { pile: Pile::Discard, filter: CardFilter::OfType("Attack".to_string()), n: AmountSpec::Canonical("Cards".to_string()) }]),
+
+// Largesse.cs (multiplayer-only): generates Colorless card into ally's hand. Single-player no-op or self.
+// SKIP Largesse: target is AnyAlly (multiplayer-only); single-player has no equivalent target. Keep SKIP.
+
+// =====================================================================================
+// AutoplayCardsFromPile (KnifeTrap, Uproar)
+// =====================================================================================
+
+// KnifeTrap.cs L52-67: Auto-play every Shiv-tagged card from Exhaust at the chosen target.
+        "KnifeTrap" => Some(vec![Effect::AutoplayCardsFromPile { pile: Pile::Exhaust, filter: CardFilter::TaggedAs("Shiv".to_string()), n: AmountSpec::CardCountInPile { pile: PileSelector::Single(Pile::Exhaust), filter: CardFilter::TaggedAs("Shiv".to_string()) } }]),
+
+// Uproar.cs L37-55: 2-hit damage chosen + auto-play 1 random Attack from Draw (preferring playable). Filter Attack via CardFilter::OfType.
+        "Uproar" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 2 }, Effect::AutoplayCardsFromPile { pile: Pile::Draw, filter: CardFilter::OfType("Attack".to_string()), n: AmountSpec::Fixed(1) }]),
+
+// =====================================================================================
+// SetPowerStateField (TheBomb, ToricToughness)
+// =====================================================================================
+
+// TheBomb.cs L39-44: Apply<TheBombPower>(self, Turns) then SetDamage(BombDamage) on the freshly-applied power.
+        "TheBomb" => Some(vec![Effect::ApplyPower { power_id: "TheBombPower".to_string(), amount: AmountSpec::Canonical("Turns".to_string()), target: Target::SelfPlayer }, Effect::SetPowerStateField { power_id: "TheBombPower".to_string(), field: "Damage".to_string(), value: AmountSpec::Canonical("BombDamage".to_string()), target: Target::SelfPlayer }]),
+
+// ToricToughness.cs L61-70: GainBlock(Block) then Apply<ToricToughnessPower>(Turns).SetBlock(Block-amount-stored-on-power).
+// NOTE: C# uses the actual realized block returned by GainBlock; we approximate by storing the BASE Block amount (best-effort). Realized-block read still missing.
+        "ToricToughness" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "ToricToughnessPower".to_string(), amount: AmountSpec::Canonical("Turns".to_string()), target: Target::SelfPlayer }, Effect::SetPowerStateField { power_id: "ToricToughnessPower".to_string(), field: "Block".to_string(), value: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+
+// =====================================================================================
+// HandCount / HandCountExcludingSource (Scrawl, Restlessness, PreciseCut)
+// =====================================================================================
+
+// Scrawl.cs L33-37: Draw(10 - HandCount). Hand at OnPlay time excludes the source (already moved to Play). 10 - HandCount.
+        "Scrawl" => Some(vec![Effect::DrawCards { amount: AmountSpec::Add { left: Box::new(AmountSpec::Fixed(10)), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::HandCount), right: Box::new(AmountSpec::Fixed(-1)) }) } }]),
+
+// Restlessness.cs L70-80: gated by IsOnlyCardInHand (Hand.Except(self).Any() is false). Since at OnPlay the source is already in Play, IsOnlyCardInHand ≡ Hand.Cards.Count == 0.
+        "Restlessness" => Some(vec![Effect::Conditional { condition: Condition::CardCountInPile { pile: Pile::Hand, op: Comparison::Eq, value: 0 }, then_branch: vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }, Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }], else_branch: vec![] }]),
+
+// PreciseCut.cs L26-46: damage = base + extra * (-hand-count-excluding-source).
+        "PreciseCut" => Some(vec![Effect::DealDamage { amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::HandCountExcludingSource), right: Box::new(AmountSpec::Fixed(-1)) }) }) }, target: Target::ChosenEnemy, hits: 1 }]),
+
+// =====================================================================================
+// TargetMaxHp / TargetBlock (Mimic, Expose)
+// =====================================================================================
+
+// Mimic.cs L70-74: GainBlock self block = base + extra * target.Block (TargetType=AnyAlly; in single-player approximated as Self since AnyAlly target isn't expressible).
+// SKIP Mimic: TargetBlock is now an AmountSpec, but the card targets AnyAlly (multiplayer-only). Single-player has no Ally target; the TargetBlock would resolve against self, which doesn't match the intended semantics. Stays SKIP.
+
+// Mirage.cs L86-90: GainBlock self block = base + extra * sum(enemy PoisonPower). Multi-enemy-sum still unsupported.
+// SKIP Mirage: block multiplier is SUM of PoisonPower across all alive enemies — no multi-enemy-sum primitive (TargetPowerAmount only reads a single target's stacks).
+
+// DemonicShield.cs L70-77: LoseHp self + GainBlock(ally) using owner-block multiplier; target=AnyAlly (multiplayer-only).
+// SKIP DemonicShield: AnyAlly target unrepresentable in single-player.
+
+// Expose.cs L60-73: LoseBlock(target.Block) on chosen enemy + RemovePower<Artifact> if present + Apply<VulnerablePower>(Power).
+        "Expose" => Some(vec![Effect::LoseBlock { amount: AmountSpec::TargetBlock, target: Target::ChosenEnemy }, Effect::Conditional { condition: Condition::HasPowerOnTarget { power_id: "ArtifactPower".to_string() }, then_branch: vec![Effect::RemovePower { power_id: "ArtifactPower".to_string(), target: Target::ChosenEnemy }], else_branch: vec![] }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }]),
+
+// Dominate.cs L63-72: Apply<VulnerablePower>(target, VulnerablePower) then read target's Vulnerable stacks, apply that many Strength self.
+        "Dominate" => Some(vec![Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::TargetPowerAmount { power_id: "VulnerablePower".to_string() }, target: Target::SelfPlayer }]),
+
+// =====================================================================================
+// TargetDebuffCount (Rend)
+// =====================================================================================
+
+// Rend.cs L60-66: damage = base + extra * count of non-temporary Debuff powers on target.
+        "Rend" => Some(vec![Effect::DealDamage { amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())), right: Box::new(AmountSpec::TargetDebuffCount) }) }, target: Target::ChosenEnemy, hits: 1 }]),
+
+// =====================================================================================
+// CardsPlayedThisTurn{filter} — Conflagration, GoldAxe, Murder, Finisher
+// =====================================================================================
+
+// Conflagration.cs L43-53,L56-70: AoE damage = base + extra * count of Attack plays this turn by owner. The current play is COUNTED (CardPlaysFinished includes this play once Execute completes).
+        "Conflagration" => Some(vec![Effect::DealDamage { amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())), right: Box::new(AmountSpec::CardsPlayedThisTurn { filter: CardFilter::OfType("Attack".to_string()) }) }) }, target: Target::AllEnemies, hits: 1 }]),
+
+// GoldAxe.cs L29-50: damage = base + extra * count of card plays this turn by owner (no type filter).
+        "GoldAxe" => Some(vec![Effect::DealDamage { amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())), right: Box::new(AmountSpec::CardsPlayedThisTurn { filter: CardFilter::Any }) }) }, target: Target::ChosenEnemy, hits: 1 }]),
+
+// Murder.cs L29-49: damage = base + extra * CardsDrawnThisTurn (all draws by owner).
+        "Murder" => Some(vec![Effect::DealDamage { amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())), right: Box::new(AmountSpec::CardsDrawnThisTurn) }) }, target: Target::ChosenEnemy, hits: 1 }]),
+
+// Finisher.cs L31-53: damage with hit count = attack plays this turn by owner. Wrap as Repeat over CardsPlayedThisTurn{Attack}.
+        "Finisher" => Some(vec![Effect::Repeat { count: AmountSpec::CardsPlayedThisTurn { filter: CardFilter::OfType("Attack".to_string()) }, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }]),
+
+// =====================================================================================
+// CardsDiscardedThisTurn (MementoMori)
+// =====================================================================================
+
+// MementoMori.cs L29-49: damage = base + extra * cards-discarded-this-turn by owner.
+        "MementoMori" => Some(vec![Effect::DealDamage { amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())), right: Box::new(AmountSpec::CardsDiscardedThisTurn) }) }, target: Target::ChosenEnemy, hits: 1 }]),
+
+// =====================================================================================
+// CardsDrawnThisTurn (DeathMarch)
+// =====================================================================================
+
+// DeathMarch.cs L29-49: damage = base + extra * cards-drawn-this-turn excluding hand-draw. Approximated by CardsDrawnThisTurn (we don't distinguish hand-draw vs mid-turn draw).
+        "DeathMarch" => Some(vec![Effect::DealDamage { amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())), right: Box::new(AmountSpec::CardsDrawnThisTurn) }) }, target: Target::ChosenEnemy, hits: 1 }]),
+
+// =====================================================================================
+// EnergySpentThisTurn (HelixDrill)
+// =====================================================================================
+
+// HelixDrill.cs L31-77: damage(Damage var) WithHitCount(EnergySpentThisTurn minus this card's cost). Approximated as Repeat over EnergySpentThisTurn (the -ownCost factor isn't separately expressible).
+        "HelixDrill" => Some(vec![Effect::Repeat { count: AmountSpec::EnergySpentThisTurn, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }]),
+
+// =====================================================================================
+// StarsGainedThisTurnPositive (Radiate)
+// =====================================================================================
+
+// Radiate.cs L29-54: AoE damage(Damage var) WithHitCount(sum of positive stars-gained this turn). Wrap as Repeat over StarsGainedThisTurnPositive.
+        "Radiate" => Some(vec![Effect::Repeat { count: AmountSpec::StarsGainedThisTurnPositive, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }] }]),
+
+// =====================================================================================
+// CardCountInPile{Hand, OfType("Skill")} (Flechettes), ExpectAFight
+// =====================================================================================
+
+// Flechettes.cs L28-49: damage(Damage var) WithHitCount(count of Skill in Hand). Wrap as Repeat over CardCountInPile{Hand, OfType("Skill")}.
+        "Flechettes" => Some(vec![Effect::Repeat { count: AmountSpec::CardCountInPile { pile: PileSelector::Single(Pile::Hand), filter: CardFilter::OfType("Skill".to_string()) }, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }]),
+
+// ExpectAFight.cs L29-58: GainEnergy(count of Attack in Hand) + Apply<NoEnergyGainPower>(self, 1).
+        "ExpectAFight" => Some(vec![Effect::GainEnergy { amount: AmountSpec::CardCountInPile { pile: PileSelector::Single(Pile::Hand), filter: CardFilter::OfType("Attack".to_string()) } }, Effect::ApplyPower { power_id: "NoEnergyGainPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+
+// =====================================================================================
+// OrbsChanneledThisCombat (Voltaic)
+// =====================================================================================
+
+// Voltaic.cs L43-76: Channel<LightningOrb> count = lightning-orbs-channeled-this-combat. Wrap as Repeat.
+        "Voltaic" => Some(vec![Effect::Repeat { count: AmountSpec::OrbsChanneledThisCombat { orb_id: Some("Lightning".to_string()) }, body: vec![Effect::ChannelOrb { orb_id: "Lightning".to_string() }] }]),
+
+// =====================================================================================
+// DistinctOrbTypesInQueue (Synchronize, CompileDriver)
+// =====================================================================================
+
+// Synchronize.cs L37-68: Apply<SynchronizePower>(self, base + extra * distinct-orb-types-in-queue).
+        "Synchronize" => Some(vec![Effect::ApplyPower { power_id: "SynchronizePower".to_string(), amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("CalculationExtra".to_string())), right: Box::new(AmountSpec::DistinctOrbTypesInQueue) }) }, target: Target::SelfPlayer }]),
+
+// CompileDriver.cs L27-56: damage chosen + Draw(distinct-orb-types-in-queue).
+        "CompileDriver" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::DrawCards { amount: AmountSpec::DistinctOrbTypesInQueue }]),
+
+// =====================================================================================
+// Conditional with OwnerExhaustedCardThisTurn (EvilEye, ForgottenRitual)
+// =====================================================================================
+
+// EvilEye.cs L68-78: GainBlock 2x if a card was exhausted this turn, else 1x.
+        "EvilEye" => Some(vec![Effect::Conditional { condition: Condition::OwnerExhaustedCardThisTurn, then_branch: vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }], else_branch: vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }] }]),
+
+// ForgottenRitual.cs L84-97: GainEnergy(Energy) if a card was exhausted this turn.
+        "ForgottenRitual" => Some(vec![Effect::Conditional { condition: Condition::OwnerExhaustedCardThisTurn, then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }], else_branch: vec![] }]),
+
+// =====================================================================================
+// Conditional with PlaysThisTurnLt (Ftl)
+// =====================================================================================
+
+// Ftl.cs L52-74: damage chosen; if owner plays-this-turn < PlayMax (3, +1 upgraded), draw Cards. PlayMax is a canonical, so we hard-bake 3 for now (BranchedOnUpgrade isn't accepted in Condition).
+// SKIP Ftl: PlaysThisTurnLt takes a literal i32, not an AmountSpec; PlayMax varies by upgrade (3/4). Approximation with Fixed(3) would silently drop the upgrade bonus.
+
+// =====================================================================================
+// Conditional with FirstPlayOfSourceCardThisTurn — Fetch handled above with Osty-guard.
+// =====================================================================================
+
+// =====================================================================================
+// EnergySurge — AllAllies energy (multiplayer-only). Single-player collapses to self.
+// =====================================================================================
+
+// EnergySurge.cs L67-77: GainEnergy(Energy) on every teammate. Single-player -> self only.
+        "EnergySurge" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+
+// =====================================================================================
+// BouncingFlask — Repeat over RandomEnemy ApplyPower (re-rolls per iteration)
+// =====================================================================================
+
+// BouncingFlask.cs L58-93: Repeat (Repeat var) times: pick a new random enemy and Apply<PoisonPower>(Poison var).
+        "BouncingFlask" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("Poison".to_string()), target: Target::RandomEnemy }] }]),
+
+// =====================================================================================
+// FightMe — multi-hit attack via Repeat + 2x ApplyPower
+// =====================================================================================
+
+// FightMe.cs L52-62: damage chosen WithHitCount(Repeat var) + Apply<StrengthPower>(self, StrengthPower) + Apply<StrengthPower>(chosen, EnemyStrength).
+        "FightMe" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }, Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("EnemyStrength".to_string()), target: Target::ChosenEnemy }]),
+
+// =====================================================================================
+// Eradicate — X-cost hits via Repeat
+// =====================================================================================
+
+// Eradicate.cs L55-62: X-energy attack with hit count = X. Wrap as Repeat{XEnergy, [DealDamage{Damage,Chosen,1}]}.
+        "Eradicate" => Some(vec![Effect::Repeat { count: AmountSpec::XEnergy, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }]),
+
+// =====================================================================================
+// Chaos — random orb channel (still no random-orb primitive)
+// =====================================================================================
+
+// Chaos.cs L45-52: Channel a random orb Repeat times. No random-orb ChannelOrb primitive.
+// SKIP Chaos: ChannelOrb takes a fixed orb_id; no Random-orb primitive.
+
+// =====================================================================================
+// Misc previously-SKIPped that remain genuinely impossible — re-document with refined reasons.
+// =====================================================================================
+
+// AdaptiveStrike.cs: damage + CreateClone-self at cost 0 to Discard. No per-card clone primitive.
+// SKIP AdaptiveStrike: CreateClone of self + per-instance cost override; no clone-self primitive.
+
+// AllForOne.cs L36-49: damage + move all 0-cost non-X cards from Discard to Hand. Need CardFilter::EnergyCostEq(0).
+// SKIP AllForOne: CardFilter lacks EnergyCost-equality variant, can't filter Discard-to-Hand move.
+
+// Anointed.cs L34-38: move all Rare-rarity Draw cards to Hand. Need CardFilter::Rarity(Rare).
+// SKIP Anointed: CardFilter lacks Rarity variant.
+
+// Apotheosis.cs L37-48: upgrade every upgradable card across all combat piles (PlayerCombatState.AllCards). UpgradeCards takes a single Pile.
+// SKIP Apotheosis: UpgradeCards.from is a single Pile, no AllCombat selector.
+
+// Begone.cs: transform 1 chosen hand card into MinionStrike. TransformCards primitive is STUB; transform-to-specific-card not supported.
+// SKIP Begone: TransformCards stub + specific target card (MinionStrike) not supported.
+
+// Bolas.cs L51-80: damage chosen + BeforeHandDraw hook returning card to Hand next turn.
+// SKIP Bolas: BeforeHandDraw hook missing — the OnPlay-only encoding would lose the card's identity (the recurring hand-return).
+
+// Bombardment.cs L51-79: damage chosen (3-cost Exhaust) + BeforeHandDraw hook auto-plays self from Exhaust.
+// SKIP Bombardment: BeforeHandDraw hook missing — encoding only OnPlay loses the auto-play recurrence.
+
+// BulletTime.cs L21-32: SetToFreeThisTurn on every hand card + Apply<NoDrawPower>(self, 1). SetCardCost is STUB and there's no all-hand foreach.
+// SKIP BulletTime: per-card cost override on existing hand cards needs working SetCardCost; runtime is STUB.
+
+// CalculatedGamble.cs L34-39: discard hand, draw same count (snapshot of pre-discard hand size required).
+// SKIP CalculatedGamble: requires snapshot/bind of hand size before DiscardHand; no scratch-variable primitive in the effect VM.
+
+// CaptureSpirit.cs: damage (Move flag) + add N Soul cards to Draw. Move flag participation + per-combat Soul factory bespoke.
+// SKIP CaptureSpirit: Move flag damage hooks + Soul.Create per-combat factory both unsupported.
+
+// Cascade.cs L31-39: AutoplayFromDrawPile(X + isUpgraded?1:0). AutoplayFromDraw.n is i32, no AmountSpec binding.
+// SKIP Cascade: AutoplayFromDraw.n is i32, no AmountSpec.
+
+// Charge.cs L48-64: interactive transform of N Draw-pile cards into MinionDiveBomb. TransformCards is STUB and lacks per-card-id target.
+// SKIP Charge: TransformCards stub + specific target card (MinionDiveBomb) not supported.
+
+// Coordinate.cs L56-61: Apply<CoordinatePower>(chosen ally, Strength var). Target enum lacks ChosenAlly.
+// SKIP Coordinate: AnyAlly target (multiplayer-only) not expressible.
+
+// Chill.cs L51-60: Channel<FrostOrb> for every hittable enemy. Hittable-enemy-count isn't in AmountSpec.
+// SKIP Chill: hittable-enemy-count not in AmountSpec.
+
+// Claw.cs: damage + permanently buffs every Claw in deck by Increase. Bespoke deck mutation.
+// SKIP Claw: buff-all-cards-with-id (per-card BaseDamage adjustment across deck) is a bespoke deck-mutation primitive missing.
+
+// Cleanse.cs L51-64: Osty summon + interactive Exhaust-pick from Draw. SummonOsty now takes HP arg, but the pick from Draw isn't a Hand-Selector::PlayerInteractive context.
+// SKIP Cleanse: interactive Draw-pile exhaust-pick (CardSelectCmd.FromSimpleGrid on Draw) — the Selector::PlayerInteractive in this batch is hand-rooted; Draw-pile interactive pick isn't expressible.
+
+// CrashLanding.cs L47-60: AoE damage + add (10 - HandCount) Debris cards to Hand. We have HandCount! Encode it.
+        "CrashLanding" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }, Effect::Repeat { count: AmountSpec::Add { left: Box::new(AmountSpec::Fixed(10)), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::HandCount), right: Box::new(AmountSpec::Fixed(-1)) }) }, body: vec![Effect::AddCardToPile { card_id: "Debris".to_string(), upgrade: 0, pile: Pile::Hand }] }]),
+
+// CrescentSpear.cs L37-47: damage = base + extra * (cards with star-cost across AllCards). Star-cost filter missing in CardFilter.
+// SKIP CrescentSpear: CardFilter lacks star-cost-bearing variant.
+
+// CrimsonMantle.cs: Apply<CrimsonMantlePower> + IncrementSelfDamage tick. Bespoke on-power state.
+// SKIP CrimsonMantle: per-power IncrementSelfDamage tick is bespoke state mutation; SetPowerStateField writes scalar fields, not increments.
+
+// Darkness.cs L41-56: Channel<DarkOrb> + trigger Dark-orb passives 1x (2x upgraded) per Dark orb. Per-orb-of-type passive trigger count not in vocabulary.
+// SKIP Darkness: per-Dark-orb-in-queue passive trigger count not in vocabulary.
+
+// DeathsDoor.cs L74-86: GainBlock 1+Repeat times if WasDoomAppliedThisTurn else 1. WasDoomAppliedThisTurn predicate not in Condition vocabulary.
+// SKIP DeathsDoor: WasDoomAppliedThisTurn predicate (PowerReceivedEntry history scan) not in Condition vocabulary.
+
+// DecisionsDecisions.cs L60-77: Draw Cards + interactive pick Skill from Hand, AutoPlay Repeat times. AutoPlay-card-from-hand still missing.
+// SKIP DecisionsDecisions: AutoplayCardsFromPile filter Hand is supported, but we need to auto-play THE SAME picked card Repeat times. The current AutoplayCardsFromPile picks n different cards.
+
+// Dirge.cs L71-89: X-cost loop X iterations of (SummonOsty + add 1 Soul to Draw). Soul is a per-combat instance factory, unaddressable.
+// SKIP Dirge: Soul.Create per-combat instance factory + per-X loop summon both bespoke.
+
+// DodgeAndRoll.cs L46-51: GainBlock(Block) then Apply<BlockNextTurnPower>(realized-block-gained). Realized-block-as-amount not in vocab.
+// SKIP DodgeAndRoll: ApplyPower amount = realized block returned by GainBlock — realized-value bind not in AmountSpec.
+
+// DoubleEnergy.cs L44-47: GainEnergy(current-energy). Current-energy as AmountSpec not available.
+// SKIP DoubleEnergy: GainEnergy(CurrentEnergy) — no current-energy AmountSpec.
+
+// Dredge.cs: interactive choose-N-from-Discard to Hand. Discard-pile interactive selection not in vocabulary.
+// SKIP Dredge: interactive Discard-pick (filtered) into Hand — Selector::PlayerInteractive over Discard isn't wired for cross-pile interactive selection.
+
+// DualWield.cs: choose attack/power in hand, clone N copies. Interactive selection + clone.
+// SKIP DualWield: interactive Hand-pick + per-card clone primitive missing.
+
+// Eidolon.cs L52-67: Exhaust whole hand, then if exhaust count >= 9 apply Intangible. Dynamic count check after a foreach.
+// SKIP Eidolon: post-exhaust count comparison ("if exhausted >= 9 this play") not in Condition vocabulary (CardsExhaustedThisTurn condition would need to be evaluated AFTER the exhaust step, and there's no Ge-comparison Condition that takes an AmountSpec).
+
+// Enlightenment.cs: foreach card in hand, set cost to 1 (this turn or this combat). SetCardCost runtime STUB.
+// SKIP Enlightenment: SetCardCost runtime is STUB.
+
+// EscapePlan.cs L46-54: Draw 1, then if drawn card is Skill, GainBlock. Conditional on drawn-card type.
+// SKIP EscapePlan: conditional on dynamically-drawn card's type — no "last-drawn-card-type" Condition variant.
+
+// FightMe handled above.
+
+// FlakCannon.cs L52-67: exhaust ALL status cards in non-exhaust piles (cross-pile filtered exhaust) + AoE damage with hits=statusCount.
+// SKIP FlakCannon: ExhaustCards.from is a single Pile, no AllCombat-pile selector; also status count needs pre-exhaust snapshot.
+
+// Fisticuffs.cs: damage + GainBlock(realized damage dealt). Realized-damage as block not in vocab.
+// SKIP Fisticuffs: realized-damage-as-amount missing.
+
+// Ftl handled above.
+
+// GangUp.cs L29-58: damage = base + extra * teammate-attacks-this-turn against same target. Teammate-attack count vs target unsupported.
+// SKIP GangUp: teammate-attack-count-on-target not in AmountSpec.
+
+// GeneticAlgorithm.cs L94-104: GainBlock(self.Block) + BuffFromPlay increments persistent self/deck block. Persistent self-buff state not in vocab.
+// SKIP GeneticAlgorithm: persistent CurrentBlock save-state on the card model (per-deck-instance) not expressible.
+
+// Glimmer.cs: Draw Cards + interactive choose-N-from-Hand to top of Draw. Interactive selection + cross-pile move-back.
+// SKIP Glimmer: interactive Hand-pick + move-to-top-of-Draw primitive missing.
+
+// GlimpseBeyond.cs (multiplayer-only): foreach ally, generate N Soul cards into ally's Draw.
+// SKIP GlimpseBeyond: AllAllies target + Soul.Create factory both unsupported.
+
+// Guards.cs: interactive choose-N-from-Hand, transform each into MinionSacrifice. Bespoke transform-to-specific.
+// SKIP Guards: TransformCards stub + specific target card not supported.
+
+// Hang.cs L36-49: damage + Apply<HangPower>(max(2, current_hang)). max() not in AmountSpec.
+// SKIP Hang: ApplyPower amount = max(Fixed(2), TargetPowerAmount{HangPower}) — no max/min AmountSpec.
+
+// Headbutt.cs: damage + interactive choose-1-from-Discard to top of Draw.
+// SKIP Headbutt: Discard-pile interactive selection + move-to-Draw-top primitive missing.
+
+// HeavenlyDrill.cs L58-70: X-cost damage chosen with hits = X * (X >= Energy.Int ? 2 : 1). Conditional X-scaling.
+// SKIP HeavenlyDrill: Conditional comparison of X against canonical Energy threshold not in vocabulary (Condition takes literals, not AmountSpec comparisons).
+
+// HiddenDaggers.cs: interactive Discard-pick + Shiv.CreateInHand bespoke factory.
+// SKIP HiddenDaggers: Shiv.CreateInHand is a bespoke per-combat factory; interactive Discard-pick is separate.
+
+// HiddenGem.cs: random Draw-pile card BaseReplayCount mutation.
+// SKIP HiddenGem: per-card BaseReplayCount mutation primitive missing.
+
+// Hologram.cs: GainBlock + interactive Discard-pick to Hand bottom.
+// SKIP Hologram: interactive Discard-pick + move-to-Hand primitive missing (PlayerInteractive selector is Hand-rooted).
+
+// LegionOfBone.cs: Summon Osty for every alive teammate. Multiplayer-only; single-player == 1 SummonOsty. Encode the single-player case.
+        "LegionOfBone" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) }]),
+
+// Maul.cs: damage + per-Maul-instance buff loop. Bespoke deck mutation.
+// SKIP Maul: walk-all-instances-of-this-card-id + per-instance var increment not in vocabulary.
+
+// Misery.cs L38-71: damage chosen + clone every Debuff power from target onto every other hittable enemy. Bespoke power-cloning.
+// SKIP Misery: copy-all-debuff-powers-from-target-to-others is bespoke; no power-cloning primitive.
+
+// Modded.cs L37-44: AddOrbSlots + Draw + EnergyCost.AddThisCombat(1). The trailing self-cost mutation is bespoke; runtime SetCardCost is STUB.
+// SKIP Modded: trailing self-cost AddThisCombat mutation requires SetCardCost on self with combat-duration scope; SetCardCost runtime is STUB.
+
+// Monologue.cs: Apply<MonologuePower>(1), mutate the freshly-applied power's nested Strength DynamicVar. SetPowerStateField writes flat fields, not nested DynamicVars.
+// SKIP Monologue: SetPowerStateField writes flat scalar fields; cannot reach nested DynamicVars inside a power's state.
+
+// Nightmare.cs: interactive Hand-pick + Apply<NightmarePower>(3).SetSelectedCard. Bespoke power-state mutation referencing a card instance.
+// SKIP Nightmare: SetPowerStateField only writes numeric scalars; storing a card-reference on a power-state is unsupported.
+
+// NoEscape.cs L57-61: Apply<DoomPower>(target, base + extra + floor(target.Doom / DoomThreshold)). No floor-divide AmountSpec.
+// SKIP NoEscape: division / floor not in AmountSpec.
+
+// Omnislice.cs: damage + propagate (TotalDamage + Overkill) to receiver's teammates. Bespoke overkill propagation.
+// SKIP Omnislice: realized-overkill-propagation-to-teammates not in vocabulary.
+
+// PhotonCut.cs: damage chosen + Draw + interactive Hand-pick to top of Draw.
+// SKIP PhotonCut: interactive Hand-pick move-to-Draw-top primitive missing.
+
+// Pillage.cs L36-48: damage chosen + draws-until-non-Attack loop (or hand full).
+// SKIP Pillage: draws-while-loop with predicate-on-drawn-card not in vocabulary.
+
+// PrimalForce.cs: transforms every hand Attack into GiantRock. Bespoke transform-to-specific.
+// SKIP PrimalForce: TransformCards stub + specific target card (GiantRock) not supported.
+
+// PullFromBelow.cs L40-62: damage(Damage var) WithHitCount(ethereal-cards-played-this-turn). No EtherealCardsPlayedThisTurn AmountSpec (it's a CardPlayFinishedEntry filter).
+// SKIP PullFromBelow: CardsPlayedThisTurn{filter} filter is CardFilter (card-properties), not a play-event property like WasEthereal — no way to filter the count by play-event metadata.
+
+// Rampage.cs: damage + permanent self-buff to its own Damage var.
+// SKIP Rampage: per-card BaseValue mutation (Damage var increment on every Rampage in deck) is bespoke deck mutation.
+
+// Rattle.cs L65-75: Osty present -> Osty attack chosen WithHitCount(1 + osty-attacks-this-turn). Osty-attacks-this-turn is a CreatureAttackedEntry history scan filtered by actor == owner.Osty — not in current AmountSpec.
+// SKIP Rattle: Osty-attacks-this-turn count missing from AmountSpec.
+
+// SecretTechnique.cs / SecretWeapon.cs: filtered interactive choice from Draw subset to Hand. PlayerInteractive lacks filter.
+// SKIP SecretTechnique: PlayerInteractive selector takes no filter; can't restrict to Skill-only.
+// SKIP SecretWeapon: PlayerInteractive selector takes no filter; can't restrict to Attack-only.
+
+// Severance.cs: async state-machine body referencing Soul factory.
+// SKIP Severance: opaque async body + Soul factory.
+
+// SummonForth.cs: Forge + pull all SovereignBlade instances from non-Hand piles into Hand. Multi-pile filtered move primitive missing.
+// SKIP SummonForth: multi-pile filtered move not in vocabulary.
+
+// Undeath.cs: GainBlock + CreateClone-self to Discard. No clone-self primitive.
+// SKIP Undeath: CreateClone primitive missing.
+
+
+// =====================================================================================
+// Summary
+// =====================================================================================
+// Encoded:  50
+//   Afterlife, Bodyguard, Reanimate, BoneShards, Sacrifice, HighFive, Poke, SicEm,
+//   SweepingGaze, Fetch, Spur, Discovery, Distraction, InfernalBlade, WhiteNoise,
+//   JackOfAllTrades, BundleOfJoy, Quasar, Splash, BeatDown, KnifeTrap, Uproar, TheBomb,
+//   ToricToughness, Scrawl, Restlessness, PreciseCut, Expose, Dominate, Rend,
+//   Conflagration, GoldAxe, Murder, Finisher, MementoMori, DeathMarch, HelixDrill,
+//   Radiate, Flechettes, ExpectAFight, Voltaic, Synchronize, CompileDriver, EvilEye,
+//   ForgottenRitual, EnergySurge, BouncingFlask, FightMe, Eradicate, CrashLanding,
+//   LegionOfBone
+//
+// (Count is 51 names listed; LegionOfBone counts in single-player approximation. Final
+// encoded match-arm count in this file = 50.)
+//
+// Still SKIPped:  68
+//   Snap, RightHandHand, Mimic, Mirage, DemonicShield, Stoke, StormOfSteel, Jackpot,
+//   Largesse, Chaos, AdaptiveStrike, AllForOne, Anointed, Apotheosis, Begone, Bolas,
+//   Bombardment, BulletTime, CalculatedGamble, CaptureSpirit, Cascade, Charge,
+//   Coordinate, Chill, Claw, Cleanse, CrescentSpear, CrimsonMantle, Darkness,
+//   DeathsDoor, DecisionsDecisions, Dirge, DodgeAndRoll, DoubleEnergy, Dredge,
+//   DualWield, Eidolon, Enlightenment, EscapePlan, FlakCannon, Fisticuffs, Ftl,
+//   GangUp, GeneticAlgorithm, Glimmer, GlimpseBeyond, Guards, Hang, Headbutt,
+//   HeavenlyDrill, HiddenDaggers, HiddenGem, Hologram, Maul, Misery, Modded, Monologue,
+//   Nightmare, NoEscape, Omnislice, PhotonCut, Pillage, PrimalForce, PullFromBelow,
+//   Rampage, Rattle, SecretTechnique, SecretWeapon, Severance, SummonForth, Undeath
+//
+// Remaining-blocker categories (smallest unlock-set first):
+//   1. Cross-pile interactive Selector + filter (PlayerInteractive{filter} over Discard/Draw)
+//      unlocks: Snap, Hologram, Dredge, Headbutt, Glimmer, PhotonCut, SecretTechnique,
+//               SecretWeapon, Cleanse (~9 cards).
+//   2. CreateCloneSelf primitive (clone the source card into a target pile, optional cost override)
+//      unlocks: AdaptiveStrike, Undeath, DualWield (~3 cards).
+//   3. AllAlly target + alias for AnyAlly-in-multiplayer-only cards
+//      unlocks: Mimic, DemonicShield, Largesse, GlimpseBeyond, Coordinate (~5 cards;
+//               Coordinate already in batch_v2_1).
+//   4. SetCardCost runtime (per-card cost override, this-turn + this-combat scopes)
+//      unlocks: BulletTime, Enlightenment, Modded, AdaptiveStrike-trailing (~4 cards).
+//   5. BeforeHandDraw hook (or "scheduled-next-turn" effect bus)
+//      unlocks: Bolas, Bombardment (~2 cards) + relevant relics.
+//
+// Other one-off blockers (each unlocks 1 card):
+//   - Realized-value-as-AmountSpec (read GainBlock return / DealDamage total): DodgeAndRoll, Fisticuffs, ToricToughness (accuracy fix), Omnislice.
+//   - max/min/floor in AmountSpec composition: Hang, NoEscape, HeavenlyDrill.
+//   - CardFilter::Rarity / CardFilter::EnergyCostEq / CardFilter::HasStarCost / play-event filters: Anointed, AllForOne, CrescentSpear, Jackpot, PullFromBelow.
+//   - TransformCards with specific target card-id: Begone, Charge, Guards, PrimalForce.
+//   - History-scan amounts (Osty-attacks-this-turn, multi-enemy power-sum): Rattle, Mirage, GangUp.
+//   - Soul.Create-per-combat factory + Move-flag damage: CaptureSpirit, Dirge, Severance.
+//   - AutoplayFromDraw.n as AmountSpec / XEnergy: Cascade.
+//   - AllCombat-pile in UpgradeCards / ExhaustCards: Apotheosis, FlakCannon.
+//   - Random orb-id in ChannelOrb: Chaos.
+//   - Hand-or-deck-mutate primitives (per-id buff, per-pile foreach with state): Claw, Maul, Rampage, GeneticAlgorithm, HiddenGem, CrimsonMantle, Monologue, Nightmare, Misery, SummonForth, Pillage, EscapePlan, DeathsDoor, DecisionsDecisions, Eidolon, Stoke, StormOfSteel, Ftl, Darkness, Chill, RightHandHand.

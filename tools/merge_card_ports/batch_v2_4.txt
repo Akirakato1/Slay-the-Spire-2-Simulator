@@ -3,7 +3,7 @@
 // Conservative encodings only — bespoke / choice-based / unsupported amount-shapes -> SKIP.
 
 // Reanimate.cs L55-59: OstyCmd.Summon(self, Summon var) -- follow PullAggro precedent (osty_id="Default", HP arg dropped).
-        "Reanimate" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string() }]),
+        "Reanimate" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: None }]),
 
 // Reboot.cs L44-55: move every hand card to bottom of Draw, then Shuffle Draw, then Draw Cards.
         "Reboot" => Some(vec![Effect::MoveCard { from: Pile::Hand, to: Pile::Draw, selector: Selector::All }, Effect::Shuffle { pile: Pile::Draw }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),

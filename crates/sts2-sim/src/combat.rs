@@ -12319,25 +12319,25 @@ mod tests {
     #[test]
     fn play_card_unhandled_still_spends_energy_and_routes_to_discard() {
         let mut cs = ironclad_combat();
-        // Sacrifice is one of the cards still SKIPped in the data table —
-        // its body is gated by an IsOstyMissing condition the Condition
-        // vocabulary doesn't yet express. Confirm the "Unhandled but
-        // state-changes-still-happen" path: energy spent, card routed to
-        // discard.
-        let sacrifice = card_by_id("Sacrifice").unwrap();
+        // Headbutt is one of the cards still SKIPped in the data table —
+        // it needs interactive pick-from-discard-then-move-to-draw-top
+        // (CardSelectCmd) which isn't expressible in the current
+        // Selector vocabulary. Confirm the "Unhandled but state-changes-
+        // still-happen" path: energy spent, card routed to discard.
+        let headbutt = card_by_id("Headbutt").unwrap();
         cs.allies[0]
             .player
             .as_mut()
             .unwrap()
             .hand
             .cards
-            .push(CardInstance::from_card(sacrifice, 0));
-        let result = cs.play_card(0, 0, None);
+            .push(CardInstance::from_card(headbutt, 0));
+        let result = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
         assert_eq!(result, PlayResult::Unhandled);
         let ps = cs.allies[0].player.as_ref().unwrap();
-        assert_eq!(ps.energy, 2); // Sacrifice costs 1.
+        assert_eq!(ps.energy, 2); // Headbutt costs 1.
         assert!(ps.hand.is_empty());
-        assert_eq!(ps.discard.cards.iter().any(|c| c.id == "Sacrifice"), true);
+        assert_eq!(ps.discard.cards.iter().any(|c| c.id == "Headbutt"), true);
     }
 
     #[test]
