@@ -1444,6 +1444,24 @@ fn dispatch_on_play(
             );
             true
         }
+        // Cinder (Ironclad common Attack, 2 cost): 18 damage (24
+        // upgraded) + exhaust a random card from hand. Like TrueGrit
+        // the card itself goes to discard — the Exhaust hover-tip is a
+        // UI hint for the effect, not a self-exhaust keyword.
+        "Cinder" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.exhaust_random_card_in_hand(player_idx);
+            true
+        }
         // TrueGrit (Ironclad common Skill): 7 block (9 upgraded) +
         // exhaust a random card from hand. The card itself routes to
         // discard normally — the Exhaust hover-tip in C# is a UI hint
@@ -3855,6 +3873,49 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Cinder tests ---------------------------------------------
+
+    #[test]
+    fn cinder_deals_eighteen_and_exhausts_one_hand_card() {
+        let mut cs = ironclad_combat();
+        cs.rng = Rng::new(42, 0);
+        let strike = card_by_id("StrikeIronclad").unwrap();
+        let cinder = card_by_id("Cinder").unwrap();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.hand.cards.clear();
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            ps.hand.cards.push(CardInstance::from_card(cinder, 0));
+        }
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, 1, Some((CombatSide::Enemy, 0))); // Cinder
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 18);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        // Cinder → discard, the Strike → exhaust.
+        assert!(ps.discard.cards.iter().any(|c| c.id == "Cinder"));
+        assert_eq!(ps.exhaust.len(), 1);
+        assert_eq!(ps.hand.len(), 0);
+    }
+
+    #[test]
+    fn upgraded_cinder_deals_twentyfour() {
+        let mut cs = ironclad_combat();
+        let cinder = card_by_id("Cinder").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(cinder, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 24);
     }
 
     // ---------- TrueGrit (RNG hand exhaust) tests ------------------------
