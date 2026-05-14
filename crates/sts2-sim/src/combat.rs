@@ -401,14 +401,22 @@ impl CombatState {
         // Defend persists through enemy attacks, then resets when you play
         // again. We clear on this side's begin, not on end.
         //
-        // BarricadePower exception: its `ShouldClearBlock(creature)` C#
-        // hook returns false when called on owner, so block is preserved
-        // across the owner's turn boundary. We honor this by skipping the
-        // clear for any creature that holds BarricadePower.
+        // ShouldClearBlock=false exceptions: BarricadePower and
+        // BurrowedPower both return false on owner — block persists
+        // across the owner's turn boundary. We skip the clear for any
+        // creature that holds either power.
+        const BLOCK_PRESERVE_POWERS: &[&str] =
+            &["BarricadePower", "BurrowedPower"];
+        let preserves = |creature: &Creature| -> bool {
+            creature
+                .powers
+                .iter()
+                .any(|p| BLOCK_PRESERVE_POWERS.contains(&p.id.as_str()))
+        };
         match side {
             CombatSide::Player => {
                 for ally in self.allies.iter_mut() {
-                    if !ally.powers.iter().any(|p| p.id == "BarricadePower") {
+                    if !preserves(ally) {
                         ally.block = 0;
                     }
                     // Energy refresh: fill to per-turn allotment. C# routes
@@ -422,7 +430,7 @@ impl CombatState {
             }
             CombatSide::Enemy => {
                 for enemy in self.enemies.iter_mut() {
-                    if !enemy.powers.iter().any(|p| p.id == "BarricadePower") {
+                    if !preserves(enemy) {
                         enemy.block = 0;
                     }
                 }
@@ -4069,6 +4077,89 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: Tunneler -----------------------------------
+//
+// Reflects C# `Tunneler.GenerateMoveStateMachine`:
+//   Init: Bite. Chain: Bite → Burrow → Below → Below (loop).
+//   C# also has a Dizzy (Stun) state reachable via BurrowedPower's
+//   AfterBlockBroken hook — when the owner's block runs out, the
+//   monster is stunned then routes back to Bite. We skip the stun
+//   mechanic; the simulation just leaves Burrowed up forever and
+//   keeps Below-looping. Once block is fully eaten by player
+//   attacks, subsequent hits land on HP normally.
+//
+// A0 payloads:
+//   - Bite:   13 damage (DeadlyEnemies: 15)
+//   - Burrow: apply BurrowedPower(1) + gain 12 block
+//   - Below:  23 damage (DeadlyEnemies: 26)
+//
+// BurrowedPower presence preserves block across the owner's turn
+// boundary (wired into begin_turn alongside BarricadePower).
+
+const TUNNELER_BITE_DAMAGE: i32 = 13;
+const TUNNELER_BURROW_BLOCK: i32 = 12;
+const TUNNELER_BELOW_DAMAGE: i32 = 23;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TunnelerIntent {
+    Bite,
+    Burrow,
+    Below,
+}
+
+impl TunnelerIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            TunnelerIntent::Bite => "BITE_MOVE",
+            TunnelerIntent::Burrow => "BURROW_MOVE",
+            TunnelerIntent::Below => "BELOW_MOVE_1",
+        }
+    }
+}
+
+pub fn pick_tunneler_intent(
+    last_intent: Option<TunnelerIntent>,
+) -> TunnelerIntent {
+    match last_intent {
+        None => TunnelerIntent::Bite,
+        Some(TunnelerIntent::Bite) => TunnelerIntent::Burrow,
+        Some(TunnelerIntent::Burrow) => TunnelerIntent::Below,
+        Some(TunnelerIntent::Below) => TunnelerIntent::Below,
+    }
+}
+
+pub fn execute_tunneler_move(
+    cs: &mut CombatState,
+    tun_idx: usize,
+    target_player_idx: usize,
+    intent: TunnelerIntent,
+) {
+    let attacker = (CombatSide::Enemy, tun_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        TunnelerIntent::Bite => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TUNNELER_BITE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        TunnelerIntent::Burrow => {
+            cs.apply_power(CombatSide::Enemy, tun_idx, "BurrowedPower", 1);
+            cs.gain_block(CombatSide::Enemy, tun_idx, TUNNELER_BURROW_BLOCK);
+        }
+        TunnelerIntent::Below => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TUNNELER_BELOW_DAMAGE,
+                ValueProp::MOVE,
+            );
         }
     }
 }
@@ -12959,6 +13050,79 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- Tunneler + BurrowedPower tests -----------------------------
+
+    #[test]
+    fn tunneler_walks_chain_bite_burrow_below_loop() {
+        assert_eq!(pick_tunneler_intent(None), TunnelerIntent::Bite);
+        assert_eq!(
+            pick_tunneler_intent(Some(TunnelerIntent::Bite)),
+            TunnelerIntent::Burrow
+        );
+        assert_eq!(
+            pick_tunneler_intent(Some(TunnelerIntent::Burrow)),
+            TunnelerIntent::Below
+        );
+        // Below loops.
+        for _ in 0..5 {
+            assert_eq!(
+                pick_tunneler_intent(Some(TunnelerIntent::Below)),
+                TunnelerIntent::Below
+            );
+        }
+    }
+
+    #[test]
+    fn tunneler_bite_deals_thirteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_tunneler_move(&mut cs, 0, 0, TunnelerIntent::Bite);
+        assert_eq!(cs.allies[0].current_hp, hp - 13);
+    }
+
+    #[test]
+    fn tunneler_burrow_applies_power_and_block() {
+        let mut cs = ironclad_combat();
+        execute_tunneler_move(&mut cs, 0, 0, TunnelerIntent::Burrow);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "BurrowedPower"),
+            1
+        );
+        assert_eq!(cs.enemies[0].block, 12);
+    }
+
+    #[test]
+    fn tunneler_below_deals_twenty_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_tunneler_move(&mut cs, 0, 0, TunnelerIntent::Below);
+        assert_eq!(cs.allies[0].current_hp, hp - 23);
+    }
+
+    #[test]
+    fn burrowed_preserves_block_across_owner_turn_start() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "BurrowedPower", 1);
+        cs.enemies[0].block = 12;
+        // Simulate enemy turn start — block should persist.
+        cs.current_side = CombatSide::Player;
+        cs.begin_turn(CombatSide::Enemy);
+        assert_eq!(cs.enemies[0].block, 12);
+    }
+
+    #[test]
+    fn burrowed_does_not_preserve_block_on_player_turn_start() {
+        // Burrowed is on enemy. Player turn start clears player block,
+        // which is unrelated — verify behavior isn't unintentionally
+        // spilled to allies.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "BurrowedPower", 1);
+        cs.allies[0].block = 5;
+        cs.current_side = CombatSide::Enemy;
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.allies[0].block, 0);
     }
 
     // ---------- TheInsatiable tests ----------------------------------------

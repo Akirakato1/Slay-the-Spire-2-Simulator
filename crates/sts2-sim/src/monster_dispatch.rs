@@ -123,6 +123,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "MysteriousKnight"
             | "SlumberingBeetle"
             | "TheInsatiable"
+            | "Tunneler"
     )
 }
 
@@ -737,6 +738,17 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "Tunneler" => {
+            let last = last_ref.and_then(|s| match s {
+                "BITE_MOVE" => Some(TunnelerIntent::Bite),
+                "BURROW_MOVE" => Some(TunnelerIntent::Burrow),
+                "BELOW_MOVE_1" => Some(TunnelerIntent::Below),
+                _ => None,
+            });
+            let intent = pick_tunneler_intent(last);
+            execute_tunneler_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "TheInsatiable" => {
