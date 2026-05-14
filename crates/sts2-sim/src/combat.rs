@@ -1511,6 +1511,113 @@ fn dispatch_on_play(
             );
             true
         }
+        // ---------- Silent commons batch ---------------------------
+        // DaggerThrow (Silent common Attack, 1 cost): 9 damage (12
+        // upgraded). Pure damage.
+        "DaggerThrow" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            true
+        }
+        // Slice (Silent common Attack, 0 cost): 6 damage (9 upgraded).
+        "Slice" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            true
+        }
+        // Deflect (Silent common Skill, 0 cost, Self): 4 block (7
+        // upgraded). Routes through modify_block.
+        "Deflect" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            true
+        }
+        // DaggerSpray (Silent common Attack, 1 cost, AllEnemies): 4
+        // damage (6 upgraded) to every enemy, twice. Wait — actually
+        // 4 damage once. Let me verify against C#: DaggerSpray hits
+        // all enemies twice in C# but vars only show single Damage.
+        // Re-checking the source: DaggerSpray uses WithHitCount(2)
+        // for the AoE — STS1 classic. Match that here.
+        "DaggerSpray" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            for _ in 0..2 {
+                let n = cs.enemies.len();
+                for i in 0..n {
+                    if cs.enemies[i].current_hp == 0 {
+                        continue;
+                    }
+                    cs.deal_damage_enchanted(
+                        (CombatSide::Player, player_idx),
+                        (CombatSide::Enemy, i),
+                        damage,
+                        ValueProp::MOVE,
+                        enchantment,
+                    );
+                }
+            }
+            true
+        }
+        // SuckerPunch (Silent common Attack, 1 cost): 8 damage (10
+        // upgraded) + 1 Weak (2 upgraded).
+        "SuckerPunch" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let weak = canonical_int_value(card, "Weak", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.apply_power(target.0, target.1, "WeakPower", weak);
+            true
+        }
+        // PoisonedStab (Silent common Attack, 1 cost): 6 damage (8
+        // upgraded) + 3 Poison (4 upgraded).
+        "PoisonedStab" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let poison = canonical_int_value(card, "Poison", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.apply_power(target.0, target.1, "PoisonPower", poison);
+            true
+        }
+        // DeadlyPoison (Silent common Skill, 1 cost, AnyEnemy): apply
+        // 5 Poison (7 upgraded).
+        "DeadlyPoison" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let poison = canonical_int_value(card, "Poison", upgrade_level);
+            cs.apply_power(target.0, target.1, "PoisonPower", poison);
+            true
+        }
         // FiendFire (Ironclad rare Exhaust Attack, 2 cost, AnyEnemy):
         // exhaust the entire remaining hand; deal 7 damage (10
         // upgraded) per exhausted card. Each hit threads through the
@@ -4148,6 +4255,146 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Silent commons batch tests -------------------------------
+
+    fn inject_card_and_play(
+        cs: &mut CombatState,
+        card_id: &str,
+        upgrade: i32,
+        target: Option<(CombatSide, usize)>,
+    ) -> PlayResult {
+        let card = card_by_id(card_id).unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, upgrade));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        cs.play_card(0, hand_idx, target)
+    }
+
+    #[test]
+    fn dagger_throw_deals_nine() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        let r = inject_card_and_play(
+            &mut cs,
+            "DaggerThrow",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp - 9);
+    }
+
+    #[test]
+    fn upgraded_dagger_throw_deals_twelve() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "DaggerThrow",
+            1,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 12);
+    }
+
+    #[test]
+    fn slice_deals_six_zero_cost() {
+        let mut cs = ironclad_combat();
+        let energy_before = cs.allies[0].player.as_ref().unwrap().energy;
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(&mut cs, "Slice", 0, Some((CombatSide::Enemy, 0)));
+        assert_eq!(cs.enemies[0].current_hp, hp - 6);
+        // 0-cost: energy unchanged.
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().energy,
+            energy_before
+        );
+    }
+
+    #[test]
+    fn deflect_grants_four_block() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "Deflect", 0, None);
+        assert_eq!(cs.allies[0].block, 4);
+    }
+
+    #[test]
+    fn dagger_spray_hits_each_enemy_twice() {
+        let mut cs = ironclad_combat();
+        let h0 = cs.enemies[0].current_hp;
+        let h1 = cs.enemies[1].current_hp;
+        inject_card_and_play(&mut cs, "DaggerSpray", 0, None);
+        // 2 hits × 4 damage = 8 per enemy.
+        assert_eq!(cs.enemies[0].current_hp, h0 - 8);
+        assert_eq!(cs.enemies[1].current_hp, h1 - 8);
+    }
+
+    #[test]
+    fn upgraded_dagger_spray_hits_for_six_per_hit() {
+        let mut cs = ironclad_combat();
+        let h0 = cs.enemies[0].current_hp;
+        inject_card_and_play(&mut cs, "DaggerSpray", 1, None);
+        // 2 × 6 = 12 per enemy.
+        assert_eq!(cs.enemies[0].current_hp, h0 - 12);
+    }
+
+    #[test]
+    fn sucker_punch_damage_and_weak() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "SuckerPunch",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 8);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "WeakPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn poisoned_stab_damage_and_poison() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "PoisonedStab",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 6);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn deadly_poison_applies_five_poison() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "DeadlyPoison",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        // Skill — no damage.
+        assert_eq!(cs.enemies[0].current_hp, hp);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
+            5
+        );
     }
 
     // ---------- FiendFire tests ------------------------------------------
