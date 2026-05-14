@@ -539,6 +539,12 @@ impl CombatState {
         if self.current_side == CombatSide::Enemy {
             self.tick_duration_debuffs();
         }
+        // DoomPower.BeforeTurnEnd: if any creature on the side just
+        // ending has DoomPower and CurrentHp <= Amount, kill them.
+        // Fires before the temp-strength cleanup since the C# uses
+        // BeforeTurnEnd (which runs before AfterTurnEnd hooks).
+        let side_just_ending = self.current_side;
+        self.tick_doom_powers(side_just_ending);
         // TemporaryStrengthPower (SetupStrikePower extends this) removes
         // its stack at end of owner's turn and subtracts the same amount
         // of StrengthPower. Mirrors C#:
@@ -552,6 +558,39 @@ impl CombatState {
             let round = self.round_number;
             let side = self.current_side;
             self.combat_log.push(CombatEvent::TurnEnded { round, side });
+        }
+    }
+
+    /// DoomPower.BeforeTurnEnd: any creature on `side` with DoomPower
+    /// dies if CurrentHp <= DoomPower.Amount. Mirrors C# DoomPower's
+    /// IsOwnerDoomed check + DoomKill effect; simplified to direct
+    /// HP zero-out since we don't model Hook.AfterDiedToDoom or the
+    /// special-monster ShouldDie filter yet.
+    fn tick_doom_powers(&mut self, side: CombatSide) {
+        let list = match side {
+            CombatSide::Player => &self.allies,
+            CombatSide::Enemy => &self.enemies,
+            CombatSide::None => return,
+        };
+        let mut doomed: Vec<usize> = Vec::new();
+        for (idx, creature) in list.iter().enumerate() {
+            if creature.current_hp == 0 {
+                continue;
+            }
+            if let Some(p) = creature.powers.iter().find(|p| p.id == "DoomPower") {
+                if creature.current_hp <= p.amount {
+                    doomed.push(idx);
+                }
+            }
+        }
+        for idx in doomed {
+            // lose_hp clamps to 0; pass a value large enough to floor.
+            let cur = match side {
+                CombatSide::Player => self.allies[idx].current_hp,
+                CombatSide::Enemy => self.enemies[idx].current_hp,
+                CombatSide::None => continue,
+            };
+            self.lose_hp(side, idx, cur);
         }
     }
 
@@ -1553,6 +1592,45 @@ fn dispatch_on_play(
                 "StrengthPower",
                 strength,
             );
+            true
+        }
+        // BlightStrike (Necrobinder common Strike-tagged Attack, 1E,
+        // AnyEnemy): 8 damage (10 upgraded) + apply DoomPower equal to
+        // damage dealt (modify_damage output, pre-block-split — matches
+        // C# Result.TotalDamage). DoomPower's BeforeTurnEnd hook
+        // finishes the target if their HP drops at or below the Doom
+        // amount before their turn ends.
+        "BlightStrike" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let raw = canonical_int_value(card, "Damage", upgrade_level);
+            let modified = cs.modify_damage_with_enchantment(
+                (CombatSide::Player, player_idx),
+                target,
+                raw,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.apply_damage(target.0, target.1, modified);
+            if modified > 0 {
+                cs.apply_power(target.0, target.1, "DoomPower", modified);
+            }
+            true
+        }
+        // CosmicIndifference (Regent common Skill, 1E, Self): 6 block
+        // (9 upgraded).
+        "CosmicIndifference" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            true
+        }
+        // CloakOfStars (Regent common Skill, 1E, Self): 7 block (10
+        // upgraded).
+        "CloakOfStars" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
             true
         }
         // ---------- Defect / Regent cross-pool commons -----------
@@ -4534,6 +4612,72 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- BlightStrike + Doom + simple-block ports -----------------
+
+    #[test]
+    fn blight_strike_deals_eight_and_applies_doom() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "BlightStrike",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 8);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "DoomPower"),
+            8
+        );
+    }
+
+    #[test]
+    fn doom_kills_when_hp_below_amount_at_turn_end() {
+        // Set enemy HP to 5; apply Doom 8 directly. End enemy turn →
+        // tick_doom_powers fires, enemy at 0 HP.
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 5;
+        cs.apply_power(CombatSide::Enemy, 0, "DoomPower", 8);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(cs.enemies[0].current_hp, 0);
+    }
+
+    #[test]
+    fn doom_does_not_kill_when_hp_above_amount() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 20;
+        cs.apply_power(CombatSide::Enemy, 0, "DoomPower", 8);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(cs.enemies[0].current_hp, 20);
+    }
+
+    #[test]
+    fn doom_fires_only_on_owner_side_turn_end() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 5;
+        cs.apply_power(CombatSide::Enemy, 0, "DoomPower", 8);
+        // Ending player turn — enemy's Doom shouldn't fire yet.
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(cs.enemies[0].current_hp, 5);
+    }
+
+    #[test]
+    fn cosmic_indifference_grants_six_block() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "CosmicIndifference", 0, None);
+        assert_eq!(cs.allies[0].block, 6);
+    }
+
+    #[test]
+    fn cloak_of_stars_grants_seven_block() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "CloakOfStars", 0, None);
+        assert_eq!(cs.allies[0].block, 7);
     }
 
     // ---------- Defect/Regent cross-pool commons tests -------------------
