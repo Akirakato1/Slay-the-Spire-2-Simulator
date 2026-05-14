@@ -193,6 +193,15 @@ pub struct PowerInstance {
     /// `PowerData.id` (e.g., "StrengthPower").
     pub id: String,
     pub amount: i32,
+    /// Mirrors C# `PowerModel.SkipNextDurationTick`. Set true in
+    /// `apply_power` when the target is the player and the power is a
+    /// Debuff; the next `tick_duration_debuffs` reads-and-clears the
+    /// flag, skipping the decrement. Prevents Weak/Frail/Vulnerable
+    /// applied to the player during their own turn from losing a turn
+    /// of duration before they get to feel the effect.
+    ///
+    /// Mirrors `PowerCmd.cs:131` (set) + `PowerCmd.cs:159` (check+clear).
+    pub skip_next_duration_tick: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -1113,6 +1122,9 @@ impl CombatState {
         let n_enemies = self.enemies.len();
         for i in 0..n_allies {
             for power_id in TICKING {
+                if self.consume_skip_tick(CombatSide::Player, i, power_id) {
+                    continue;
+                }
                 if self.get_power_amount(CombatSide::Player, i, power_id) > 0 {
                     self.decrement_power(CombatSide::Player, i, power_id, 1);
                 }
@@ -1120,10 +1132,37 @@ impl CombatState {
         }
         for i in 0..n_enemies {
             for power_id in TICKING {
+                if self.consume_skip_tick(CombatSide::Enemy, i, power_id) {
+                    continue;
+                }
                 if self.get_power_amount(CombatSide::Enemy, i, power_id) > 0 {
                     self.decrement_power(CombatSide::Enemy, i, power_id, 1);
                 }
             }
+        }
+    }
+
+    /// Mirror C# `PowerCmd.TickDownDuration` (line 157): if the
+    /// `SkipNextDurationTick` flag is set, clear it and return true
+    /// (caller skips the decrement). Otherwise return false.
+    fn consume_skip_tick(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        power_id: &str,
+    ) -> bool {
+        let Some(target) = creature_mut(self, side, target_idx) else {
+            return false;
+        };
+        let Some(power) = target.powers.iter_mut().find(|p| p.id == power_id)
+        else {
+            return false;
+        };
+        if power.skip_next_duration_tick {
+            power.skip_next_duration_tick = false;
+            true
+        } else {
+            false
         }
     }
 
@@ -1468,6 +1507,23 @@ impl CombatState {
         amount: i32,
     ) -> i32 {
         let result = self.apply_power_inner(side, target_idx, power_id, amount);
+        // Mirror C# PowerCmd.cs:129-132 — after the actual stack
+        // mutation, if a Debuff lands on a player, flag the next
+        // duration tick to skip. Prevents Weak/Frail/Vulnerable applied
+        // to the player from losing a turn before they're felt.
+        if side == CombatSide::Player && result > 0 {
+            if let Some(p) = crate::power::by_id(power_id) {
+                if matches!(p.power_type, crate::power::PowerType::Debuff) {
+                    if let Some(target) = creature_mut(self, side, target_idx) {
+                        if let Some(inst) =
+                            target.powers.iter_mut().find(|q| q.id == power_id)
+                        {
+                            inst.skip_next_duration_tick = true;
+                        }
+                    }
+                }
+            }
+        }
         if self.log_enabled {
             let round = self.round_number;
             self.combat_log.push(CombatEvent::PowerApplied {
@@ -1521,6 +1577,7 @@ impl CombatState {
                     target.powers.push(PowerInstance {
                         id: power_id.to_string(),
                         amount: starting,
+                        skip_next_duration_tick: false,
                     });
                     starting
                 }
@@ -1532,6 +1589,7 @@ impl CombatState {
                     target.powers.push(PowerInstance {
                         id: power_id.to_string(),
                         amount: 1,
+                        skip_next_duration_tick: false,
                     });
                     1
                 }
@@ -10322,8 +10380,13 @@ mod tests {
     fn frail_on_player_ticks_at_end_of_enemy_turn() {
         // C# FrailPower.AfterTurnEnd fires on `side == Enemy` regardless
         // of owner — even player-owned Frail ticks on the enemy boundary.
+        // Strip the apply-time skip flag so this test exercises just the
+        // tick path (skip semantics are covered separately).
         let mut cs = ironclad_combat();
         cs.apply_power(CombatSide::Player, 0, "FrailPower", 2);
+        for p in cs.allies[0].powers.iter_mut() {
+            p.skip_next_duration_tick = false;
+        }
         cs.current_side = CombatSide::Enemy;
         cs.end_turn();
         assert_eq!(
@@ -10348,9 +10411,13 @@ mod tests {
     fn duration_debuff_at_one_tick_removes_stack() {
         // Frail/Weak/Vulnerable have allow_negative=false so transition
         // to 0 should drop the PowerInstance entirely (handled by
-        // apply_power), not linger at 0.
+        // apply_power), not linger at 0. Strip the apply-time skip flag
+        // so this test isolates the at-1 → removal path.
         let mut cs = ironclad_combat();
         cs.apply_power(CombatSide::Player, 0, "FrailPower", 1);
+        for p in cs.allies[0].powers.iter_mut() {
+            p.skip_next_duration_tick = false;
+        }
         cs.current_side = CombatSide::Enemy;
         cs.end_turn();
         assert_eq!(
@@ -10369,6 +10436,11 @@ mod tests {
         cs.apply_power(CombatSide::Player, 0, "FrailPower", 2);
         cs.apply_power(CombatSide::Player, 0, "WeakPower", 2);
         cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 2);
+        // Strip player-side skip flags (C# only sets them on Player +
+        // Debuff). VulnerablePower on the enemy does not get the flag.
+        for p in cs.allies[0].powers.iter_mut() {
+            p.skip_next_duration_tick = false;
+        }
         cs.current_side = CombatSide::Enemy;
         cs.end_turn();
         assert_eq!(
@@ -10382,6 +10454,69 @@ mod tests {
         assert_eq!(
             cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
             1
+        );
+    }
+
+    /// C# `PowerCmd.cs:129-132` + `159-162`. Debuff applied to a player
+    /// sets `SkipNextDurationTick=true`. The next end-of-enemy-turn
+    /// tick CLEARS the flag without decrementing. The tick AFTER that
+    /// decrements normally. Enemy-applied debuffs (Vulnerable on a
+    /// monster) do NOT get the flag.
+    #[test]
+    fn skip_next_duration_tick_set_on_player_debuff_apply() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "WeakPower", 2);
+        let weak = cs.allies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "WeakPower")
+            .unwrap();
+        assert!(weak.skip_next_duration_tick);
+
+        // Enemy-side Vulnerable should NOT carry the flag.
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
+        let vuln = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "VulnerablePower")
+            .unwrap();
+        assert!(!vuln.skip_next_duration_tick);
+    }
+
+    #[test]
+    fn skip_next_duration_tick_consumes_then_decrements_thereafter() {
+        // Apply WeakPower(2) to the player — flag set.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "WeakPower", 2);
+        cs.current_side = CombatSide::Enemy;
+
+        // First enemy-turn end: skip is consumed, amount stays at 2.
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            2,
+            "first tick consumes the skip flag, leaves amount unchanged"
+        );
+        let weak = cs.allies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "WeakPower")
+            .unwrap();
+        assert!(
+            !weak.skip_next_duration_tick,
+            "skip flag must be cleared after first tick"
+        );
+
+        // Begin player turn, end it, begin enemy, end it: second tick
+        // decrements normally.
+        cs.begin_turn(CombatSide::Player);
+        cs.end_turn();
+        cs.begin_turn(CombatSide::Enemy);
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            1,
+            "second tick decrements normally"
         );
     }
 
