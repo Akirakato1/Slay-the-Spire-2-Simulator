@@ -125,6 +125,21 @@ pub struct PlayerState {
     /// Card-upgrade resolution is deferred until a player-choice
     /// mechanism lands.
     pub pending_forge: i32,
+    /// Optional Osty companion (Necrobinder). None until SummonOsty
+    /// fires. Mirrors C# `PlayerCombatState.Osty: OstyModel?`. C# Osty
+    /// extends MonsterModel; we model it as a thin per-summon struct
+    /// (HP / Block) since the full creature-with-intent model isn't
+    /// needed for the cards that reference Osty.
+    pub osty: Option<OstyState>,
+}
+
+/// Companion-creature state. Cards reference Osty.MaxHp (Protector,
+/// Sacrifice) and check Osty.IsAlive (DamageFromOsty gates).
+#[derive(Clone, Debug)]
+pub struct OstyState {
+    pub current_hp: i32,
+    pub max_hp: i32,
+    pub block: i32,
 }
 
 /// One orb in the player's queue. Mirrors C# `OrbModel`.
@@ -10433,6 +10448,7 @@ impl Creature {
                 orb_queue: Vec::new(),
                 orb_slots: 3,
                 pending_forge: 0,
+                osty: None,
             }),
             monster: None,
         }

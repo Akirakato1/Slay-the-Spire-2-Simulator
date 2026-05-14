@@ -95,6 +95,12 @@ pub enum AmountSpec {
         left: Box<AmountSpec>,
         right: Box<AmountSpec>,
     },
+    /// Player's Osty companion's MaxHp (0 if no Osty). Used by
+    /// Protector / Sacrifice (`block = Osty.MaxHp * 2`). Mirrors C#
+    /// `Owner.Osty.MaxHp`.
+    OstyMaxHp,
+    /// Player's Osty companion's current Block (0 if no Osty).
+    OstyBlock,
 }
 
 /// Pile-scope discriminator used by `CardCountInPile`. Wider than the
@@ -677,6 +683,20 @@ impl AmountSpec {
                     .unwrap_or(0)
             }
             AmountSpec::Add { left, right } => left.resolve(ctx, cs) + right.resolve(ctx, cs),
+            AmountSpec::OstyMaxHp => cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .and_then(|ps| ps.osty.as_ref())
+                .map(|o| o.max_hp)
+                .unwrap_or(0),
+            AmountSpec::OstyBlock => cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .and_then(|ps| ps.osty.as_ref())
+                .map(|o| o.block)
+                .unwrap_or(0),
             AmountSpec::CardCountInPile { pile, filter } => {
                 // PerfectedStrike-shape: count cards in pile(s)
                 // matching filter. AllCombat = Hand+Draw+Discard+Exhaust.
@@ -1792,8 +1812,38 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             let d = delta.resolve(ctx, cs);
             cs.change_orb_slots(ctx.player_idx, d);
         }
-        Effect::SummonOsty { .. } | Effect::DamageFromOsty { .. } => {
-            // STUB: Osty companion system not yet implemented.
+        Effect::SummonOsty { .. } => {
+            // C# OstyCmd.Summon(owner, amount, source) — summons Osty
+            // with HP = amount (canonical Summon var bound separately
+            // via the card's Canonical vars). For now, default to 6
+            // HP if no source canonical; cards that need exact HP
+            // should be hand-encoded with explicit ChangeMaxHp.
+            let default_hp = 6;
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                ps.osty = Some(crate::combat::OstyState {
+                    current_hp: default_hp,
+                    max_hp: default_hp,
+                    block: 0,
+                });
+            }
+        }
+        Effect::DamageFromOsty { amount, target } => {
+            // Mirrors C# `DamageCmd.Attack(...).FromOsty(Osty, this)`.
+            // If Osty exists, route damage as Osty-attributed (we just
+            // use player as dealer here — the result is the same for
+            // damage math; the only difference is the attribution flag
+            // which we don't model). If no Osty, no-op.
+            let has_osty = cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.osty.is_some())
+                .unwrap_or(false);
+            if !has_osty {
+                return;
+            }
+            let amt = amount.resolve(ctx, cs);
+            deal_damage_to(cs, ctx, *target, amt);
         }
         Effect::Forge { amount } => {
             let amt = amount.resolve(ctx, cs);
@@ -2523,6 +2573,92 @@ mod tests {
         execute_effects(&mut cs, &effects, &ctx);
         // 5 × 2 = 10 damage (no block, no powers).
         assert_eq!(cs.enemies[0].current_hp, enemy_hp_before - 10);
+    }
+
+    /// Osty subsystem: SummonOsty creates the companion; OstyMaxHp /
+    /// OstyBlock AmountSpecs read its state; DamageFromOsty no-ops
+    /// if Osty doesn't exist.
+    #[test]
+    fn osty_summon_creates_companion_with_hp() {
+        let mut cs = ironclad_combat();
+        assert!(cs.allies[0].player.as_ref().unwrap().osty.is_none());
+        let ctx = EffectContext::for_card(0, None, "Bodyguard", 0, None, 0);
+        execute_effects(
+            &mut cs,
+            &[Effect::SummonOsty {
+                osty_id: "Osty".to_string(),
+            }],
+            &ctx,
+        );
+        let osty = cs.allies[0].player.as_ref().unwrap().osty.as_ref();
+        assert!(osty.is_some());
+        let o = osty.unwrap();
+        assert_eq!(o.current_hp, 6);
+        assert_eq!(o.max_hp, 6);
+    }
+
+    #[test]
+    fn osty_max_hp_amount_reads_companion() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().osty = Some(crate::combat::OstyState {
+            current_hp: 10,
+            max_hp: 10,
+            block: 0,
+        });
+        let ctx = EffectContext::for_card(0, None, "Protector", 0, None, 0);
+        assert_eq!(AmountSpec::OstyMaxHp.resolve(&ctx, &cs), 10);
+    }
+
+    #[test]
+    fn damage_from_osty_no_ops_when_no_osty() {
+        let mut cs = ironclad_combat();
+        let hp_before = cs.enemies[0].current_hp;
+        let ctx = EffectContext::for_card(
+            0,
+            Some((CombatSide::Enemy, 0)),
+            "Fetch",
+            0,
+            None,
+            0,
+        );
+        execute_effects(
+            &mut cs,
+            &[Effect::DamageFromOsty {
+                amount: AmountSpec::Fixed(5),
+                target: Target::ChosenEnemy,
+            }],
+            &ctx,
+        );
+        // No Osty → no damage.
+        assert_eq!(cs.enemies[0].current_hp, hp_before);
+    }
+
+    #[test]
+    fn damage_from_osty_lands_when_osty_present() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().osty = Some(crate::combat::OstyState {
+            current_hp: 6,
+            max_hp: 6,
+            block: 0,
+        });
+        let hp_before = cs.enemies[0].current_hp;
+        let ctx = EffectContext::for_card(
+            0,
+            Some((CombatSide::Enemy, 0)),
+            "Fetch",
+            0,
+            None,
+            0,
+        );
+        execute_effects(
+            &mut cs,
+            &[Effect::DamageFromOsty {
+                amount: AmountSpec::Fixed(5),
+                target: Target::ChosenEnemy,
+            }],
+            &ctx,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 5);
     }
 
     /// Orb subsystem — Channel pushes to queue, Evoke pops front and
