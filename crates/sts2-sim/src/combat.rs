@@ -3641,6 +3641,102 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: GlobeHead ----------------------------------
+//
+// Reflects C# `GlobeHead.GenerateMoveStateMachine`:
+//   Init: ShockingSlap.
+//   Chain: ShockingSlap → ThunderStrike → GalvanicBurst → ShockingSlap.
+//
+// A0 payloads:
+//   - ShockingSlap:  13 damage (DeadlyEnemies: 14) + 2 Frail on player
+//   - ThunderStrike: 6 damage × 3 hits (DeadlyEnemies: 7)
+//   - GalvanicBurst: 16 damage + 2 self-Strength (DeadlyEnemies: 17)
+
+const GLOBE_HEAD_SLAP_DAMAGE: i32 = 13;
+const GLOBE_HEAD_SLAP_FRAIL: i32 = 2;
+const GLOBE_HEAD_THUNDER_DAMAGE: i32 = 6;
+const GLOBE_HEAD_THUNDER_HITS: i32 = 3;
+const GLOBE_HEAD_BURST_DAMAGE: i32 = 16;
+const GLOBE_HEAD_BURST_STRENGTH: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum GlobeHeadIntent {
+    ShockingSlap,
+    ThunderStrike,
+    GalvanicBurst,
+}
+
+impl GlobeHeadIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            GlobeHeadIntent::ShockingSlap => "SHOCKING_SLAP",
+            GlobeHeadIntent::ThunderStrike => "THUNDER_STRIKE",
+            GlobeHeadIntent::GalvanicBurst => "GALVANIC_BURST",
+        }
+    }
+}
+
+pub fn pick_globe_head_intent(
+    last_intent: Option<GlobeHeadIntent>,
+) -> GlobeHeadIntent {
+    match last_intent {
+        None => GlobeHeadIntent::ShockingSlap,
+        Some(GlobeHeadIntent::ShockingSlap) => GlobeHeadIntent::ThunderStrike,
+        Some(GlobeHeadIntent::ThunderStrike) => GlobeHeadIntent::GalvanicBurst,
+        Some(GlobeHeadIntent::GalvanicBurst) => GlobeHeadIntent::ShockingSlap,
+    }
+}
+
+pub fn execute_globe_head_move(
+    cs: &mut CombatState,
+    globe_idx: usize,
+    target_player_idx: usize,
+    intent: GlobeHeadIntent,
+) {
+    let attacker = (CombatSide::Enemy, globe_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        GlobeHeadIntent::ShockingSlap => {
+            cs.deal_damage(
+                attacker,
+                player,
+                GLOBE_HEAD_SLAP_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "FrailPower",
+                GLOBE_HEAD_SLAP_FRAIL,
+            );
+        }
+        GlobeHeadIntent::ThunderStrike => {
+            for _ in 0..GLOBE_HEAD_THUNDER_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    GLOBE_HEAD_THUNDER_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        GlobeHeadIntent::GalvanicBurst => {
+            cs.deal_damage(
+                attacker,
+                player,
+                GLOBE_HEAD_BURST_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                globe_idx,
+                "StrengthPower",
+                GLOBE_HEAD_BURST_STRENGTH,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: SpinyToad ----------------------------------
 //
 // Reflects C# `SpinyToad.GenerateMoveStateMachine`:
@@ -11002,6 +11098,57 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- GlobeHead tests --------------------------------------------
+
+    #[test]
+    fn globe_head_walks_three_state_chain() {
+        assert_eq!(pick_globe_head_intent(None), GlobeHeadIntent::ShockingSlap);
+        assert_eq!(
+            pick_globe_head_intent(Some(GlobeHeadIntent::ShockingSlap)),
+            GlobeHeadIntent::ThunderStrike
+        );
+        assert_eq!(
+            pick_globe_head_intent(Some(GlobeHeadIntent::ThunderStrike)),
+            GlobeHeadIntent::GalvanicBurst
+        );
+        assert_eq!(
+            pick_globe_head_intent(Some(GlobeHeadIntent::GalvanicBurst)),
+            GlobeHeadIntent::ShockingSlap
+        );
+    }
+
+    #[test]
+    fn globe_head_shocking_slap_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_globe_head_move(&mut cs, 0, 0, GlobeHeadIntent::ShockingSlap);
+        assert_eq!(cs.allies[0].current_hp, hp - 13);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "FrailPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn globe_head_thunder_strike_six_times_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_globe_head_move(&mut cs, 0, 0, GlobeHeadIntent::ThunderStrike);
+        assert_eq!(cs.allies[0].current_hp, hp - 18);
+    }
+
+    #[test]
+    fn globe_head_galvanic_burst_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_globe_head_move(&mut cs, 0, 0, GlobeHeadIntent::GalvanicBurst);
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
     }
 
     // ---------- SpinyToad tests --------------------------------------------

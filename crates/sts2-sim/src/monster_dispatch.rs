@@ -96,6 +96,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "BowlbugEgg"
             | "Vantom"
             | "SpinyToad"
+            | "GlobeHead"
     )
 }
 
@@ -567,6 +568,17 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_spiny_toad_intent(last);
             execute_spiny_toad_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "GlobeHead" => {
+            let last = last_ref.and_then(|s| match s {
+                "SHOCKING_SLAP" => Some(GlobeHeadIntent::ShockingSlap),
+                "THUNDER_STRIKE" => Some(GlobeHeadIntent::ThunderStrike),
+                "GALVANIC_BURST" => Some(GlobeHeadIntent::GalvanicBurst),
+                _ => None,
+            });
+            let intent = pick_globe_head_intent(last);
+            execute_globe_head_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {
