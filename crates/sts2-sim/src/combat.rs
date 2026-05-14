@@ -1350,6 +1350,21 @@ fn dispatch_on_play(
             );
             true
         }
+        // LegSweep (Silent uncommon Skill): gain 11 block + apply 2 Weak
+        // to target. Upgrade: +3 block, +1 Weak. Block uses ValueProp.Move
+        // so Frail/Dexterity flow through. Both effects run regardless of
+        // each other's outcome (matches C# OnPlay sequencing).
+        "LegSweep" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            // Upgrade-delta keys for power vars use the suffix-stripped
+            // form ("Weak", not "WeakPower"), matching Neutralize/Bash.
+            let weak = canonical_int_value(card, "Weak", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            cs.apply_power(target.0, target.1, "WeakPower", weak);
+            true
+        }
         // BodySlam (Ironclad common): damage equals caster's current
         // block. C# uses CalculatedDamage = CalculationBase(0) +
         // ExtraDamage(1) * Owner.Creature.Block — i.e. just `block`.
@@ -3501,6 +3516,72 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- LegSweep dispatch tests ----------------------------------
+
+    #[test]
+    fn leg_sweep_grants_block_and_applies_weak() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("LegSweep").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 11);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "WeakPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn upgraded_leg_sweep_grants_more_block_and_weak() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("LegSweep").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 11 + 3 = 14 block; 2 + 1 = 3 Weak.
+        assert_eq!(cs.allies[0].block, 14);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "WeakPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn leg_sweep_block_picks_up_frail_and_dexterity() {
+        // End-to-end: Frail + Dex on the caster modify LegSweep's block
+        // through the modify_block pipeline. (11+2)*0.75 = 9.75 → 9.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 1);
+        cs.apply_power(CombatSide::Player, 0, "DexterityPower", 2);
+        let card = card_by_id("LegSweep").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 9);
     }
 
     #[test]
