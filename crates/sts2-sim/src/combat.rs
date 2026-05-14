@@ -131,6 +131,14 @@ pub struct PlayerState {
     /// (HP / Block) since the full creature-with-intent model isn't
     /// needed for the cards that reference Osty.
     pub osty: Option<OstyState>,
+    /// Per-relic mutable scalar counters. Used by relics that need
+    /// state-across-turns the canonical_vars table can't carry —
+    /// e.g. HappyFlower / Pendulum (turns_seen modulo), Kunai / Shuriken /
+    /// LetterOpener / IronClub / GamePiece (attacks- or cards-played
+    /// count toward a threshold), Pocketwatch (cards-this-turn counter),
+    /// CentennialPuzzle (one-shot flag). Keys are short ids the relic's
+    /// hook bodies read via `Effect::SetPowerStateField`-style writes.
+    pub relic_counters: std::collections::HashMap<String, i32>,
 }
 
 /// Companion-creature state. Cards reference Osty.MaxHp (Protector,
@@ -240,6 +248,12 @@ pub struct PowerInstance {
     ///
     /// Mirrors `PowerCmd.cs:131` (set) + `PowerCmd.cs:159` (check+clear).
     pub skip_next_duration_tick: bool,
+    /// Per-instance scalar state. Used by `Effect::SetPowerStateField`
+    /// for powers whose payload depends on a number set at apply time
+    /// (TheBomb.Damage, ToricToughness.Block, Monologue's nested vars).
+    /// Mirrors C# AbstractPowerWithCounter / per-power "Data" field. Most
+    /// powers leave this empty.
+    pub state: std::collections::HashMap<String, i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -448,7 +462,10 @@ impl CombatState {
             self.round_number += 1;
         }
         self.current_side = side;
-        if self.log_enabled {
+        // TurnBegan emits unconditionally — history-scan AmountSpecs
+        // (CardsPlayedThisTurn etc.) need it to find the start of the
+        // current turn even when verbose logging is disabled.
+        {
             let round = self.round_number;
             self.combat_log
                 .push(CombatEvent::TurnBegan { round, side });
@@ -754,6 +771,30 @@ impl CombatState {
             crate::effects::RelicHookKind::AfterCombatVictory,
             CombatSide::Player,
         );
+        // AfterCombatEnd also fires on the victory path. (Defeat path
+        // fires it from `fire_after_combat_loss_hooks` if/when it lands.)
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterCombatEnd,
+            CombatSide::Player,
+        );
+    }
+
+    /// Fire `AfterCombatLoss` + `AfterCombatEnd` data-driven relic hooks.
+    /// Caller invokes when `is_combat_over()` returns Defeat. (Most
+    /// relics that branch on outcome use AfterCombatVictory or
+    /// AfterCombatEnd; AfterCombatLoss is rare.)
+    pub fn fire_after_combat_loss_hooks(&mut self) {
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterCombatLoss,
+            CombatSide::Player,
+        );
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterCombatEnd,
+            CombatSide::Player,
+        );
     }
 
     /// Snapshot (player_idx, relic_id) pairs so hook dispatchers can mutate
@@ -843,6 +884,16 @@ impl CombatState {
     ///     powers gate on `side == CombatSide.Enemy` regardless of
     ///     owner, so they all tick together on the enemy-turn boundary.
     pub fn end_turn(&mut self) {
+        // BeforeTurnEnd relic hooks — fire BEFORE the end-of-turn flush
+        // / AfterTurnEnd power ticks. Bookmark / Orichalcum / DiamondDiadem.
+        {
+            let ending_side = self.current_side;
+            crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::BeforeTurnEnd,
+                ending_side,
+            );
+        }
         if self.current_side == CombatSide::Player {
             // Pre-flush: fire OnTurnEndInHand for any status/curse cards
             // still in hand (Burn / Decay / Toxic / Doubt / Shame /
@@ -1397,29 +1448,38 @@ impl CombatState {
     /// are empty. Uses `rng.shuffle()` (== C# `Rng.Shuffle` Fisher-Yates),
     /// matching `RunState.Rng.Shuffle` semantics. Returns the number drawn.
     pub fn draw_cards(&mut self, player_idx: usize, n: i32, rng: &mut Rng) -> i32 {
-        let Some(creature) = self.allies.get_mut(player_idx) else {
-            return 0;
-        };
-        let Some(ps) = creature.player.as_mut() else {
-            return 0;
-        };
-        let mut drawn = 0;
-        for _ in 0..n {
-            if ps.draw.is_empty() {
-                if ps.discard.is_empty() {
-                    break;
+        let mut drawn_ids: Vec<String> = Vec::new();
+        {
+            let Some(creature) = self.allies.get_mut(player_idx) else {
+                return 0;
+            };
+            let Some(ps) = creature.player.as_mut() else {
+                return 0;
+            };
+            for _ in 0..n {
+                if ps.draw.is_empty() {
+                    if ps.discard.is_empty() {
+                        break;
+                    }
+                    ps.draw.cards.append(&mut ps.discard.cards);
+                    rng.shuffle(&mut ps.draw.cards);
                 }
-                // Reshuffle: drain discard into draw, then shuffle in place.
-                ps.draw.cards.append(&mut ps.discard.cards);
-                rng.shuffle(&mut ps.draw.cards);
+                if let Some(card) = ps.draw.cards.pop() {
+                    drawn_ids.push(card.id.clone());
+                    ps.hand.cards.push(card);
+                }
             }
-            // StS draws from the TOP of the draw pile; C# uses
-            // RemoveAt(Count-1)-style pops. The shuffle determines order
-            // before we pop, so pop_back is fine.
-            if let Some(card) = ps.draw.cards.pop() {
-                ps.hand.cards.push(card);
-                drawn += 1;
-            }
+        }
+        let drawn = drawn_ids.len() as i32;
+        // Emit CardDrawn events unconditionally — history-scan
+        // AmountSpecs need them even when verbose logging is disabled.
+        let round = self.round_number;
+        for card_id in drawn_ids {
+            self.combat_log.push(CombatEvent::CardDrawn {
+                round,
+                player_idx,
+                card_id,
+            });
         }
         drawn
     }
@@ -1870,6 +1930,7 @@ impl CombatState {
                         id: power_id.to_string(),
                         amount: starting,
                         skip_next_duration_tick: false,
+                        state: std::collections::HashMap::new(),
                     });
                     starting
                 }
@@ -1882,6 +1943,7 @@ impl CombatState {
                         id: power_id.to_string(),
                         amount: 1,
                         skip_next_duration_tick: false,
+                        state: std::collections::HashMap::new(),
                     });
                     1
                 }
@@ -2073,7 +2135,6 @@ impl CombatState {
     /// + `PlayerCombatState.AddOrbToQueue`. If the queue is full,
     /// evoke the front orb first to make room.
     pub fn channel_orb(&mut self, player_idx: usize, orb_id: &str) {
-        // Evoke front if at capacity.
         let needs_evict = self
             .allies
             .get(player_idx)
@@ -2093,6 +2154,13 @@ impl CombatState {
                 evoke_val_bonus: 0,
             });
         }
+        // Emit OrbChanneled history event.
+        let round = self.round_number;
+        self.combat_log.push(CombatEvent::OrbChanneled {
+            round,
+            player_idx,
+            orb_id: orb_id.to_string(),
+        });
     }
 
     /// Evoke the front orb (pop + run its evoke effect). Mirrors C#
@@ -2776,6 +2844,25 @@ impl CombatState {
             ps.hand.cards.remove(hand_idx)
         };
 
+        // Emit CardPlayed event for history-scan AmountSpecs and
+        // FirstPlayOfSourceCardThisTurn / PlaysThisTurnLt conditions.
+        // (Order: emitted BEFORE the OnPlay body executes, so
+        // FirstPlayOfSourceCardThisTurn evaluates true on the first play
+        // only when the in-flight event is excluded — the resolver
+        // tolerates this by treating "0 historical plays" as first.)
+        // History events emit unconditionally — log_enabled gates only
+        // the verbose damage/block/power events.
+        let ethereal = card_data.keywords.iter().any(|k| k == "Ethereal");
+        let round = self.round_number;
+        self.combat_log.push(CombatEvent::CardPlayed {
+            round,
+            player_idx,
+            card_id: card_id.clone(),
+            card_type: card_data.card_type,
+            cost: energy_cost,
+            ethereal,
+        });
+
         // 5. Dispatch OnPlay. The handler may mutate cs freely. The
         //    played card's enchantment (if any) is forwarded for damage
         //    modifier participation.
@@ -2812,6 +2899,32 @@ impl CombatState {
             PileType::Exhaust => ps.exhaust.cards.push(played_card),
             _ => ps.discard.cards.push(played_card),
         }
+        // History emission for the routing: CardExhausted or CardDiscarded.
+        let round = self.round_number;
+        match dest {
+            PileType::Discard => self.combat_log.push(CombatEvent::CardDiscarded {
+                round,
+                player_idx,
+                card_id: card_id.clone(),
+            }),
+            PileType::Exhaust => self.combat_log.push(CombatEvent::CardExhausted {
+                round,
+                player_idx,
+                card_id: card_id.clone(),
+            }),
+            _ => {}
+        }
+
+        // AfterCardPlayed relic-hook firing point. Fires after OnPlay
+        // resolves AND the card has routed. Data-driven via relic_effects.
+        crate::effects::fire_relic_hooks_after_card_played(
+            self,
+            player_idx,
+            &card_id,
+            card_data.card_type,
+            &card_data.keywords,
+            &card_data.tags,
+        );
 
         if handled {
             PlayResult::Ok
@@ -10544,6 +10657,53 @@ pub enum CombatEvent {
         player_idx: usize,
         relic_id: String,
     },
+    /// A card was played by the named player. Emitted by `play_card`
+    /// before OnPlay runs. Drives `AmountSpec::CardsPlayedThisTurn` /
+    /// `CardsDiscardedThisTurn` / `EnergySpentThisTurn` history scans
+    /// and Condition::FirstPlayOfSourceCardThisTurn / PlaysThisTurnLt.
+    CardPlayed {
+        round: i32,
+        player_idx: usize,
+        card_id: String,
+        card_type: CardType,
+        cost: i32,
+        ethereal: bool,
+    },
+    /// A card was drawn into hand (one event per card). Drives
+    /// `AmountSpec::CardsDrawnThisTurn`.
+    CardDrawn {
+        round: i32,
+        player_idx: usize,
+        card_id: String,
+    },
+    /// A card was sent from hand to discard (end-of-turn flush + explicit
+    /// DiscardCards). Drives `AmountSpec::CardsDiscardedThisTurn`.
+    CardDiscarded {
+        round: i32,
+        player_idx: usize,
+        card_id: String,
+    },
+    /// A card was sent from any pile to exhaust. Drives
+    /// `AmountSpec::CardsExhaustedThisTurn` and Condition::OwnerExhaustedCardThisTurn.
+    CardExhausted {
+        round: i32,
+        player_idx: usize,
+        card_id: String,
+    },
+    /// An orb was channeled into the player's queue. Drives
+    /// `AmountSpec::OrbsChanneledThisCombat`.
+    OrbChanneled {
+        round: i32,
+        player_idx: usize,
+        orb_id: String,
+    },
+    /// `pending_stars` mutated (positive or negative delta). Drives
+    /// `AmountSpec::StarsGainedThisTurnPositive`.
+    StarsChanged {
+        round: i32,
+        player_idx: usize,
+        delta: i32,
+    },
 }
 
 /// End-of-combat rewards. Caller (RunState orchestration layer) routes the
@@ -10705,6 +10865,7 @@ impl Creature {
                 orb_slots: 3,
                 pending_forge: 0,
                 osty: None,
+                relic_counters: std::collections::HashMap::new(),
             }),
             monster: None,
         }
@@ -15188,6 +15349,12 @@ mod tests {
                 CombatEvent::TurnBegan { .. } => "TurnBegan",
                 CombatEvent::TurnEnded { .. } => "TurnEnded",
                 CombatEvent::RelicHookFired { .. } => "RelicHookFired",
+                CombatEvent::CardPlayed { .. } => "CardPlayed",
+                CombatEvent::CardDrawn { .. } => "CardDrawn",
+                CombatEvent::CardDiscarded { .. } => "CardDiscarded",
+                CombatEvent::CardExhausted { .. } => "CardExhausted",
+                CombatEvent::OrbChanneled { .. } => "OrbChanneled",
+                CombatEvent::StarsChanged { .. } => "StarsChanged",
             })
             .collect();
         assert_eq!(

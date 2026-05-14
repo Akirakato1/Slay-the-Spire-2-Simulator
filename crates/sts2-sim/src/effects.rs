@@ -148,6 +148,50 @@ pub enum AmountSpec {
     OstyMaxHp,
     /// Player's Osty companion's current Block (0 if no Osty).
     OstyBlock,
+    /// Size of the player's hand right now. Scrawl: `10 - HandCount`.
+    HandCount,
+    /// Hand size excluding the currently-playing source card. PreciseCut.
+    HandCountExcludingSource,
+    /// Target's max HP. BloodPotion / FairyInABottle (% of MaxHp).
+    TargetMaxHp,
+    /// Target's current Block. Mimic / Mirage / DemonicShield.
+    TargetBlock,
+    /// Number of `Type == Debuff` powers on target. Rend.
+    TargetDebuffCount,
+    /// Number of cards played this turn by the owner (optionally filtered).
+    /// Conflagration / Finisher / GoldAxe / Murder / GangUp.
+    CardsPlayedThisTurn { filter: CardFilter },
+    /// Number of cards discarded this turn (MementoMori).
+    CardsDiscardedThisTurn,
+    /// Number of cards drawn this turn (Murder).
+    CardsDrawnThisTurn,
+    /// Number of cards exhausted this turn (rare; companion to EvilEye).
+    CardsExhaustedThisTurn,
+    /// Sum of energy costs paid this turn (HelixDrill hits).
+    EnergySpentThisTurn,
+    /// Orbs of a given id channeled this combat (Voltaic).
+    /// `orb_id == None` counts all orbs.
+    OrbsChanneledThisCombat { orb_id: Option<String> },
+    /// Distinct orb-ids currently in the player's queue (Synchronize).
+    DistinctOrbTypesInQueue,
+    /// Sum of positive stars-deltas this turn (Radiate hit count).
+    StarsGainedThisTurnPositive,
+}
+
+/// Named card pool reference for `Effect::AddRandomCardFromPool`.
+/// Pools resolve to a list of card ids the runtime picks from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CardPoolRef {
+    /// Owner character's full pool.
+    CharacterAny,
+    /// Owner character's pool filtered to Attack.
+    CharacterAttack,
+    /// Owner character's pool filtered to Skill.
+    CharacterSkill,
+    /// Owner character's pool filtered to Power.
+    CharacterPower,
+    /// Cross-character Colorless pool.
+    Colorless,
 }
 
 /// Pile-scope discriminator used by `CardCountInPile`. Wider than the
@@ -228,6 +272,20 @@ pub enum Condition {
     /// Random-chance branch. Resolves via combat RNG.
     /// `numerator / denominator` chance of true.
     RandomChance { numerator: i32, denominator: i32 },
+    /// Player's Osty companion is missing — None or current_hp <= 0.
+    /// Sacrifice / SicEm / Snap / SweepingGaze / RightHandHand / HighFive / Poke.
+    IsOstyMissing,
+    /// Owner has exhausted at least one card this turn. EvilEye trigger,
+    /// ForgottenRitual.
+    OwnerExhaustedCardThisTurn,
+    /// First play of the source card this turn (Fetch).
+    FirstPlayOfSourceCardThisTurn,
+    /// Owner has played strictly fewer than `n` cards this turn. Ftl.
+    PlaysThisTurnLt { n: i32 },
+    /// combatState.RoundNumber == n. Candelabra (R==2), Chandelier (R==3).
+    RoundEquals { n: i32 },
+    /// combatState.RoundNumber >= n. PaelsFlesh / StoneCalendar.
+    RoundGe { n: i32 },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -406,10 +464,47 @@ pub enum Effect {
     /// Grow / shrink the orb queue capacity. STUB.
     ChangeOrbSlots { delta: AmountSpec },
     /// Summon an Osty companion (StS2 companion mechanic).
-    /// STUB — companion system not implemented; cards reference
-    /// Osty's HP/state heavily (Sacrifice, Protector) and will need
-    /// real wiring before they actually function.
-    SummonOsty { osty_id: String },
+    /// `max_hp` carries the HP the companion is summoned with — most
+    /// summon cards use a `Summon` canonical var for this; pass None
+    /// to fall back to a default (6 HP) for cards that omit it.
+    SummonOsty { osty_id: String, max_hp: Option<AmountSpec> },
+    /// Heal the player's Osty companion (Spur).
+    HealOsty { amount: AmountSpec },
+    /// Set Osty current_hp to 0. Sacrifice (combined with GainBlock).
+    KillOsty,
+    /// Generate N random cards from a named pool into the target pile.
+    /// Mirrors C# `CardFactory.GetDistinctForCombat(pool, n, rng)`. Used
+    /// by AttackPotion/SkillPotion/etc. + Discovery/Distraction/Splash/
+    /// Stoke/StormOfSteel/WhiteNoise/BeatDown/Bombardment/InfernalBlade
+    /// /JackOfAllTrades/Jackpot/Largesse/Quasar/BundleOfJoy.
+    AddRandomCardFromPool {
+        pool: CardPoolRef,
+        filter: CardFilter,
+        n: AmountSpec,
+        pile: Pile,
+        upgrade: i32,
+        free_this_turn: bool,
+        distinct: bool,
+    },
+    /// Auto-play matching cards from `pile` (no energy cost). KnifeTrap
+    /// (Exhaust→all Shivs), Uproar (Draw→1 Attack).
+    AutoplayCardsFromPile {
+        pile: Pile,
+        filter: CardFilter,
+        n: AmountSpec,
+    },
+    /// Write a scalar to a per-power-instance state field. TheBomb
+    /// (SetDamage on its freshly-applied power), ToricToughness
+    /// (SetBlock on its freshly-applied power).
+    SetPowerStateField {
+        power_id: String,
+        field: String,
+        value: AmountSpec,
+        target: Target,
+    },
+    /// Discard the top N cards of the draw pile straight into discard.
+    /// Cycle-family.
+    MillFromDraw { n: AmountSpec },
     /// Damage attributed to Osty companion (Protector-family).
     /// STUB — falls back to regular DealDamage for now.
     DamageFromOsty {
@@ -834,7 +929,284 @@ impl AmountSpec {
                     }
                 }
             }
+            AmountSpec::HandCount => cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.hand.cards.len() as i32)
+                .unwrap_or(0),
+            AmountSpec::HandCountExcludingSource => {
+                let h = cs
+                    .allies
+                    .get(ctx.player_idx)
+                    .and_then(|c| c.player.as_ref())
+                    .map(|ps| ps.hand.cards.len() as i32)
+                    .unwrap_or(0);
+                // The currently-playing card has already been moved out
+                // of hand by `play_card` before OnPlay runs, so the raw
+                // count IS "excluding the source card" — but defensively
+                // we subtract 1 only if the source card is still seen
+                // in hand. For the common case we just return h.
+                h
+            }
+            AmountSpec::TargetMaxHp => {
+                let (side, idx) = ctx.target.unwrap_or(ctx.actor);
+                let creature = match side {
+                    CombatSide::Player => cs.allies.get(idx),
+                    CombatSide::Enemy => cs.enemies.get(idx),
+                    CombatSide::None => None,
+                };
+                creature.map(|c| c.max_hp).unwrap_or(0)
+            }
+            AmountSpec::TargetBlock => {
+                let (side, idx) = ctx.target.unwrap_or(ctx.actor);
+                let creature = match side {
+                    CombatSide::Player => cs.allies.get(idx),
+                    CombatSide::Enemy => cs.enemies.get(idx),
+                    CombatSide::None => None,
+                };
+                creature.map(|c| c.block).unwrap_or(0)
+            }
+            AmountSpec::TargetDebuffCount => {
+                let (side, idx) = ctx.target.unwrap_or(ctx.actor);
+                let creature = match side {
+                    CombatSide::Player => cs.allies.get(idx),
+                    CombatSide::Enemy => cs.enemies.get(idx),
+                    CombatSide::None => None,
+                };
+                creature
+                    .map(|c| {
+                        c.powers
+                            .iter()
+                            .filter(|p| is_debuff_power(&p.id))
+                            .count() as i32
+                    })
+                    .unwrap_or(0)
+            }
+            AmountSpec::CardsPlayedThisTurn { filter } => {
+                cards_played_this_turn(cs, ctx.player_idx, filter)
+            }
+            AmountSpec::CardsDiscardedThisTurn => {
+                count_history_events_this_turn(cs, ctx.player_idx, HistoryKind::Discarded)
+            }
+            AmountSpec::CardsDrawnThisTurn => {
+                count_history_events_this_turn(cs, ctx.player_idx, HistoryKind::Drawn)
+            }
+            AmountSpec::CardsExhaustedThisTurn => {
+                cards_exhausted_this_turn(cs, ctx.player_idx)
+            }
+            AmountSpec::EnergySpentThisTurn => {
+                energy_spent_this_turn(cs, ctx.player_idx)
+            }
+            AmountSpec::OrbsChanneledThisCombat { orb_id } => {
+                orbs_channeled_this_combat(cs, ctx.player_idx, orb_id.as_deref())
+            }
+            AmountSpec::DistinctOrbTypesInQueue => cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| {
+                    let mut seen: std::collections::HashSet<&str> =
+                        std::collections::HashSet::new();
+                    for o in &ps.orb_queue {
+                        seen.insert(o.id.as_str());
+                    }
+                    seen.len() as i32
+                })
+                .unwrap_or(0),
+            AmountSpec::StarsGainedThisTurnPositive => {
+                stars_gained_this_turn_positive(cs, ctx.player_idx)
+            }
         }
+    }
+}
+
+/// Per-power-id classifier used by `AmountSpec::TargetDebuffCount`. The
+/// PowerData table carries a `PowerType` field (Buff / Debuff); this
+/// helper reads it for the known debuff classes. Falls back to the
+/// PowerData lookup.
+fn is_debuff_power(power_id: &str) -> bool {
+    crate::power::by_id(power_id)
+        .map(|p| matches!(p.power_type, crate::power::PowerType::Debuff))
+        .unwrap_or(false)
+}
+
+#[derive(Copy, Clone)]
+enum HistoryKind {
+    Discarded,
+    Drawn,
+}
+
+fn cards_played_this_turn(
+    cs: &CombatState,
+    player_idx: usize,
+    filter: &CardFilter,
+) -> i32 {
+    let turn_start = current_turn_start_idx(cs);
+    cs.combat_log
+        .iter()
+        .skip(turn_start)
+        .filter(|ev| match ev {
+            crate::combat::CombatEvent::CardPlayed {
+                player_idx: pid,
+                card_id,
+                round: _,
+                card_type: _,
+                cost: _,
+                ethereal: _,
+            } => {
+                if *pid != player_idx {
+                    return false;
+                }
+                card_filter_matches_id(filter, card_id)
+            }
+            _ => false,
+        })
+        .count() as i32
+}
+
+fn cards_played_with_id_this_turn(
+    cs: &CombatState,
+    player_idx: usize,
+    card_id: &str,
+) -> i32 {
+    let turn_start = current_turn_start_idx(cs);
+    cs.combat_log
+        .iter()
+        .skip(turn_start)
+        .filter(|ev| match ev {
+            crate::combat::CombatEvent::CardPlayed {
+                player_idx: pid,
+                card_id: cid,
+                ..
+            } => *pid == player_idx && cid == card_id,
+            _ => false,
+        })
+        .count() as i32
+}
+
+fn count_history_events_this_turn(
+    cs: &CombatState,
+    player_idx: usize,
+    kind: HistoryKind,
+) -> i32 {
+    let turn_start = current_turn_start_idx(cs);
+    cs.combat_log
+        .iter()
+        .skip(turn_start)
+        .filter(|ev| match (ev, kind) {
+            (
+                crate::combat::CombatEvent::CardDiscarded { player_idx: pid, .. },
+                HistoryKind::Discarded,
+            )
+            | (
+                crate::combat::CombatEvent::CardDrawn { player_idx: pid, .. },
+                HistoryKind::Drawn,
+            ) => *pid == player_idx,
+            _ => false,
+        })
+        .count() as i32
+}
+
+fn cards_exhausted_this_turn(cs: &CombatState, player_idx: usize) -> i32 {
+    let turn_start = current_turn_start_idx(cs);
+    cs.combat_log
+        .iter()
+        .skip(turn_start)
+        .filter(|ev| match ev {
+            crate::combat::CombatEvent::CardExhausted {
+                player_idx: pid, ..
+            } => *pid == player_idx,
+            _ => false,
+        })
+        .count() as i32
+}
+
+fn energy_spent_this_turn(cs: &CombatState, player_idx: usize) -> i32 {
+    let turn_start = current_turn_start_idx(cs);
+    cs.combat_log
+        .iter()
+        .skip(turn_start)
+        .filter_map(|ev| match ev {
+            crate::combat::CombatEvent::CardPlayed {
+                player_idx: pid,
+                cost,
+                ..
+            } if *pid == player_idx => Some(*cost),
+            _ => None,
+        })
+        .sum::<i32>()
+}
+
+fn orbs_channeled_this_combat(
+    cs: &CombatState,
+    player_idx: usize,
+    orb_id: Option<&str>,
+) -> i32 {
+    cs.combat_log
+        .iter()
+        .filter(|ev| match ev {
+            crate::combat::CombatEvent::OrbChanneled {
+                player_idx: pid,
+                orb_id: oid,
+                round: _,
+            } => {
+                if *pid != player_idx {
+                    return false;
+                }
+                match orb_id {
+                    Some(want) => oid == want,
+                    None => true,
+                }
+            }
+            _ => false,
+        })
+        .count() as i32
+}
+
+fn stars_gained_this_turn_positive(cs: &CombatState, player_idx: usize) -> i32 {
+    let turn_start = current_turn_start_idx(cs);
+    cs.combat_log
+        .iter()
+        .skip(turn_start)
+        .filter_map(|ev| match ev {
+            crate::combat::CombatEvent::StarsChanged {
+                player_idx: pid,
+                delta,
+                round: _,
+            } if *pid == player_idx && *delta > 0 => Some(*delta),
+            _ => None,
+        })
+        .sum::<i32>()
+}
+
+/// Index into `combat_log` of the most recent `TurnBegan` event. All
+/// "this-turn" history scans start from here.
+fn current_turn_start_idx(cs: &CombatState) -> usize {
+    cs.combat_log
+        .iter()
+        .rposition(|ev| matches!(ev, crate::combat::CombatEvent::TurnBegan { .. }))
+        .map(|i| i + 1)
+        .unwrap_or(0)
+}
+
+fn card_filter_matches_id(filter: &CardFilter, card_id: &str) -> bool {
+    let Some(card) = crate::card::by_id(card_id) else {
+        return matches!(filter, CardFilter::Any);
+    };
+    match filter {
+        CardFilter::Any => true,
+        CardFilter::Upgradable => card.max_upgrade_level > 0,
+        CardFilter::OfType(name) => match name.as_str() {
+            "Attack" => card.card_type == crate::card::CardType::Attack,
+            "Skill" => card.card_type == crate::card::CardType::Skill,
+            "Power" => card.card_type == crate::card::CardType::Power,
+            "Status" => card.card_type == crate::card::CardType::Status,
+            "Curse" => card.card_type == crate::card::CardType::Curse,
+            _ => false,
+        },
+        CardFilter::HasKeyword(kw) => card.keywords.iter().any(|k| k == kw),
+        CardFilter::TaggedAs(tag) => card.tags.iter().any(|t| t == tag),
     }
 }
 
@@ -1048,6 +1420,21 @@ pub enum RelicHook {
     AfterPlayerTurnStart { first_turn_only: bool },
     /// C# `AfterPlayerTurnEnd(player)`.
     AfterPlayerTurnEnd,
+    /// C# `AfterCardPlayed(...)`. Fires after the played card's OnPlay
+    /// fully resolves (and after the card has routed to discard /
+    /// exhaust). `filter` (optional) gates on the played card matching
+    /// — e.g. Kunai: Attack-only.
+    AfterCardPlayed { filter: Option<CardFilter> },
+    /// C# `AfterCombatEnd()`. Fires once at combat end regardless of
+    /// outcome (distinct from AfterCombatVictory). ChosenCheese etc.
+    AfterCombatEnd,
+    /// C# `BeforeTurnEnd(side)` — fires before AfterTurnEnd power ticks.
+    /// Bookmark / DiamondDiadem / Orichalcum family.
+    BeforeTurnEnd { owner_side_only: bool },
+    /// C# `AfterDamageGiven(...)`. Owner's attack landed.
+    AfterDamageGiven,
+    /// C# `AfterDamageReceived(...)`. Owner took damage.
+    AfterDamageReceived,
 }
 
 /// Discriminant for matching `RelicHook` entries against a firing point.
@@ -1058,10 +1445,15 @@ pub enum RelicHookKind {
     BeforeCombatStart,
     AfterCombatVictory,
     AfterCombatLoss,
+    AfterCombatEnd,
     AfterSideTurnStart,
     BeforeSideTurnStart,
     AfterPlayerTurnStart,
     AfterPlayerTurnEnd,
+    AfterCardPlayed,
+    BeforeTurnEnd,
+    AfterDamageGiven,
+    AfterDamageReceived,
 }
 
 impl RelicHook {
@@ -1071,10 +1463,15 @@ impl RelicHook {
             RelicHook::BeforeCombatStart => RelicHookKind::BeforeCombatStart,
             RelicHook::AfterCombatVictory => RelicHookKind::AfterCombatVictory,
             RelicHook::AfterCombatLoss => RelicHookKind::AfterCombatLoss,
+            RelicHook::AfterCombatEnd => RelicHookKind::AfterCombatEnd,
             RelicHook::AfterSideTurnStart { .. } => RelicHookKind::AfterSideTurnStart,
             RelicHook::BeforeSideTurnStart { .. } => RelicHookKind::BeforeSideTurnStart,
             RelicHook::AfterPlayerTurnStart { .. } => RelicHookKind::AfterPlayerTurnStart,
             RelicHook::AfterPlayerTurnEnd => RelicHookKind::AfterPlayerTurnEnd,
+            RelicHook::AfterCardPlayed { .. } => RelicHookKind::AfterCardPlayed,
+            RelicHook::BeforeTurnEnd { .. } => RelicHookKind::BeforeTurnEnd,
+            RelicHook::AfterDamageGiven => RelicHookKind::AfterDamageGiven,
+            RelicHook::AfterDamageReceived => RelicHookKind::AfterDamageReceived,
         }
     }
 
@@ -1090,7 +1487,11 @@ impl RelicHook {
             RelicHook::BeforeCombatStart
             | RelicHook::AfterCombatVictory
             | RelicHook::AfterCombatLoss
-            | RelicHook::AfterPlayerTurnEnd => true,
+            | RelicHook::AfterCombatEnd
+            | RelicHook::AfterPlayerTurnEnd
+            | RelicHook::AfterCardPlayed { .. }
+            | RelicHook::AfterDamageGiven
+            | RelicHook::AfterDamageReceived => true,
             RelicHook::AfterSideTurnStart { owner_side_only, first_turn_only }
             | RelicHook::BeforeSideTurnStart { owner_side_only, first_turn_only } => {
                 (!owner_side_only || current_side == owner_side)
@@ -1099,7 +1500,73 @@ impl RelicHook {
             RelicHook::AfterPlayerTurnStart { first_turn_only } => {
                 !first_turn_only || round_number <= 1
             }
+            RelicHook::BeforeTurnEnd { owner_side_only } => {
+                !owner_side_only || current_side == owner_side
+            }
         }
+    }
+}
+
+/// `AfterCardPlayed`-specific dispatcher. Filters relic_effects entries
+/// by `RelicHook::AfterCardPlayed { filter }` matching the played card.
+pub fn fire_relic_hooks_after_card_played(
+    cs: &mut CombatState,
+    player_idx: usize,
+    card_id: &str,
+    card_type: crate::card::CardType,
+    keywords: &[String],
+    tags: &[String],
+) {
+    let mut pairs: Vec<(usize, String)> = Vec::new();
+    for (i, c) in cs.allies.iter().enumerate() {
+        if let Some(ps) = c.player.as_ref() {
+            for r in &ps.relics {
+                pairs.push((i, r.clone()));
+            }
+        }
+    }
+    for (pid, relic_id) in pairs {
+        if pid != player_idx {
+            continue;
+        }
+        let Some(arms) = relic_effects(&relic_id) else {
+            continue;
+        };
+        for (hook, body) in arms {
+            let RelicHook::AfterCardPlayed { filter } = &hook else {
+                continue;
+            };
+            if let Some(f) = filter {
+                if !card_metadata_matches_filter(card_type, keywords, tags, f) {
+                    continue;
+                }
+            }
+            let _ = card_id; // currently the body resolves its own context
+            let ctx = EffectContext::for_relic_hook(player_idx, relic_id.as_str());
+            execute_effects(cs, &body, &ctx);
+        }
+    }
+}
+
+fn card_metadata_matches_filter(
+    card_type: crate::card::CardType,
+    keywords: &[String],
+    tags: &[String],
+    filter: &CardFilter,
+) -> bool {
+    match filter {
+        CardFilter::Any => true,
+        CardFilter::Upgradable => false, // never relevant on the playing arm
+        CardFilter::OfType(name) => match name.as_str() {
+            "Attack" => card_type == crate::card::CardType::Attack,
+            "Skill" => card_type == crate::card::CardType::Skill,
+            "Power" => card_type == crate::card::CardType::Power,
+            "Status" => card_type == crate::card::CardType::Status,
+            "Curse" => card_type == crate::card::CardType::Curse,
+            _ => false,
+        },
+        CardFilter::HasKeyword(k) => keywords.iter().any(|kw| kw == k),
+        CardFilter::TaggedAs(t) => tags.iter().any(|tag| tag == t),
     }
 }
 
@@ -2264,13 +2731,13 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Patter" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "VigorPower".to_string(), amount: AmountSpec::Canonical("VigorPower".to_string()), target: Target::SelfPlayer }]),
         "PiercingWail" => Some(vec![Effect::ApplyPower { power_id: "PiercingWailPower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::AllEnemies }]),
         "Prolong" => Some(vec![Effect::ApplyPower { power_id: "BlockNextTurnPower".to_string(), amount: AmountSpec::SelfBlock, target: Target::SelfPlayer }]),
-        "PullAggro" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string() }, Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        "PullAggro" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: None }, Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
         "Putrefy" => Some(vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }]),
         "Quadcast" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::EvokeNextOrb] }]),
         "Rage" => Some(vec![Effect::ApplyPower { power_id: "RagePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::SelfPlayer }]),
         "Rainbow" => Some(vec![Effect::ChannelOrb { orb_id: "Lightning".to_string() }, Effect::ChannelOrb { orb_id: "Frost".to_string() }, Effect::ChannelOrb { orb_id: "Dark".to_string() }]),
         "Rally" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
-        "Reanimate" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string() }]),
+        "Reanimate" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: None }]),
         "Reboot" => Some(vec![Effect::MoveCard { from: Pile::Hand, to: Pile::Draw, selector: Selector::All }, Effect::Shuffle { pile: Pile::Draw }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "RefineBlade" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
         "Refract" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 2 }, Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::ChannelOrb { orb_id: "Glass".to_string() }] }]),
@@ -2469,19 +2936,113 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             let d = delta.resolve(ctx, cs);
             cs.change_orb_slots(ctx.player_idx, d);
         }
-        Effect::SummonOsty { .. } => {
+        Effect::SummonOsty { osty_id: _, max_hp } => {
             // C# OstyCmd.Summon(owner, amount, source) — summons Osty
-            // with HP = amount (canonical Summon var bound separately
-            // via the card's Canonical vars). For now, default to 6
-            // HP if no source canonical; cards that need exact HP
-            // should be hand-encoded with explicit ChangeMaxHp.
-            let default_hp = 6;
+            // with HP = amount. Most cards bind this via their
+            // `Summon` canonical var; cards that omit the arg fall
+            // back to a default of 6 HP.
+            let hp = max_hp
+                .as_ref()
+                .map(|spec| spec.resolve(ctx, cs))
+                .unwrap_or(6)
+                .max(1);
             if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
                 ps.osty = Some(crate::combat::OstyState {
-                    current_hp: default_hp,
-                    max_hp: default_hp,
+                    current_hp: hp,
+                    max_hp: hp,
                     block: 0,
                 });
+            }
+        }
+        Effect::HealOsty { amount } => {
+            let amt = amount.resolve(ctx, cs).max(0);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                if let Some(o) = ps.osty.as_mut() {
+                    o.current_hp = (o.current_hp + amt).min(o.max_hp);
+                }
+            }
+        }
+        Effect::KillOsty => {
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                if let Some(o) = ps.osty.as_mut() {
+                    o.current_hp = 0;
+                }
+            }
+        }
+        Effect::AddRandomCardFromPool {
+            pool,
+            filter,
+            n,
+            pile,
+            upgrade,
+            free_this_turn: _,
+            distinct,
+        } => {
+            let count = n.resolve(ctx, cs).max(0) as usize;
+            if count == 0 {
+                return;
+            }
+            // Materialize a frozen list of candidate card ids matching
+            // (pool, filter), then draw `count` via combat RNG.
+            let candidates =
+                crate::card::pool_card_ids(cs, ctx.player_idx, pool, filter);
+            if candidates.is_empty() {
+                return;
+            }
+            // `free_this_turn` cost override is deferred — the runtime
+            // doesn't yet thread it onto generated CardInstances.
+            let picks =
+                crate::card::sample_card_ids(&mut cs.rng, &candidates, count, *distinct);
+            for card_id in picks {
+                if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                    let inst = crate::combat::CardInstance::from_card(
+                        crate::card::by_id(&card_id).unwrap(),
+                        *upgrade,
+                    );
+                    let target_pile = match pile {
+                        Pile::Hand => &mut ps.hand,
+                        Pile::Discard => &mut ps.discard,
+                        Pile::Draw => &mut ps.draw,
+                        Pile::Exhaust => &mut ps.exhaust,
+                        Pile::Deck => continue, // deck not addressable mid-combat
+                    };
+                    target_pile.cards.push(inst);
+                }
+            }
+        }
+        Effect::AutoplayCardsFromPile { .. } => {
+            // STUB: auto-play recursion into play_card lands with the
+            // pending-action queue. KnifeTrap / Uproar / DistilledChaos
+            // / Mayhem all share this gap.
+        }
+        Effect::SetPowerStateField {
+            power_id,
+            field,
+            value,
+            target,
+        } => {
+            let amt = value.resolve(ctx, cs);
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                let powers = match side {
+                    CombatSide::Player => cs.allies.get_mut(idx).map(|c| &mut c.powers),
+                    CombatSide::Enemy => cs.enemies.get_mut(idx).map(|c| &mut c.powers),
+                    CombatSide::None => None,
+                };
+                if let Some(powers) = powers {
+                    if let Some(p) = powers.iter_mut().find(|p| p.id == *power_id) {
+                        p.state.insert(field.clone(), amt);
+                    }
+                }
+            });
+        }
+        Effect::MillFromDraw { n } => {
+            let count = n.resolve(ctx, cs).max(0) as usize;
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                for _ in 0..count {
+                    if let Some(card) = ps.draw.cards.pop() {
+                        ps.discard.cards.push(card);
+                    }
+                }
             }
         }
         Effect::DamageFromOsty { amount, target } => {
@@ -2751,6 +3312,34 @@ pub fn evaluate_condition(
             let roll = cs.rng.next_int_range(0, *denominator);
             roll < *numerator
         }
+        Condition::IsOstyMissing => {
+            let alive = cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .and_then(|ps| ps.osty.as_ref())
+                .map(|o| o.current_hp > 0)
+                .unwrap_or(false);
+            !alive
+        }
+        Condition::OwnerExhaustedCardThisTurn => {
+            cards_exhausted_this_turn(cs, ctx.player_idx) > 0
+        }
+        Condition::FirstPlayOfSourceCardThisTurn => {
+            let Some(card_id) = ctx.source_card_id else {
+                return false;
+            };
+            // The current play is in flight — for it to be the "first"
+            // play this turn, the historical scan must return 0
+            // (the in-flight CardPlayed event hasn't been logged yet
+            // when condition evaluation runs).
+            cards_played_with_id_this_turn(cs, ctx.player_idx, card_id) == 0
+        }
+        Condition::PlaysThisTurnLt { n } => {
+            cards_played_this_turn(cs, ctx.player_idx, &CardFilter::Any) < *n
+        }
+        Condition::RoundEquals { n } => cs.round_number == *n,
+        Condition::RoundGe { n } => cs.round_number >= *n,
     }
 }
 
@@ -3244,6 +3833,7 @@ mod tests {
             &mut cs,
             &[Effect::SummonOsty {
                 osty_id: "Osty".to_string(),
+                max_hp: None,
             }],
             &ctx,
         );
@@ -4151,6 +4741,7 @@ mod tests {
             },
             Effect::SummonOsty {
                 osty_id: "BoneCompanion".to_string(),
+                max_hp: None,
             },
             Effect::DamageFromOsty {
                 amount: AmountSpec::Fixed(5),

@@ -174,6 +174,111 @@ pub fn by_id(id: &str) -> Option<&'static CardData> {
     CARD_INDEX.get(id).copied()
 }
 
+/// Resolve a [`crate::effects::CardPoolRef`] + filter against the live
+/// combat state, yielding a fresh `Vec<String>` of candidate card ids.
+/// The owning player's character drives `CharacterAny`/`CharacterAttack`/
+/// etc.; `Colorless` ignores the player. Used by
+/// `Effect::AddRandomCardFromPool` dispatch.
+pub fn pool_card_ids(
+    cs: &crate::combat::CombatState,
+    player_idx: usize,
+    pool: &crate::effects::CardPoolRef,
+    filter: &crate::effects::CardFilter,
+) -> Vec<String> {
+    use crate::effects::{CardFilter, CardPoolRef};
+
+    // Resolve the owning player's character to a card-pool id. The
+    // player's model_id IS the character id (mirrors C#'s ModelDb keying).
+    let character_pool_id: Option<&str> = cs
+        .allies
+        .get(player_idx)
+        .map(|c| c.model_id.as_str())
+        .and_then(|cid| crate::character::by_id(cid).and_then(|cd| cd.card_pool.as_deref()));
+
+    let pool_str: &str = match pool {
+        CardPoolRef::CharacterAny
+        | CardPoolRef::CharacterAttack
+        | CardPoolRef::CharacterSkill
+        | CardPoolRef::CharacterPower => match character_pool_id {
+            Some(p) => p,
+            None => return Vec::new(),
+        },
+        CardPoolRef::Colorless => "Colorless",
+    };
+    let type_gate = match pool {
+        CardPoolRef::CharacterAttack => Some(CardType::Attack),
+        CardPoolRef::CharacterSkill => Some(CardType::Skill),
+        CardPoolRef::CharacterPower => Some(CardType::Power),
+        _ => None,
+    };
+
+    let mut out: Vec<String> = Vec::new();
+    for card in ALL_CARDS.iter() {
+        if card.pool != pool_str {
+            continue;
+        }
+        if !card.show_in_library {
+            continue;
+        }
+        if let Some(t) = type_gate {
+            if card.card_type != t {
+                continue;
+            }
+        }
+        let extra_ok = match filter {
+            CardFilter::Any => true,
+            CardFilter::Upgradable => card.max_upgrade_level > 0,
+            CardFilter::OfType(name) => match name.as_str() {
+                "Attack" => card.card_type == CardType::Attack,
+                "Skill" => card.card_type == CardType::Skill,
+                "Power" => card.card_type == CardType::Power,
+                "Status" => card.card_type == CardType::Status,
+                "Curse" => card.card_type == CardType::Curse,
+                _ => false,
+            },
+            CardFilter::HasKeyword(kw) => card.keywords.iter().any(|k| k == kw),
+            CardFilter::TaggedAs(tag) => card.tags.iter().any(|t| t == tag),
+        };
+        if !extra_ok {
+            continue;
+        }
+        out.push(card.id.clone());
+    }
+    out
+}
+
+/// Sample `n` card ids from `candidates` using the supplied combat RNG.
+/// `distinct == true` mirrors C# `CardFactory.GetDistinctForCombat`
+/// (no replacement); `false` allows repeats.
+pub fn sample_card_ids(
+    rng: &mut crate::rng::Rng,
+    candidates: &[String],
+    n: usize,
+    distinct: bool,
+) -> Vec<String> {
+    if candidates.is_empty() || n == 0 {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    if distinct {
+        // Without replacement: shuffle a copy and take the first n.
+        let mut pool: Vec<String> = candidates.to_vec();
+        for i in (1..pool.len()).rev() {
+            let j = rng.next_int_range(0, (i + 1) as i32) as usize;
+            pool.swap(i, j);
+        }
+        for id in pool.into_iter().take(n) {
+            out.push(id);
+        }
+    } else {
+        for _ in 0..n {
+            let idx = rng.next_int_range(0, candidates.len() as i32) as usize;
+            out.push(candidates[idx].clone());
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
