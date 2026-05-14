@@ -1182,6 +1182,22 @@ impl CombatState {
         self.apply_power(side, target_idx, power_id, -amount)
     }
 
+    /// Remove a power outright regardless of its stack type. Used by
+    /// effects like Verdict that "Remove<SoarPower>" — Single-stack
+    /// powers can't be decremented via apply_power (which is a no-op
+    /// for Single regardless of negative amount), so unconditional
+    /// removal is needed.
+    pub fn remove_power(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        power_id: &str,
+    ) {
+        if let Some(target) = creature_mut(self, side, target_idx) {
+            target.powers.retain(|p| p.id != power_id);
+        }
+    }
+
     /// Returns the current stack count of a power on a creature, or 0 if
     /// the power isn't applied.
     pub fn get_power_amount(
@@ -2877,6 +2893,10 @@ fn power_multiplicative_target(power: &PowerInstance, props: ValueProp) -> f64 {
     match power.id.as_str() {
         // VulnerablePower: ×1.5 on powered attacks landing on the owner.
         "VulnerablePower" => 1.5,
+        // SoarPower: ×0.50 (= DamageDecrease 50 / 100) on powered
+        // attacks landing on the owner. OwlMagistrate's flight buff —
+        // present while flying, removed on Verdict.
+        "SoarPower" if power.amount > 0 => 0.50,
         _ => 1.0,
     }
 }
@@ -3404,6 +3424,118 @@ pub fn execute_flail_knight_move(
                 FLAIL_KNIGHT_RAM_DAMAGE,
                 ValueProp::MOVE,
             );
+        }
+    }
+}
+
+// ---------- Monster intent: OwlMagistrate ------------------------------
+//
+// Reflects C# `OwlMagistrate.GenerateMoveStateMachine`:
+//   Init: MAGISTRATE_SCRUTINY.
+//   Cycle: Scrutiny → PeckAssault → JudicialFlight → Verdict →
+//          Scrutiny → … (deterministic, no RNG).
+//
+// IsFlying flag toggles on JudicialFlight, off on Verdict — purely
+// animation/sfx in C#. Not tracked here. SoarPower is the gameplay
+// effect (×0.50 incoming powered damage), wired into
+// power_multiplicative_target.
+//
+// A0 payloads:
+//   - Scrutiny:       16 damage (DeadlyEnemies: 17)
+//   - PeckAssault:    4 damage × 6 hits (const)
+//   - JudicialFlight: apply SoarPower(1) to self
+//   - Verdict:        33 damage (DeadlyEnemies: 36) + 4 Vulnerable
+//                     on player; remove SoarPower from self
+
+const OWL_MAGISTRATE_SCRUTINY_DAMAGE: i32 = 16;
+const OWL_MAGISTRATE_PECK_DAMAGE: i32 = 4;
+const OWL_MAGISTRATE_PECK_HITS: i32 = 6;
+const OWL_MAGISTRATE_VERDICT_DAMAGE: i32 = 33;
+const OWL_MAGISTRATE_VERDICT_VULN: i32 = 4;
+const OWL_MAGISTRATE_SOAR_AMOUNT: i32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum OwlMagistrateIntent {
+    Scrutiny,
+    PeckAssault,
+    JudicialFlight,
+    Verdict,
+}
+
+impl OwlMagistrateIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            OwlMagistrateIntent::Scrutiny => "MAGISTRATE_SCRUTINY",
+            OwlMagistrateIntent::PeckAssault => "PECK_ASSAULT",
+            OwlMagistrateIntent::JudicialFlight => "JUDICIAL_FLIGHT",
+            OwlMagistrateIntent::Verdict => "VERDICT",
+        }
+    }
+}
+
+pub fn pick_owl_magistrate_intent(
+    last_intent: Option<OwlMagistrateIntent>,
+) -> OwlMagistrateIntent {
+    match last_intent {
+        None => OwlMagistrateIntent::Scrutiny,
+        Some(OwlMagistrateIntent::Scrutiny) => OwlMagistrateIntent::PeckAssault,
+        Some(OwlMagistrateIntent::PeckAssault) => OwlMagistrateIntent::JudicialFlight,
+        Some(OwlMagistrateIntent::JudicialFlight) => OwlMagistrateIntent::Verdict,
+        Some(OwlMagistrateIntent::Verdict) => OwlMagistrateIntent::Scrutiny,
+    }
+}
+
+pub fn execute_owl_magistrate_move(
+    cs: &mut CombatState,
+    owl_idx: usize,
+    target_player_idx: usize,
+    intent: OwlMagistrateIntent,
+) {
+    let attacker = (CombatSide::Enemy, owl_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        OwlMagistrateIntent::Scrutiny => {
+            cs.deal_damage(
+                attacker,
+                player,
+                OWL_MAGISTRATE_SCRUTINY_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        OwlMagistrateIntent::PeckAssault => {
+            for _ in 0..OWL_MAGISTRATE_PECK_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    OWL_MAGISTRATE_PECK_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        OwlMagistrateIntent::JudicialFlight => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                owl_idx,
+                "SoarPower",
+                OWL_MAGISTRATE_SOAR_AMOUNT,
+            );
+        }
+        OwlMagistrateIntent::Verdict => {
+            cs.deal_damage(
+                attacker,
+                player,
+                OWL_MAGISTRATE_VERDICT_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "VulnerablePower",
+                OWL_MAGISTRATE_VERDICT_VULN,
+            );
+            // Remove SoarPower from self (Single-stack, can't go
+            // negative via apply_power; use the explicit remover).
+            cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
         }
     }
 }
@@ -9595,6 +9727,103 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- OwlMagistrate + SoarPower tests ---------------------------
+
+    #[test]
+    fn owl_magistrate_chain_scrutiny_peck_flight_verdict() {
+        assert_eq!(
+            pick_owl_magistrate_intent(None),
+            OwlMagistrateIntent::Scrutiny
+        );
+        assert_eq!(
+            pick_owl_magistrate_intent(Some(OwlMagistrateIntent::Scrutiny)),
+            OwlMagistrateIntent::PeckAssault
+        );
+        assert_eq!(
+            pick_owl_magistrate_intent(Some(OwlMagistrateIntent::PeckAssault)),
+            OwlMagistrateIntent::JudicialFlight
+        );
+        assert_eq!(
+            pick_owl_magistrate_intent(Some(
+                OwlMagistrateIntent::JudicialFlight
+            )),
+            OwlMagistrateIntent::Verdict
+        );
+        assert_eq!(
+            pick_owl_magistrate_intent(Some(OwlMagistrateIntent::Verdict)),
+            OwlMagistrateIntent::Scrutiny
+        );
+    }
+
+    #[test]
+    fn owl_magistrate_judicial_flight_applies_soar() {
+        let mut cs = ironclad_combat();
+        execute_owl_magistrate_move(
+            &mut cs,
+            0,
+            0,
+            OwlMagistrateIntent::JudicialFlight,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SoarPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn owl_magistrate_verdict_payload_and_removes_soar() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "SoarPower", 1);
+        let hp = cs.allies[0].current_hp;
+        execute_owl_magistrate_move(
+            &mut cs,
+            0,
+            0,
+            OwlMagistrateIntent::Verdict,
+        );
+        // 33 damage halved by SoarPower? NO — SoarPower is on the
+        // attacker (target=Owner), reducing incoming damage to Owner.
+        // Verdict attacks the PLAYER, who doesn't have Soar. Full 33.
+        assert_eq!(cs.allies[0].current_hp, hp - 33);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "VulnerablePower"),
+            4
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SoarPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn soar_halves_incoming_powered_damage() {
+        // Apply Soar to player; enemy deals 10 damage to player → 5.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "SoarPower", 1);
+        let hp = cs.allies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 5);
+    }
+
+    #[test]
+    fn soar_does_not_affect_unpowered_damage() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "SoarPower", 1);
+        let hp = cs.allies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            10,
+            ValueProp::UNPOWERED.with(ValueProp::MOVE),
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 10);
     }
 
     // ---------- CalcifiedCultist + RitualPower tests ----------------------
