@@ -3265,6 +3265,120 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: CorpseSlug ---------------------------------
+//
+// Reflects C# `CorpseSlug.GenerateMoveStateMachine`:
+//   On spawn: applies RavenousPower(4). The full RavenousPower hook
+//   (AfterDeath → eat dead teammate → Stun for 1 turn → gain Strength
+//   = Amount permanently) is deferred — needs the Stun mechanic and
+//   per-monster IsRavenous flag. For now the Power stack is just
+//   present on the slug (visible in observation) but doesn't fire on
+//   teammate death.
+//
+//   Init: starter_move_idx % 3:
+//     0 → WhipSlap   1 → Glomp   2 (default) → Goop
+//
+//   Cycle (FollowUpState chain, no RNG):
+//     WhipSlap → Glomp → Goop → WhipSlap → …
+//
+// A0 payloads:
+//   - WhipSlap: 3 damage × 2 hits (const)
+//   - Glomp:    8 damage (DeadlyEnemies: 9)
+//   - Goop:     apply 2 Frail (const) — uses FrailPower which we have
+//   - Ravenous strength gain (deferred): +4 (DeadlyEnemies: 5)
+
+const CORPSE_SLUG_WHIP_SLAP_DAMAGE: i32 = 3;
+const CORPSE_SLUG_WHIP_SLAP_HITS: i32 = 2;
+const CORPSE_SLUG_GLOMP_DAMAGE: i32 = 8;
+const CORPSE_SLUG_GOOP_FRAIL: i32 = 2;
+const CORPSE_SLUG_RAVENOUS_AMOUNT: i32 = 4;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CorpseSlugIntent {
+    WhipSlap,
+    Glomp,
+    Goop,
+}
+
+impl CorpseSlugIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            CorpseSlugIntent::WhipSlap => "WHIP_SLAP_MOVE",
+            CorpseSlugIntent::Glomp => "GLOMP_MOVE",
+            CorpseSlugIntent::Goop => "GOOP_MOVE",
+        }
+    }
+}
+
+/// The CorpseSlug spawn payload — caller invokes this once when the
+/// slug is added to combat. Equivalent to C# `AfterAddedToRoom`.
+pub fn corpse_slug_spawn(cs: &mut CombatState, slug_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        slug_idx,
+        "RavenousPower",
+        CORPSE_SLUG_RAVENOUS_AMOUNT,
+    );
+}
+
+/// Pick CorpseSlug's next intent.
+///   - First turn: starter_move_idx % 3 → WhipSlap / Glomp / Goop.
+///   - Subsequent: deterministic cycle WhipSlap → Glomp → Goop.
+pub fn pick_corpse_slug_intent(
+    last_intent: Option<CorpseSlugIntent>,
+    starter_move_idx: i32,
+) -> CorpseSlugIntent {
+    match last_intent {
+        None => match starter_move_idx.rem_euclid(3) {
+            0 => CorpseSlugIntent::WhipSlap,
+            1 => CorpseSlugIntent::Glomp,
+            _ => CorpseSlugIntent::Goop,
+        },
+        Some(CorpseSlugIntent::WhipSlap) => CorpseSlugIntent::Glomp,
+        Some(CorpseSlugIntent::Glomp) => CorpseSlugIntent::Goop,
+        Some(CorpseSlugIntent::Goop) => CorpseSlugIntent::WhipSlap,
+    }
+}
+
+/// Execute one CorpseSlug move's payload.
+pub fn execute_corpse_slug_move(
+    cs: &mut CombatState,
+    slug_idx: usize,
+    target_player_idx: usize,
+    intent: CorpseSlugIntent,
+) {
+    let attacker = (CombatSide::Enemy, slug_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        CorpseSlugIntent::WhipSlap => {
+            for _ in 0..CORPSE_SLUG_WHIP_SLAP_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    CORPSE_SLUG_WHIP_SLAP_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        CorpseSlugIntent::Glomp => {
+            cs.deal_damage(
+                attacker,
+                player,
+                CORPSE_SLUG_GLOMP_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        CorpseSlugIntent::Goop => {
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "FrailPower",
+                CORPSE_SLUG_GOOP_FRAIL,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: ScrollOfBiting -----------------------------
 //
 // Reflects C# `ScrollOfBiting.GenerateMoveStateMachine`:
@@ -7928,6 +8042,88 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- CorpseSlug tests ------------------------------------------
+
+    #[test]
+    fn corpse_slug_starter_zero_is_whip_slap() {
+        assert_eq!(
+            pick_corpse_slug_intent(None, 0),
+            CorpseSlugIntent::WhipSlap
+        );
+        assert_eq!(
+            pick_corpse_slug_intent(None, 3),
+            CorpseSlugIntent::WhipSlap
+        );
+    }
+
+    #[test]
+    fn corpse_slug_starter_one_is_glomp() {
+        assert_eq!(
+            pick_corpse_slug_intent(None, 1),
+            CorpseSlugIntent::Glomp
+        );
+    }
+
+    #[test]
+    fn corpse_slug_starter_two_is_goop() {
+        assert_eq!(
+            pick_corpse_slug_intent(None, 2),
+            CorpseSlugIntent::Goop
+        );
+    }
+
+    #[test]
+    fn corpse_slug_cycle_whipslap_glomp_goop() {
+        assert_eq!(
+            pick_corpse_slug_intent(Some(CorpseSlugIntent::WhipSlap), 0),
+            CorpseSlugIntent::Glomp
+        );
+        assert_eq!(
+            pick_corpse_slug_intent(Some(CorpseSlugIntent::Glomp), 0),
+            CorpseSlugIntent::Goop
+        );
+        assert_eq!(
+            pick_corpse_slug_intent(Some(CorpseSlugIntent::Goop), 0),
+            CorpseSlugIntent::WhipSlap
+        );
+    }
+
+    #[test]
+    fn corpse_slug_whip_slap_hits_player_twice_for_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_corpse_slug_move(&mut cs, 0, 0, CorpseSlugIntent::WhipSlap);
+        assert_eq!(cs.allies[0].current_hp, hp - 6);
+    }
+
+    #[test]
+    fn corpse_slug_glomp_deals_eight() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_corpse_slug_move(&mut cs, 0, 0, CorpseSlugIntent::Glomp);
+        assert_eq!(cs.allies[0].current_hp, hp - 8);
+    }
+
+    #[test]
+    fn corpse_slug_goop_applies_two_frail() {
+        let mut cs = ironclad_combat();
+        execute_corpse_slug_move(&mut cs, 0, 0, CorpseSlugIntent::Goop);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "FrailPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn corpse_slug_spawn_applies_ravenous() {
+        let mut cs = ironclad_combat();
+        corpse_slug_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "RavenousPower"),
+            4
         );
     }
 
