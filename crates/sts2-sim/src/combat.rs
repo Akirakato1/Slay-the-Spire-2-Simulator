@@ -3351,6 +3351,124 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: MechaKnight --------------------------------
+//
+// Reflects C# `MechaKnight.GenerateMoveStateMachine`:
+//   Init: CHARGE_MOVE.
+//   Chain: Charge → Flamethrower → Windup → HeavyCleave →
+//          Flamethrower → Windup → HeavyCleave → … (Charge fires once;
+//          Flamethrower / Windup / HeavyCleave loop forever).
+//
+// On spawn: ArtifactPower(3) (presence-only — debuff-absorb behavior
+// deferred).
+//
+// A0 payloads:
+//   - Charge:      25 damage (DeadlyEnemies: 30)
+//   - Flamethrower: add 4 Burn status cards to player's hand
+//   - Windup:      15 self-block + 5 self-Strength (consts)
+//   - HeavyCleave: 35 damage (DeadlyEnemies: 40)
+//
+// IsWoundUp flag (set on Windup, cleared on HeavyCleave) is purely
+// animation in C# — no functional effect — so we don't track it.
+
+const MECHA_KNIGHT_CHARGE_DAMAGE: i32 = 25;
+const MECHA_KNIGHT_FLAMETHROWER_BURN_COUNT: i32 = 4;
+const MECHA_KNIGHT_WINDUP_BLOCK: i32 = 15;
+const MECHA_KNIGHT_WINDUP_STRENGTH: i32 = 5;
+const MECHA_KNIGHT_HEAVY_CLEAVE_DAMAGE: i32 = 35;
+const MECHA_KNIGHT_ARTIFACT_AMOUNT: i32 = 3;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MechaKnightIntent {
+    Charge,
+    Flamethrower,
+    Windup,
+    HeavyCleave,
+}
+
+impl MechaKnightIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            MechaKnightIntent::Charge => "CHARGE_MOVE",
+            MechaKnightIntent::Flamethrower => "FLAMETHROWER_MOVE",
+            MechaKnightIntent::Windup => "WINDUP_MOVE",
+            MechaKnightIntent::HeavyCleave => "HEAVY_CLEAVE_MOVE",
+        }
+    }
+}
+
+pub fn mecha_knight_spawn(cs: &mut CombatState, knight_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        knight_idx,
+        "ArtifactPower",
+        MECHA_KNIGHT_ARTIFACT_AMOUNT,
+    );
+}
+
+pub fn pick_mecha_knight_intent(
+    last_intent: Option<MechaKnightIntent>,
+) -> MechaKnightIntent {
+    match last_intent {
+        None => MechaKnightIntent::Charge,
+        Some(MechaKnightIntent::Charge) => MechaKnightIntent::Flamethrower,
+        Some(MechaKnightIntent::Flamethrower) => MechaKnightIntent::Windup,
+        Some(MechaKnightIntent::Windup) => MechaKnightIntent::HeavyCleave,
+        Some(MechaKnightIntent::HeavyCleave) => MechaKnightIntent::Flamethrower,
+    }
+}
+
+pub fn execute_mecha_knight_move(
+    cs: &mut CombatState,
+    knight_idx: usize,
+    target_player_idx: usize,
+    intent: MechaKnightIntent,
+) {
+    let attacker = (CombatSide::Enemy, knight_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        MechaKnightIntent::Charge => {
+            cs.deal_damage(
+                attacker,
+                player,
+                MECHA_KNIGHT_CHARGE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        MechaKnightIntent::Flamethrower => {
+            for _ in 0..MECHA_KNIGHT_FLAMETHROWER_BURN_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Burn",
+                    0,
+                    PileType::Hand,
+                );
+            }
+        }
+        MechaKnightIntent::Windup => {
+            cs.gain_block(
+                CombatSide::Enemy,
+                knight_idx,
+                MECHA_KNIGHT_WINDUP_BLOCK,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                knight_idx,
+                "StrengthPower",
+                MECHA_KNIGHT_WINDUP_STRENGTH,
+            );
+        }
+        MechaKnightIntent::HeavyCleave => {
+            cs.deal_damage(
+                attacker,
+                player,
+                MECHA_KNIGHT_HEAVY_CLEAVE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: Entomancer ---------------------------------
 //
 // Reflects C# `Entomancer.GenerateMoveStateMachine`:
@@ -9071,6 +9189,85 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- MechaKnight tests -----------------------------------------
+
+    #[test]
+    fn mecha_knight_chain_charge_flame_windup_cleave_then_loops() {
+        assert_eq!(
+            pick_mecha_knight_intent(None),
+            MechaKnightIntent::Charge
+        );
+        assert_eq!(
+            pick_mecha_knight_intent(Some(MechaKnightIntent::Charge)),
+            MechaKnightIntent::Flamethrower
+        );
+        assert_eq!(
+            pick_mecha_knight_intent(Some(MechaKnightIntent::Flamethrower)),
+            MechaKnightIntent::Windup
+        );
+        assert_eq!(
+            pick_mecha_knight_intent(Some(MechaKnightIntent::Windup)),
+            MechaKnightIntent::HeavyCleave
+        );
+        // HeavyCleave loops back to Flamethrower (not Charge — Charge
+        // fires once only).
+        assert_eq!(
+            pick_mecha_knight_intent(Some(MechaKnightIntent::HeavyCleave)),
+            MechaKnightIntent::Flamethrower
+        );
+    }
+
+    #[test]
+    fn mecha_knight_charge_deals_twenty_five() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_mecha_knight_move(&mut cs, 0, 0, MechaKnightIntent::Charge);
+        assert_eq!(cs.allies[0].current_hp, hp - 25);
+    }
+
+    #[test]
+    fn mecha_knight_flamethrower_adds_four_burns() {
+        let mut cs = ironclad_combat();
+        execute_mecha_knight_move(
+            &mut cs,
+            0,
+            0,
+            MechaKnightIntent::Flamethrower,
+        );
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        let burns = ps.hand.cards.iter().filter(|c| c.id == "Burn").count();
+        assert_eq!(burns, 4);
+    }
+
+    #[test]
+    fn mecha_knight_windup_gains_fifteen_block_five_strength() {
+        let mut cs = ironclad_combat();
+        execute_mecha_knight_move(&mut cs, 0, 0, MechaKnightIntent::Windup);
+        assert_eq!(cs.enemies[0].block, 15);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            5
+        );
+    }
+
+    #[test]
+    fn mecha_knight_heavy_cleave_deals_thirty_five() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_mecha_knight_move(&mut cs, 0, 0, MechaKnightIntent::HeavyCleave);
+        assert_eq!(cs.allies[0].current_hp, hp - 35);
+    }
+
+    #[test]
+    fn mecha_knight_spawn_applies_artifact_three() {
+        let mut cs = ironclad_combat();
+        mecha_knight_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ArtifactPower"),
+            3
         );
     }
 
