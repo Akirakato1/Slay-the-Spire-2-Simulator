@@ -286,6 +286,17 @@ impl PyCombatEnv {
 /// otherwise available (the `.run`-driven harness path).
 const DEFAULT_SLOTS: &[&str] = &["front", "back", "third", "fourth", "fifth"];
 
+/// Map `.run`-file display-title aliases to canonical class names.
+/// Today this covers the C# title-swap pattern (e.g. Doormaker shows
+/// "Door" while its IsPortalOpen flag is false). Add more entries as
+/// the corpus surfaces them.
+fn normalize_monster_alias(id: &str) -> &str {
+    match id {
+        "Door" => "Doormaker",
+        other => other,
+    }
+}
+
 fn build_env_from_monsters(
     seed: u32,
     character_id: &str,
@@ -298,7 +309,12 @@ fn build_env_from_monsters(
         .iter()
         .enumerate()
         .map(|(i, m)| encounter::MonsterSpawn {
-            monster: m.clone(),
+            // Normalize .run-recorded model_id aliases to the
+            // canonical class name. C# Doormaker switches its
+            // displayed title to "Door" while IsPortalOpen=false;
+            // some .run files capture that title instead of the
+            // class name. Both refer to the same monster.
+            monster: normalize_monster_alias(m).to_string(),
             slot: DEFAULT_SLOTS
                 .get(i)
                 .copied()

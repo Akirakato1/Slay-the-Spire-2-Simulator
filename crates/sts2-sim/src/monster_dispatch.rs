@@ -160,6 +160,8 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "Fabricator"
             | "TheObscura"
             | "LivingFog"
+            | "WaterfallGiant"
+            | "TwoTailedRat"
     )
 }
 
@@ -774,6 +776,36 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "WaterfallGiant" => {
+            let last = last_ref.and_then(|s| match s {
+                "PRESSURIZE_MOVE" => Some(WaterfallGiantIntent::Pressurize),
+                "STOMP_MOVE" => Some(WaterfallGiantIntent::Stomp),
+                "RAM_MOVE" => Some(WaterfallGiantIntent::Ram),
+                "SIPHON_MOVE" => Some(WaterfallGiantIntent::Siphon),
+                "PRESSURE_GUN_MOVE" => Some(WaterfallGiantIntent::PressureGun),
+                "PRESSURE_UP_MOVE" => Some(WaterfallGiantIntent::PressureUp),
+                _ => None,
+            });
+            let intent = pick_waterfall_giant_intent(last);
+            execute_waterfall_giant_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "TwoTailedRat" => {
+            let last = last_ref.and_then(|s| match s {
+                "SCRATCH_MOVE" => Some(TwoTailedRatIntent::Scratch),
+                "DISEASE_BITE_MOVE" => Some(TwoTailedRatIntent::DiseaseBite),
+                "SCREECH_MOVE" => Some(TwoTailedRatIntent::Screech),
+                "CALL_FOR_BACKUP_MOVE" => Some(TwoTailedRatIntent::CallForBackup),
+                _ => None,
+            });
+            // slot index 0..N from the encounter slot string.
+            let slot_idx = (slot_index_1based(&slot).saturating_sub(1)) as u8;
+            let mut rng = take_rng(cs);
+            let intent = pick_two_tailed_rat_intent(&mut rng, last, slot_idx);
+            put_rng(cs, rng);
+            execute_two_tailed_rat_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "TheObscura" => {

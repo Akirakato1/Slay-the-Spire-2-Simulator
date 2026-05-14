@@ -4129,6 +4129,245 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: WaterfallGiant (boss) ----------------------
+//
+// Reflects C# `WaterfallGiant.GenerateMoveStateMachine`. Main 6-state
+// chain: Pressurize → Stomp → Ram → Siphon → PressureGun → PressureUp
+// → Stomp (loop). C# also has an AboutToBlow → Explode death-blow
+// path triggered by SteamEruptionPower hitting a threshold — both
+// deferred since SteamEruption's accumulation hook isn't ported. Each
+// move just deals damage / heals / applies the player debuffs; the
+// SteamEruption(3) tick is skipped.
+//
+// A0 payloads:
+//   - Pressurize:  no-op (applies SteamEruption(15) in C# — skipped)
+//   - Stomp:       15 dmg + 1 Weak on player (DeadlyEnemies: 16)
+//   - Ram:         10 dmg (DeadlyEnemies: 11)
+//   - Siphon:      heal 15 * playercount (15 self solo)
+//   - PressureGun: starts 20 dmg, +5/use (DeadlyEnemies base: 23)
+//   - PressureUp:  13 dmg (DeadlyEnemies: 14)
+
+const WATERFALL_STOMP_DAMAGE: i32 = 15;
+const WATERFALL_STOMP_WEAK: i32 = 1;
+const WATERFALL_RAM_DAMAGE: i32 = 10;
+const WATERFALL_SIPHON_HEAL: i32 = 15;
+const WATERFALL_PRESSURE_GUN_BASE: i32 = 20;
+const WATERFALL_PRESSURE_GUN_INCREASE: i32 = 5;
+const WATERFALL_PRESSURE_UP_DAMAGE: i32 = 13;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum WaterfallGiantIntent {
+    Pressurize,
+    Stomp,
+    Ram,
+    Siphon,
+    PressureGun,
+    PressureUp,
+}
+
+impl WaterfallGiantIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            WaterfallGiantIntent::Pressurize => "PRESSURIZE_MOVE",
+            WaterfallGiantIntent::Stomp => "STOMP_MOVE",
+            WaterfallGiantIntent::Ram => "RAM_MOVE",
+            WaterfallGiantIntent::Siphon => "SIPHON_MOVE",
+            WaterfallGiantIntent::PressureGun => "PRESSURE_GUN_MOVE",
+            WaterfallGiantIntent::PressureUp => "PRESSURE_UP_MOVE",
+        }
+    }
+}
+
+pub fn pick_waterfall_giant_intent(
+    last_intent: Option<WaterfallGiantIntent>,
+) -> WaterfallGiantIntent {
+    match last_intent {
+        None => WaterfallGiantIntent::Pressurize,
+        Some(WaterfallGiantIntent::Pressurize) => WaterfallGiantIntent::Stomp,
+        Some(WaterfallGiantIntent::Stomp) => WaterfallGiantIntent::Ram,
+        Some(WaterfallGiantIntent::Ram) => WaterfallGiantIntent::Siphon,
+        Some(WaterfallGiantIntent::Siphon) => WaterfallGiantIntent::PressureGun,
+        Some(WaterfallGiantIntent::PressureGun) => WaterfallGiantIntent::PressureUp,
+        Some(WaterfallGiantIntent::PressureUp) => WaterfallGiantIntent::Stomp,
+    }
+}
+
+pub fn execute_waterfall_giant_move(
+    cs: &mut CombatState,
+    giant_idx: usize,
+    target_player_idx: usize,
+    intent: WaterfallGiantIntent,
+) {
+    let attacker = (CombatSide::Enemy, giant_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        WaterfallGiantIntent::Pressurize => {
+            // No-op — SteamEruptionPower stacking deferred.
+        }
+        WaterfallGiantIntent::Stomp => {
+            cs.deal_damage(
+                attacker,
+                player,
+                WATERFALL_STOMP_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                WATERFALL_STOMP_WEAK,
+            );
+        }
+        WaterfallGiantIntent::Ram => {
+            cs.deal_damage(
+                attacker,
+                player,
+                WATERFALL_RAM_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        WaterfallGiantIntent::Siphon => {
+            cs.heal(CombatSide::Enemy, giant_idx, WATERFALL_SIPHON_HEAL);
+        }
+        WaterfallGiantIntent::PressureGun => {
+            // PressureGun damage scales by +5 each use. Tracked per
+            // monster via the existing counter map. First use deals
+            // 20; second 25; etc.
+            let extra = cs.enemies[giant_idx]
+                .monster
+                .as_ref()
+                .map(|m| m.counter("pressure_gun_uses"))
+                .unwrap_or(0);
+            let dmg = WATERFALL_PRESSURE_GUN_BASE
+                + WATERFALL_PRESSURE_GUN_INCREASE * extra;
+            cs.deal_damage(attacker, player, dmg, ValueProp::MOVE);
+            if let Some(ms) = cs.enemies[giant_idx].monster.as_mut() {
+                ms.add_counter("pressure_gun_uses", 1);
+            }
+        }
+        WaterfallGiantIntent::PressureUp => {
+            cs.deal_damage(
+                attacker,
+                player,
+                WATERFALL_PRESSURE_UP_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: TwoTailedRat -------------------------------
+//
+// Reflects C# `TwoTailedRat.GenerateMoveStateMachine`. Init via
+// StarterMoveIndex ConditionalBranch (slot 0/1/2 → Scratch/DiseaseBite/
+// Screech respectively). Thereafter RandomBranch over the 4 moves
+// (Scratch, DiseaseBite, Screech, CallForBackup) with CannotRepeat
+// + weight-modifying predicates based on CanSummon and per-rat
+// CallForBackupCount.
+//
+// Simplified port: skip CallForBackup entirely (treat as no-op,
+// summon system deferred). Cycle Scratch ↔ DiseaseBite ↔ Screech
+// uniformly random with CannotRepeat. Init still slot-derived.
+//
+// A0 payloads:
+//   - Scratch:        8 damage (DeadlyEnemies: 9)
+//   - DiseaseBite:    6 damage (DeadlyEnemies: 7); applies a Disease
+//                     card affliction in C# — deferred (just damage)
+//   - Screech:        applies 1 Weak (DebuffIntent) to player
+//   - CallForBackup:  no-op (summon TwoTailedRat — deferred)
+
+const TWO_TAILED_RAT_SCRATCH_DAMAGE: i32 = 8;
+const TWO_TAILED_RAT_DISEASE_DAMAGE: i32 = 6;
+const TWO_TAILED_RAT_SCREECH_WEAK: i32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TwoTailedRatIntent {
+    Scratch,
+    DiseaseBite,
+    Screech,
+    CallForBackup,
+}
+
+impl TwoTailedRatIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            TwoTailedRatIntent::Scratch => "SCRATCH_MOVE",
+            TwoTailedRatIntent::DiseaseBite => "DISEASE_BITE_MOVE",
+            TwoTailedRatIntent::Screech => "SCREECH_MOVE",
+            TwoTailedRatIntent::CallForBackup => "CALL_FOR_BACKUP_MOVE",
+        }
+    }
+}
+
+/// `slot` is 0-based (first=0, second=1, third=2). Init routes to
+/// Scratch/DiseaseBite/Screech respectively; fourth+ defaults to
+/// Scratch. Thereafter pick uniformly from {Scratch, DiseaseBite,
+/// Screech} with CannotRepeat — CallForBackup is excluded.
+pub fn pick_two_tailed_rat_intent(
+    rng: &mut Rng,
+    last_intent: Option<TwoTailedRatIntent>,
+    slot: u8,
+) -> TwoTailedRatIntent {
+    if last_intent.is_none() {
+        return match slot {
+            0 => TwoTailedRatIntent::Scratch,
+            1 => TwoTailedRatIntent::DiseaseBite,
+            2 => TwoTailedRatIntent::Screech,
+            _ => TwoTailedRatIntent::Scratch,
+        };
+    }
+    let allowed: Vec<TwoTailedRatIntent> = [
+        TwoTailedRatIntent::Scratch,
+        TwoTailedRatIntent::DiseaseBite,
+        TwoTailedRatIntent::Screech,
+    ]
+    .into_iter()
+    .filter(|i| Some(*i) != last_intent)
+    .collect();
+    let pick = rng.next_int_range(0, allowed.len() as i32) as usize;
+    allowed[pick]
+}
+
+pub fn execute_two_tailed_rat_move(
+    cs: &mut CombatState,
+    rat_idx: usize,
+    target_player_idx: usize,
+    intent: TwoTailedRatIntent,
+) {
+    let attacker = (CombatSide::Enemy, rat_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        TwoTailedRatIntent::Scratch => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TWO_TAILED_RAT_SCRATCH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        TwoTailedRatIntent::DiseaseBite => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TWO_TAILED_RAT_DISEASE_DAMAGE,
+                ValueProp::MOVE,
+            );
+            // C# additionally afflicts a card with Disease — deferred.
+        }
+        TwoTailedRatIntent::Screech => {
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                TWO_TAILED_RAT_SCREECH_WEAK,
+            );
+        }
+        TwoTailedRatIntent::CallForBackup => {
+            // No-op — summon system deferred.
+        }
+    }
+}
+
 // ---------- Monster intent: TheObscura ---------------------------------
 //
 // Reflects C# `TheObscura.GenerateMoveStateMachine`. Init: Illusion
