@@ -113,6 +113,29 @@ pub struct PlayerState {
     /// gating; tracked here so the data-driven effect path is
     /// future-compatible.
     pub pending_stars: i32,
+    /// Defect orb queue. Front (index 0) is the oldest. Channeling
+    /// when the queue is full evokes the front first. Mirrors C#
+    /// `PlayerCombatState.OrbQueue`.
+    pub orb_queue: Vec<OrbInstance>,
+    /// Max queue capacity. Default 3 for Defect. ChangeOrbSlots
+    /// primitive mutates this. Mirrors C# `PlayerCombatState.OrbCapacity`.
+    pub orb_slots: i32,
+    /// Pending Forge credits — increments when a card with
+    /// `Effect::Forge` is played. Mirrors C# `ForgeCmd.Forge` queue.
+    /// Card-upgrade resolution is deferred until a player-choice
+    /// mechanism lands.
+    pub pending_forge: i32,
+}
+
+/// One orb in the player's queue. Mirrors C# `OrbModel`.
+#[derive(Clone, Debug)]
+pub struct OrbInstance {
+    /// "LightningOrb" / "FrostOrb" / "DarkOrb" / "PlasmaOrb" / "GlassOrb".
+    pub id: String,
+    /// Per-orb internal value override. DarkOrb uses this to track
+    /// charge accumulated by its Passive (`_evokeVal += PassiveVal`).
+    /// Other orbs ignore.
+    pub evoke_val_bonus: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -1792,6 +1815,214 @@ impl CombatState {
         self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
         self.fire_thorns_hook(dealer, target, props);
         outcome
+    }
+
+    /// Channel an orb (push to the queue). Mirrors C# `OrbCmd.Channel<T>`
+    /// + `PlayerCombatState.AddOrbToQueue`. If the queue is full,
+    /// evoke the front orb first to make room.
+    pub fn channel_orb(&mut self, player_idx: usize, orb_id: &str) {
+        // Evoke front if at capacity.
+        let needs_evict = self
+            .allies
+            .get(player_idx)
+            .and_then(|c| c.player.as_ref())
+            .map(|ps| ps.orb_queue.len() as i32 >= ps.orb_slots)
+            .unwrap_or(false);
+        if needs_evict {
+            self.evoke_next_orb(player_idx);
+        }
+        if let Some(ps) = self
+            .allies
+            .get_mut(player_idx)
+            .and_then(|c| c.player.as_mut())
+        {
+            ps.orb_queue.push(OrbInstance {
+                id: orb_id.to_string(),
+                evoke_val_bonus: 0,
+            });
+        }
+    }
+
+    /// Evoke the front orb (pop + run its evoke effect). Mirrors C#
+    /// `OrbCmd.EvokeNext`.
+    pub fn evoke_next_orb(&mut self, player_idx: usize) {
+        let orb = {
+            let ps = self
+                .allies
+                .get_mut(player_idx)
+                .and_then(|c| c.player.as_mut());
+            let Some(ps) = ps else {
+                return;
+            };
+            if ps.orb_queue.is_empty() {
+                return;
+            }
+            ps.orb_queue.remove(0)
+        };
+        self.run_orb_evoke(player_idx, &orb);
+    }
+
+    /// Trigger the passive of every orb in the queue (without
+    /// consuming them). Lightning/Frost/Plasma all run this on a
+    /// scheduled phase. Card-driven trigger (TriggerOrbPassive
+    /// primitive) also lands here.
+    pub fn trigger_orb_passives(&mut self, player_idx: usize) {
+        let orbs: Vec<OrbInstance> = self
+            .allies
+            .get(player_idx)
+            .and_then(|c| c.player.as_ref())
+            .map(|ps| ps.orb_queue.clone())
+            .unwrap_or_default();
+        for orb in orbs {
+            self.run_orb_passive(player_idx, &orb);
+        }
+    }
+
+    /// Adjust the orb queue capacity by `delta`. Capacitor /
+    /// PotionOfCapacity / BulkUp use this.
+    pub fn change_orb_slots(&mut self, player_idx: usize, delta: i32) {
+        if let Some(ps) = self
+            .allies
+            .get_mut(player_idx)
+            .and_then(|c| c.player.as_mut())
+        {
+            ps.orb_slots = (ps.orb_slots + delta).max(0);
+        }
+    }
+
+    /// Per-orb evoke behavior. Mirrors the body of each Orb's
+    /// `Evoke()` method in C# `Models/Orbs/`.
+    fn run_orb_evoke(&mut self, player_idx: usize, orb: &OrbInstance) {
+        match orb.id.as_str() {
+            "LightningOrb" => {
+                // Damage 1 random alive enemy by 8 (base EvokeVal),
+                // unpowered. C# LightningOrb.cs:93.
+                let alive: Vec<usize> = self
+                    .enemies
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, e)| if e.current_hp > 0 { Some(i) } else { None })
+                    .collect();
+                if alive.is_empty() {
+                    return;
+                }
+                let pick = self.rng.next_int_range(0, alive.len() as i32) as usize;
+                self.deal_damage(
+                    (CombatSide::Player, player_idx),
+                    (CombatSide::Enemy, alive[pick]),
+                    8,
+                    ValueProp::UNPOWERED,
+                );
+            }
+            "FrostOrb" => {
+                // GainBlock(8, Unpowered) on self. C# FrostOrb.cs.
+                self.gain_block_with_props(
+                    CombatSide::Player,
+                    player_idx,
+                    8,
+                    ValueProp::UNPOWERED,
+                );
+            }
+            "DarkOrb" => {
+                // Damage the lowest-HP alive enemy by (8 + accumulated charge).
+                // C# DarkOrb.cs: evoke applies stored _evokeVal.
+                let alive: Vec<(usize, i32)> = self
+                    .enemies
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, e)| if e.current_hp > 0 { Some((i, e.current_hp)) } else { None })
+                    .collect();
+                if alive.is_empty() {
+                    return;
+                }
+                let (target_idx, _) = alive
+                    .iter()
+                    .min_by_key(|(_, hp)| *hp)
+                    .copied()
+                    .unwrap_or((alive[0].0, alive[0].1));
+                self.deal_damage(
+                    (CombatSide::Player, player_idx),
+                    (CombatSide::Enemy, target_idx),
+                    8 + orb.evoke_val_bonus,
+                    ValueProp::UNPOWERED,
+                );
+            }
+            "PlasmaOrb" => {
+                // GainEnergy(EvokeVal). C# PlasmaOrb.cs.
+                if let Some(ps) = self
+                    .allies
+                    .get_mut(player_idx)
+                    .and_then(|c| c.player.as_mut())
+                {
+                    ps.energy += 2; // PlasmaOrb EvokeVal default = 2
+                }
+            }
+            "GlassOrb" => {
+                // GlassOrb: complex; deferred. Currently no-op.
+            }
+            _ => {}
+        }
+    }
+
+    /// Per-orb passive behavior. Lightning damages a random enemy
+    /// before turn-end; Frost grants block to self; Dark accumulates
+    /// charge; Plasma grants 1 energy; Glass deferred.
+    fn run_orb_passive(&mut self, player_idx: usize, orb: &OrbInstance) {
+        match orb.id.as_str() {
+            "LightningOrb" => {
+                // PassiveVal = 3.
+                let alive: Vec<usize> = self
+                    .enemies
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, e)| if e.current_hp > 0 { Some(i) } else { None })
+                    .collect();
+                if alive.is_empty() {
+                    return;
+                }
+                let pick = self.rng.next_int_range(0, alive.len() as i32) as usize;
+                self.deal_damage(
+                    (CombatSide::Player, player_idx),
+                    (CombatSide::Enemy, alive[pick]),
+                    3,
+                    ValueProp::UNPOWERED,
+                );
+            }
+            "FrostOrb" => {
+                self.gain_block_with_props(
+                    CombatSide::Player,
+                    player_idx,
+                    3,
+                    ValueProp::UNPOWERED,
+                );
+            }
+            "DarkOrb" => {
+                // Accumulate charge into front-of-queue orb. We need
+                // mutable access to the orb instance; find it by id+pos.
+                if let Some(ps) = self
+                    .allies
+                    .get_mut(player_idx)
+                    .and_then(|c| c.player.as_mut())
+                {
+                    for o in ps.orb_queue.iter_mut() {
+                        if o.id == "DarkOrb" {
+                            o.evoke_val_bonus += 6; // PassiveVal default
+                            break;
+                        }
+                    }
+                }
+            }
+            "PlasmaOrb" => {
+                if let Some(ps) = self
+                    .allies
+                    .get_mut(player_idx)
+                    .and_then(|c| c.player.as_mut())
+                {
+                    ps.energy += 1; // PlasmaOrb PassiveVal default = 1
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Mirror of C# `Hook.BeforeAttack` — called once at the start of
@@ -10199,6 +10430,9 @@ impl Creature {
                 relics: setup.relics,
                 pending_gold: 0,
                 pending_stars: 0,
+                orb_queue: Vec::new(),
+                orb_slots: 3,
+                pending_forge: 0,
             }),
             monster: None,
         }

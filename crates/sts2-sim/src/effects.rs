@@ -1779,19 +1779,27 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 ps.pending_stars += amt;
             }
         }
-        Effect::ChannelOrb { .. }
-        | Effect::EvokeNextOrb
-        | Effect::TriggerOrbPassive
-        | Effect::ChangeOrbSlots { .. } => {
-            // STUB: orb system not yet implemented. Defect / orb-using
-            // cards encode as data but no state changes until the orb
-            // queue + slot count + passive/evoke pipeline lands.
+        Effect::ChannelOrb { orb_id } => {
+            cs.channel_orb(ctx.player_idx, orb_id);
+        }
+        Effect::EvokeNextOrb => {
+            cs.evoke_next_orb(ctx.player_idx);
+        }
+        Effect::TriggerOrbPassive => {
+            cs.trigger_orb_passives(ctx.player_idx);
+        }
+        Effect::ChangeOrbSlots { delta } => {
+            let d = delta.resolve(ctx, cs);
+            cs.change_orb_slots(ctx.player_idx, d);
         }
         Effect::SummonOsty { .. } | Effect::DamageFromOsty { .. } => {
             // STUB: Osty companion system not yet implemented.
         }
-        Effect::Forge { .. } => {
-            // STUB: in-combat smith-forge not yet implemented.
+        Effect::Forge { amount } => {
+            let amt = amount.resolve(ctx, cs);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                ps.pending_forge += amt;
+            }
         }
         Effect::EndTurn => {
             // STUB: calling end_turn() mid-card nests the turn machine.
@@ -2515,6 +2523,83 @@ mod tests {
         execute_effects(&mut cs, &effects, &ctx);
         // 5 × 2 = 10 damage (no block, no powers).
         assert_eq!(cs.enemies[0].current_hp, enemy_hp_before - 10);
+    }
+
+    /// Orb subsystem — Channel pushes to queue, Evoke pops front and
+    /// runs that orb's effect. Frost evokes block (8 unpowered);
+    /// Lightning evokes random-enemy damage; Plasma evokes energy.
+    #[test]
+    fn orb_channel_and_evoke_frost() {
+        let mut cs = ironclad_combat();
+        let block_before = cs.allies[0].block;
+        let ctx = EffectContext::for_card(0, None, "Glacier", 0, None, 0);
+        execute_effects(
+            &mut cs,
+            &[Effect::ChannelOrb {
+                orb_id: "FrostOrb".to_string(),
+            }],
+            &ctx,
+        );
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().orb_queue.len(),
+            1
+        );
+        execute_effects(&mut cs, &[Effect::EvokeNextOrb], &ctx);
+        // FrostOrb evoke = 8 block (unpowered).
+        assert_eq!(cs.allies[0].block, block_before + 8);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().orb_queue.len(), 0);
+    }
+
+    #[test]
+    fn orb_channel_at_capacity_evokes_front_first() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().orb_slots = 2;
+        let ctx = EffectContext::for_card(0, None, "Coolheaded", 0, None, 0);
+        // Fill queue with 2 Frosts.
+        execute_effects(
+            &mut cs,
+            &[Effect::ChannelOrb {
+                orb_id: "FrostOrb".to_string(),
+            }],
+            &ctx,
+        );
+        execute_effects(
+            &mut cs,
+            &[Effect::ChannelOrb {
+                orb_id: "FrostOrb".to_string(),
+            }],
+            &ctx,
+        );
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().orb_queue.len(), 2);
+        let block_before = cs.allies[0].block;
+        // Third channel at capacity: front evokes (8 block), new orb
+        // pushed.
+        execute_effects(
+            &mut cs,
+            &[Effect::ChannelOrb {
+                orb_id: "LightningOrb".to_string(),
+            }],
+            &ctx,
+        );
+        assert_eq!(cs.allies[0].block, block_before + 8);
+        let queue = &cs.allies[0].player.as_ref().unwrap().orb_queue;
+        assert_eq!(queue.len(), 2);
+        assert_eq!(queue.last().unwrap().id, "LightningOrb");
+    }
+
+    #[test]
+    fn change_orb_slots_adjusts_capacity() {
+        let mut cs = ironclad_combat();
+        let before = cs.allies[0].player.as_ref().unwrap().orb_slots;
+        let ctx = EffectContext::for_card(0, None, "Capacitor", 0, None, 0);
+        execute_effects(
+            &mut cs,
+            &[Effect::ChangeOrbSlots {
+                delta: AmountSpec::Fixed(2),
+            }],
+            &ctx,
+        );
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().orb_slots, before + 2);
     }
 
     /// Calc-var AmountSpec extensions:
