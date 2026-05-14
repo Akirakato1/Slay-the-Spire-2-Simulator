@@ -774,9 +774,30 @@ impl CombatState {
                 let Some(ps) = ally.player.as_mut() else {
                     continue;
                 };
-                // Move hand → discard wholesale. Retain handling lives in
-                // the behavior port (inspects CardInstance::tags_this_turn).
-                ps.discard.cards.append(&mut ps.hand.cards);
+                // Per-card routing at end of player turn (C# Flush
+                // sequence). For each card in hand:
+                //   - Ethereal → auto-exhaust
+                //   - Retain   → stays in hand for the next turn
+                //   - otherwise → discard
+                // Mirrors C# `Hook.BeforeFlush` + per-card keyword
+                // dispatch in PlayerCombatState.Flush.
+                let mut keep_in_hand: Vec<CardInstance> = Vec::new();
+                let drained: Vec<CardInstance> =
+                    std::mem::take(&mut ps.hand.cards);
+                for card in drained {
+                    let data = card_by_id(&card.id);
+                    let keywords: &[String] = data.map(|d| d.keywords.as_slice()).unwrap_or(&[]);
+                    let is_ethereal = keywords.iter().any(|k| k == "Ethereal");
+                    let is_retain = keywords.iter().any(|k| k == "Retain");
+                    if is_ethereal {
+                        ps.exhaust.cards.push(card);
+                    } else if is_retain {
+                        keep_in_hand.push(card);
+                    } else {
+                        ps.discard.cards.push(card);
+                    }
+                }
+                ps.hand.cards = keep_in_hand;
             }
         }
         if self.current_side == CombatSide::Enemy {
@@ -1161,6 +1182,33 @@ impl CombatState {
         } else {
             false
         }
+    }
+
+    /// Move every Innate card from the player's draw pile to the
+    /// hand. Returns the number moved. Called once at combat start
+    /// before the standard initial draw. Mirrors C# innate-priority
+    /// shuffle (PlayerCombatState start-of-combat).
+    pub fn move_innate_cards_to_hand(&mut self, player_idx: usize) -> i32 {
+        let Some(creature) = self.allies.get_mut(player_idx) else {
+            return 0;
+        };
+        let Some(ps) = creature.player.as_mut() else {
+            return 0;
+        };
+        let mut moved = 0;
+        let n = ps.draw.cards.len();
+        // Iterate descending so removal doesn't invalidate indices.
+        for i in (0..n).rev() {
+            let is_innate = card_by_id(&ps.draw.cards[i].id)
+                .map(|d| d.keywords.iter().any(|k| k == "Innate"))
+                .unwrap_or(false);
+            if is_innate {
+                let card = ps.draw.cards.remove(i);
+                ps.hand.cards.push(card);
+                moved += 1;
+            }
+        }
+        moved
     }
 
     /// Draw up to `n` cards from the first player's draw pile, reshuffling
@@ -2510,6 +2558,14 @@ impl CombatState {
                     required: energy_cost,
                 };
             }
+            // Unplayable keyword gates manual play. Mirrors C#
+            // `CardModel.CanPlay -> UnplayableReason.HasUnplayableKeyword`.
+            // Status cards (Wound, Slimed) and curses with Unplayable
+            // (BadLuck, Burn, Decay, Doubt, Injury, Normality, etc.)
+            // reject the play entirely.
+            if data.keywords.iter().any(|k| k == "Unplayable") {
+                return PlayResult::Unplayable;
+            }
             // Snapshot enemy / ally counts for target validation; can't
             // hold a reference into self.allies past here.
             max_target_side = self.enemies.len();
@@ -2596,6 +2652,11 @@ pub enum PlayResult {
     /// Target violates the card's `target_type`: missing when required,
     /// present when not allowed, or pointing to a dead/missing creature.
     InvalidTarget,
+    /// The card has the Unplayable keyword (status cards like Wound /
+    /// Slimed, curses like BadLuck / Burn / Doubt / Injury / Normality
+    /// / Pride / Regret). Mirrors C#
+    /// `UnplayableReason.HasUnplayableKeyword`.
+    Unplayable,
     /// The card's `id` is not in the static `CardData` table.
     UnknownCard,
 }
@@ -11755,6 +11816,105 @@ mod tests {
             .unwrap_or_else(|| panic!("no {} in draw", card_id));
         let card = ps.draw.cards.remove(pos);
         ps.hand.cards.push(card);
+    }
+
+    /// Unplayable cards (status, curses) cannot be played manually.
+    /// Mirrors C# `CardModel.CanPlay -> UnplayableReason.HasUnplayableKeyword`.
+    #[test]
+    fn unplayable_keyword_rejects_manual_play() {
+        let mut cs = ironclad_combat();
+        // Wound is a Status with Unplayable.
+        let wound = card_by_id("Wound").expect("Wound exists in card data");
+        assert!(wound.keywords.iter().any(|k| k == "Unplayable"));
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(wound, 0));
+        let energy_before = cs.allies[0].player.as_ref().unwrap().energy;
+        let result = cs.play_card(0, 0, None);
+        assert_eq!(result, PlayResult::Unplayable);
+        // Energy NOT spent, card NOT routed.
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, energy_before);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().hand.cards.len(), 1);
+    }
+
+    /// Ethereal cards still in hand at end of player turn auto-exhaust
+    /// instead of discarding. Mirrors C# `Hook.BeforeFlush` keyword
+    /// branch for Ethereal.
+    #[test]
+    fn ethereal_card_auto_exhausts_at_end_of_player_turn() {
+        let mut cs = ironclad_combat();
+        // Dazed = status with Ethereal + Unplayable.
+        let dazed = card_by_id("Dazed").expect("Dazed exists");
+        assert!(dazed.keywords.iter().any(|k| k == "Ethereal"));
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(dazed, 0));
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.hand.cards.iter().all(|c| c.id != "Dazed"));
+        assert!(ps.exhaust.cards.iter().any(|c| c.id == "Dazed"));
+        assert!(ps.discard.cards.iter().all(|c| c.id != "Dazed"));
+    }
+
+    /// Retain cards stay in hand across the player-turn boundary.
+    #[test]
+    fn retain_card_stays_in_hand_across_turn() {
+        let mut cs = ironclad_combat();
+        let snake = card_by_id("Snakebite").expect("Snakebite exists");
+        // Confirm Snakebite has Retain in its keywords.
+        assert!(snake.keywords.iter().any(|k| k == "Retain"));
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(snake, 0));
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(
+            ps.hand.cards.iter().any(|c| c.id == "Snakebite"),
+            "Retain card must stay in hand"
+        );
+    }
+
+    /// move_innate_cards_to_hand pulls Innate cards from draw to hand.
+    /// Mirrors C# PlayerCombatState start-of-combat innate-priority shuffle.
+    #[test]
+    fn innate_cards_move_to_hand_before_normal_draw() {
+        let mut cs = ironclad_combat();
+        // Clear hand to start; ensure draw is fresh
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.hand.cards.clear();
+        // Seed an Innate card into the draw pile.
+        let mayhem = card_by_id("Mayhem").expect("Mayhem exists");
+        // Mayhem is a Power that has Innate? Actually check the keyword.
+        // Inflame doesn't have Innate; let's just look up a known Innate card
+        // from card data.
+        let _ = mayhem;
+        // Pick any card whose data has Innate.
+        // Iterate the static table.
+        let innate_card = crate::card::ALL_CARDS
+            .iter()
+            .find(|c| c.keywords.iter().any(|k| k == "Innate"))
+            .expect("at least one Innate card exists in the data");
+        ps.draw.cards.push(CardInstance::from_card(innate_card, 0));
+        // Re-borrow.
+        let moved = cs.move_innate_cards_to_hand(0);
+        assert!(moved >= 1);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.hand.cards.iter().any(|c| c.id == innate_card.id));
+        assert!(ps.draw.cards.iter().all(|c| c.id != innate_card.id));
     }
 
     #[test]

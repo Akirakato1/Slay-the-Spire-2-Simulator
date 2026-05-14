@@ -134,10 +134,19 @@ impl CombatEnv {
         // can only EndTurn.
         let n_players = state.allies.len();
         for player_idx in 0..n_players {
-            let mut rng_taken =
-                std::mem::replace(&mut state.rng, Rng::new(0, 0));
-            state.draw_cards(player_idx, INITIAL_HAND_SIZE, &mut rng_taken);
-            state.rng = rng_taken;
+            // Innate keyword: pull Innate cards from the draw pile to
+            // the hand BEFORE the standard initial draw. Mirrors C#
+            // PlayerCombatState start-of-combat innate priority — Innates
+            // are guaranteed in the opening hand. The remaining draw
+            // fills up to INITIAL_HAND_SIZE total.
+            let innate_count = state.move_innate_cards_to_hand(player_idx);
+            let remaining = (INITIAL_HAND_SIZE - innate_count).max(0);
+            if remaining > 0 {
+                let mut rng_taken =
+                    std::mem::replace(&mut state.rng, Rng::new(0, 0));
+                state.draw_cards(player_idx, remaining, &mut rng_taken);
+                state.rng = rng_taken;
+            }
         }
         Self {
             state,
