@@ -768,11 +768,19 @@ pub enum PowerHook {
         filter: HookSideFilter,
         body: Vec<Effect>,
     },
-    // TODO (audit §2): AfterSideTurnStart, BeforeSideTurnStart,
-    // BeforeTurnEnd, AfterApplied, AfterRemoved, BeforeAttack,
-    // AfterAttack, AfterDamageGiven, BeforeDamageReceived,
-    // AfterDamageReceived, AfterCardPlayed, BeforeCardPlayed,
-    // AfterDeath, OnHostDeath, ShouldClearBlock, ShouldDie, ...
+    /// C# `AfterSideTurnStart(side)`. Fires once when a side's turn
+    /// begins (after draw / energy refresh). DemonForm / Ritual /
+    /// Poison fire on owner's turn start; Plasma orb / Coolant trigger
+    /// at this phase.
+    AfterSideTurnStart {
+        filter: HookSideFilter,
+        body: Vec<Effect>,
+    },
+    // TODO (audit §2): BeforeSideTurnStart, BeforeTurnEnd, AfterApplied,
+    // AfterRemoved, BeforeAttack, AfterAttack, AfterDamageGiven,
+    // BeforeDamageReceived, AfterDamageReceived, AfterCardPlayed,
+    // BeforeCardPlayed, AfterDeath, OnHostDeath, ShouldClearBlock,
+    // ShouldDie, ...
 }
 
 /// Discriminant for hook side-filtering. Mirrors the C#
@@ -823,9 +831,35 @@ pub fn power_effects(power_id: &str) -> Vec<PowerHook> {
 }
 
 /// Walk every living creature's powers and execute any matching
+/// `AfterSideTurnStart` hook bodies. Called from `CombatState::begin_turn`
+/// after the existing hardcoded turn-start paths.
+pub fn fire_power_hooks_after_side_turn_start(
+    cs: &mut CombatState,
+    started_side: CombatSide,
+) {
+    fire_power_hooks_impl(cs, started_side, |hook| match hook {
+        PowerHook::AfterSideTurnStart { filter, body } => Some((*filter, body.as_slice())),
+        _ => None,
+    });
+}
+
+/// Walk every living creature's powers and execute any matching
 /// `AfterTurnEnd` hook bodies. Called from `CombatState::end_turn`
 /// after the existing hardcoded tick paths.
 pub fn fire_power_hooks_after_turn_end(cs: &mut CombatState, ended_side: CombatSide) {
+    fire_power_hooks_impl(cs, ended_side, |hook| match hook {
+        PowerHook::AfterTurnEnd { filter, body } => Some((*filter, body.as_slice())),
+        _ => None,
+    });
+}
+
+/// Shared per-phase dispatcher: snapshots (side, idx, power_id, amount)
+/// for every living creature's power, then for each entry calls
+/// `extract` to find the right PowerHook variant + dispatch its body.
+fn fire_power_hooks_impl<F>(cs: &mut CombatState, phase_side: CombatSide, extract: F)
+where
+    F: for<'a> Fn(&'a PowerHook) -> Option<(HookSideFilter, &'a [Effect])>,
+{
     // Snapshot (side, idx, power_id, amount) so iteration is stable
     // against mid-body mutations (heal/apply/remove etc. mutate the
     // powers list).
@@ -851,17 +885,23 @@ pub fn fire_power_hooks_after_turn_end(cs: &mut CombatState, ended_side: CombatS
         if !alive {
             continue;
         }
-        for hook in power_effects(&power_id) {
-            let PowerHook::AfterTurnEnd { filter, body } = &hook;
+        let hooks = power_effects(&power_id);
+        for hook in &hooks {
+            let Some((filter, body)) = extract(hook) else {
+                continue;
+            };
             let matches = match filter {
-                HookSideFilter::OwnerSide => side == ended_side,
+                HookSideFilter::OwnerSide => side == phase_side,
                 HookSideFilter::Any => true,
             };
             if !matches {
                 continue;
             }
             let ctx = EffectContext::for_power_hook((side, idx), amount);
-            execute_effects(cs, body, &ctx);
+            // Body is borrowed from `hooks`; clone to satisfy the
+            // execute_effects signature.
+            let body_owned: Vec<Effect> = body.to_vec();
+            execute_effects(cs, &body_owned, &ctx);
         }
     }
 }

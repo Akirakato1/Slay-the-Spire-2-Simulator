@@ -502,6 +502,14 @@ impl CombatState {
         // ordering — adjust when #70 lands.
         self.tick_start_of_turn_powers(side);
         self.fire_after_side_turn_start_hooks(side);
+        // Power VM AfterSideTurnStart dispatch — iterates living
+        // creature powers and runs any registered AfterSideTurnStart
+        // hook bodies. Currently no powers registered at this phase
+        // (existing tick paths handle Poison/DemonForm/Ritual via
+        // match arms). Future migrations move those into power_effects.
+        let started_side = side;
+        crate::effects::fire_power_hooks_after_side_turn_start(self, started_side);
+
         // VitalSparkPower.BeforeSideTurnStart (Enemy side): clear
         // vital_spark_used so the next Player turn re-arms the +1
         // energy grant. Mirrors C# `playersTriggeredThisTurn.Clear()`.
