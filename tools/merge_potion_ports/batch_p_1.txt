@@ -1,0 +1,302 @@
+// Potion-effect data table — batch_p_1
+//
+// Survey of 64 potion .cs files in
+//   sts2_decompiled/.../Core/Models/Potions/
+// against the Effect VM vocabulary (effects.rs ~lines 47-555).
+//
+// Encoded = OnUse body whose primitive set (DealDamage / GainBlock / ApplyPower
+// / DrawCards / GainEnergy / Heal / ApplyPower-multi / etc.) is already in the
+// vocabulary AND uses no card-factory-from-pool / multi-step modal pick.
+//
+// Conventions used here:
+// * TargetType.Self / TargetType.AnyPlayer    → Target::SelfPlayer
+// * TargetType.AnyEnemy                       → Target::ChosenEnemy
+// * TargetType.AllEnemies                     → Target::AllEnemies
+// * `base.DynamicVars.Block` etc. canonical var keys:
+//     BlockVar       → "Block"
+//     DamageVar      → "Damage"
+//     EnergyVar      → "Energy"
+//     CardsVar       → "Cards"
+//     RepeatVar      → "Repeat"
+//     MaxHpVar       → "MaxHp"
+//     StarsVar       → "Stars"
+//     GoldVar        → "Gold"
+//     ForgeVar       → "Forge"
+//     PowerVar<XPow> → "XPower"  (the full type name; e.g. "VulnerablePower")
+//     DynamicVar("Foo", N) / DynamicVars["Foo"] → "Foo"
+//   This matches the convention already used in batch_v2_*.txt and batch_r_1.txt.
+// * ValueProp.Unpowered flag on damage/block is intentionally dropped (matches
+//   relic/card encoding cookbook): the Effect VM does not yet thread it through
+//   the modifier pipeline. Several potions (BlockPotion, ShipInABottle, FirePotion,
+//   ExplosiveAmpoule, PotionShapedRock, Fortifier) rely on this — flagged in
+//   per-entry comments.
+// * Unique custom power classes that are "the potion's own" — FlexPotionPower,
+//   SpeedPotionPower, ShacklingPotionPower, BlockNextTurnPower, RetainHandPower —
+//   are encoded with their literal C# type name. They're stub-applied via
+//   ApplyPower; data layer only authors the call, runtime decides whether the
+//   power-VM has a body for them.
+
+// ---------- ENCODED ARMS ----------
+
+// Ashwater.cs L63-78: TargetType.Self, CombatOnly. CardSelectCmd.FromHand → Exhaust selected. Player-interactive over Hand for unbounded N. Encode as ExhaustCards(Hand, PlayerInteractive { n: 1 }) — closest single-step proxy.
+"Ashwater" => Some(vec![Effect::ExhaustCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+
+// SKIP AttackPotion: random-card-from-pool factory (CardFactory.GetDistinctForCombat over Attack-type unlocked cards). Not a primitive.
+
+// BeetleJuice.cs L67-76: TargetType.AnyEnemy, CombatOnly. PowerCmd.Apply<ShrinkPower>(target, Repeat=4). Canonical var key is "Repeat" (the count). DamageDecrease(30) is display-only.
+"BeetleJuice" => Some(vec![Effect::ApplyPower { power_id: "ShrinkPower".to_string(), amount: AmountSpec::Canonical("Repeat".to_string()), target: Target::ChosenEnemy }]),
+
+// BlessingOfTheForge.cs L50-64: TargetType.Self, CombatOnly. For every upgradable card in hand → CardCmd.Upgrade. Encode as UpgradeCards(Hand, FirstMatching All Upgradable).
+"BlessingOfTheForge" => Some(vec![Effect::UpgradeCards { from: Pile::Hand, selector: Selector::FirstMatching { n: i32::MAX, filter: CardFilter::Upgradable } }]),
+
+// BlockPotion.cs L72-76: TargetType.AnyPlayer, CombatOnly. CreatureCmd.GainBlock(target, Block=12, Unpowered). Unpowered prop dropped.
+"BlockPotion" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+
+// SKIP BloodPotion: TargetType.AnyPlayer, AnyTime. CreatureCmd.Heal(target, MaxHp * HealPercent/100). Amount depends on target's MaxHp at use time — no AmountSpec for target-relative percentage of MaxHp.
+
+// SKIP BoneBrew: TargetType.Self, CombatOnly. OstyCmd.Summon(Summon=15). SummonOsty primitive carries `osty_id` only, no HP argument — same gap as Bodyguard / Afterlife / BoneShards card SKIPs.
+
+// BottledPotential.cs L62-73: TargetType.AnyPlayer, CombatOnly. Move entire Hand → Draw bottom, Shuffle Draw, Draw Cards(5). Encode as a 3-step chain.
+"BottledPotential" => Some(vec![
+    Effect::MoveCard { from: Pile::Hand, to: Pile::Draw, selector: Selector::All },
+    Effect::Shuffle { pile: Pile::Draw },
+    Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+]),
+
+// Clarity.cs L67-77: TargetType.AnyPlayer, CombatOnly. Draw Cards(1), then ApplyPower<ClarityPower>(3). Canonical key for clarity stacks is the full type name "ClarityPower".
+"Clarity" => Some(vec![
+    Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+    Effect::ApplyPower { power_id: "ClarityPower".to_string(), amount: AmountSpec::Canonical("ClarityPower".to_string()), target: Target::SelfPlayer },
+]),
+
+// SKIP ColorlessPotion: random-card-from-pool factory (CardFactory.GetDistinctForCombat over ColorlessCardPool). Not a primitive.
+
+// SKIP CosmicConcoction: random-card-from-pool factory (3 Colorless cards) followed by per-card upgrade. Not a primitive.
+
+// SKIP CunningPotion: spawns 3 upgraded Shiv cards (Shiv.CreateInHand → custom factory). Closest primitive AddCardToPile takes a card_id but Shiv.CreateInHand has its own per-combat ID allocation; encode would also need Repeat over AddCardToPile + UpgradeCards. Same pattern as PotOfGhouls/Soul.
+
+// CureAll.cs L77-87: TargetType.AnyPlayer, CombatOnly. GainEnergy(1), Draw Cards(2).
+"CureAll" => Some(vec![
+    Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) },
+    Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+]),
+
+// SKIP DeprecatedPotion: no OnUse override (deprecated stub). PotionRarity.None / TargetType.AnyEnemy but no body. Empty effect list would be misleading; flag as no-OnUse.
+
+// DexterityPotion.cs L72-76: TargetType.AnyPlayer, CombatOnly. ApplyPower<DexterityPower>(2). DynamicVars.Dexterity (the PowerVar<DexterityPower> alias) → "DexterityPower".
+"DexterityPotion" => Some(vec![Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }]),
+
+// DistilledChaos.cs L62-70: TargetType.Self, CombatOnly. CardPileCmd.AutoPlayFromDrawPile(Repeat=3, Top). Maps to AutoplayFromDraw(3) — primitive carries literal i32, RepeatVar.IntValue is 3.
+"DistilledChaos" => Some(vec![Effect::AutoplayFromDraw { n: 3 }]),
+
+// DropletOfPrecognition.cs L50-61: TargetType.Self, CombatOnly. Player picks 1 from Draw → move to Hand bottom. Encode as MoveCard(Draw → Hand, PlayerInteractive { n: 1 }).
+"DropletOfPrecognition" => Some(vec![Effect::MoveCard { from: Pile::Draw, to: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+
+// Duplicator.cs L48-51: TargetType.Self, CombatOnly. ApplyPower<DuplicationPower>(1). Amount is literal 1 (no DynamicVars on this potion).
+"Duplicator" => Some(vec![Effect::ApplyPower { power_id: "DuplicationPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+
+// EnergyPotion.cs L73-82: TargetType.AnyPlayer, CombatOnly. PlayerCmd.GainEnergy(Energy=2).
+"EnergyPotion" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+
+// EntropicBrew.cs L48-60: TargetType.Self, AnyTime. While HasOpenPotionSlots, generate a random potion. Map to FillPotionSlots (STUB primitive already in vocab for this idiom).
+"EntropicBrew" => Some(vec![Effect::FillPotionSlots]),
+
+// EssenceOfDarkness.cs L66-73: TargetType.Self, CombatOnly. for i in 0..OrbQueue.Capacity → Channel<DarkOrb>. No AmountSpec for orb-queue capacity, but the spell shape is "channel one DarkOrb per slot". Closest fit is a single ChannelOrb (STUB primitive). Mark partial: the *per-slot loop count* is not data-expressible.
+// SKIP EssenceOfDarkness: ChannelOrb body wants `for i in 0..OrbQueue.Capacity` — Repeat.count is an AmountSpec, no OrbSlotCount variant. Stub-equivalent would lose semantics.
+
+// ExplosiveAmpoule.cs L65-80: TargetType.AllEnemies, CombatOnly. CreatureCmd.Damage(HittableEnemies, Damage=10, Unpowered). Unpowered dropped.
+"ExplosiveAmpoule" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+
+// FairyInABottle.cs L58-62: TargetType.Self, Automatic (death-prevention). Heal(target, Max(MaxHp*0.3, 1)). Trigger semantics are not OnUse — fires from AfterPreventingDeath hook. Body is also a target-relative percentage Heal (same shape as BloodPotion).
+// SKIP FairyInABottle: triggers via AfterPreventingDeath, not OnUse. Heal amount is target-relative percentage (MaxHp * 0.3) — no AmountSpec variant. Two separate gaps.
+
+// FirePotion.cs L64-74: TargetType.AnyEnemy, CombatOnly. CreatureCmd.Damage(target, Damage=20, Unpowered).
+"FirePotion" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+
+// FlexPotion.cs L72-77: TargetType.AnyPlayer, CombatOnly. PowerCmd.Apply<FlexPotionPower>(target, Strength=5). Canonical var key is "StrengthPower" (the PowerVar<StrengthPower> generic on this DynamicVar). Power applied is FlexPotionPower (custom self-decay power).
+"FlexPotion" => Some(vec![Effect::ApplyPower { power_id: "FlexPotionPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
+
+// FocusPotion.cs L72-75: TargetType.Self, CombatOnly. PowerCmd.Apply<FocusPower>(self, FocusPower=2).
+"FocusPotion" => Some(vec![Effect::ApplyPower { power_id: "FocusPower".to_string(), amount: AmountSpec::Canonical("FocusPower".to_string()), target: Target::SelfPlayer }]),
+
+// SKIP Fortifier: TargetType.AnyPlayer, CombatOnly. CreatureCmd.GainBlock(target, target.Block * 2, Unpowered). Amount = target.Block * 2 — no AmountSpec variant for `target.Block` on the player target (SelfBlock reads actor block, but here owner=user and target=AnyPlayer; in single-player they coincide. Still, SelfBlock is "the actor", not "the target". Mark unsupported until target-block AmountSpec lands).
+
+// SKIP FoulPotion: bespoke run-state effect: in-combat → AoE damage; in MerchantRoom → GainGold and "mark merchant thrown" event; in FakeMerchant event → cross-player event sync. Multi-branch on Room type is outside Effect VM.
+
+// FruitJuice.cs L70-74: TargetType.AnyPlayer, AnyTime. CreatureCmd.GainMaxHp(target, MaxHp=5). Run-state effect (out of combat allowed). Encode as ChangeMaxHp(+5).
+"FruitJuice" => Some(vec![Effect::ChangeMaxHp { amount: AmountSpec::Canonical("MaxHp".to_string()), target: Target::SelfPlayer }]),
+
+// FyshOil.cs L80-85: TargetType.AnyPlayer, CombatOnly. ApplyPower<StrengthPower>(target, Strength=1), ApplyPower<DexterityPower>(target, Dexterity=1).
+"FyshOil" => Some(vec![
+    Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer },
+    Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer },
+]),
+
+// GamblersBrew.cs L52-62: TargetType.Self, CombatOnly. Player picks N cards from Hand to discard, then Draw same count. Discard-N + Draw-N where N is determined at pick-time — encode as DiscardCards(Hand, PlayerInteractive { n: 1 }) [closest single-step proxy], paired with a Draw amount tied to that count, which we cannot bind. Mark as SKIP — count linkage not expressible.
+// SKIP GamblersBrew: DiscardAndDraw(list, list.Count) requires binding the chosen-count into the subsequent DrawCards amount. No AmountSpec for "card count chosen this turn".
+
+// GhostInAJar.cs L72-76: TargetType.AnyPlayer, CombatOnly. ApplyPower<IntangiblePower>(target, IntangiblePower=1).
+"GhostInAJar" => Some(vec![Effect::ApplyPower { power_id: "IntangiblePower".to_string(), amount: AmountSpec::Canonical("IntangiblePower".to_string()), target: Target::SelfPlayer }]),
+
+// GigantificationPotion.cs L63-72: TargetType.AnyPlayer, CombatOnly. ApplyPower<GigantificationPower>(target, GigantificationPower=1).
+"GigantificationPotion" => Some(vec![Effect::ApplyPower { power_id: "GigantificationPower".to_string(), amount: AmountSpec::Canonical("GigantificationPower".to_string()), target: Target::SelfPlayer }]),
+
+// GlowwaterPotion.cs L74-88: TargetType.Self, CombatOnly. Exhaust entire hand → Draw Cards(10).
+"GlowwaterPotion" => Some(vec![
+    Effect::ExhaustCards { from: Pile::Hand, selector: Selector::All },
+    Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+]),
+
+// HeartOfIron.cs L76-80: TargetType.AnyPlayer, CombatOnly. ApplyPower<PlatingPower>(target, PlatingPower=7).
+"HeartOfIron" => Some(vec![Effect::ApplyPower { power_id: "PlatingPower".to_string(), amount: AmountSpec::Canonical("PlatingPower".to_string()), target: Target::SelfPlayer }]),
+
+// KingsCourage.cs L71-75: TargetType.AnyPlayer, CombatOnly. ForgeCmd.Forge(Forge=15).
+"KingsCourage" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }]),
+
+// LiquidBronze.cs L72-76: TargetType.AnyPlayer, CombatOnly. ApplyPower<ThornsPower>(target, ThornsPower=3).
+"LiquidBronze" => Some(vec![Effect::ApplyPower { power_id: "ThornsPower".to_string(), amount: AmountSpec::Canonical("ThornsPower".to_string()), target: Target::SelfPlayer }]),
+
+// LiquidMemories.cs L52-67: TargetType.Self, CombatOnly. Player picks 1 from Discard, sets free-this-turn, moves to Hand bottom. Encode as MoveCard(Discard → Hand, PlayerInteractive { n: 1 }) — "free this turn" cost override is lost (same gap as TouchOfInsanity / DistilledChaos play-from-Draw).
+// Encoding kept (matches Anointed-style movement); cost-free property is silently dropped, value of port is the pile-move.
+"LiquidMemories" => Some(vec![Effect::MoveCard { from: Pile::Discard, to: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+
+// LuckyTonic.cs L72-76: TargetType.AnyPlayer, CombatOnly. ApplyPower<BufferPower>(target, BufferPower=1).
+"LuckyTonic" => Some(vec![Effect::ApplyPower { power_id: "BufferPower".to_string(), amount: AmountSpec::Canonical("BufferPower".to_string()), target: Target::SelfPlayer }]),
+
+// MazalethsGift.cs L76-80: TargetType.AnyPlayer, CombatOnly. ApplyPower<RitualPower>(target, RitualPower=1).
+"MazalethsGift" => Some(vec![Effect::ApplyPower { power_id: "RitualPower".to_string(), amount: AmountSpec::Canonical("RitualPower".to_string()), target: Target::SelfPlayer }]),
+
+// SKIP OrobicAcid: random-card-from-pool factory (1 Attack + 1 Skill + 1 Power, each via CardFactory.GetDistinctForCombat). Same skip class as AttackPotion/SkillPotion/PowerPotion.
+
+// PoisonPotion.cs L77-88: TargetType.AnyEnemy, CombatOnly. ApplyPower<PoisonPower>(target, Poison=6). Canonical key "PoisonPower" (PowerVar<PoisonPower>).
+"PoisonPotion" => Some(vec![Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("PoisonPower".to_string()), target: Target::ChosenEnemy }]),
+
+// SKIP PotOfGhouls: Soul.CreateInHand(N=2). Soul cards generated via a static factory similar to Shiv — AddCardToPile takes a fixed card_id, but Soul instances spawn through bespoke per-combat allocation. Same skip class as CunningPotion.
+
+// PotionOfBinding.cs L83-96: TargetType.AllEnemies, CombatOnly. To all hittable enemies: ApplyPower<WeakPower>(amount=Vulnerable.IntValue=1), ApplyPower<VulnerablePower>(amount=Weak.IntValue=1). Note: C# swaps which DynamicVar maps to which power, but both are 1, so result is symmetric.
+"PotionOfBinding" => Some(vec![
+    Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::AllEnemies },
+    Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::AllEnemies },
+]),
+
+// PotionOfCapacity.cs L62-70: TargetType.Self, CombatOnly. OrbCmd.AddSlots(Repeat=2). Maps to ChangeOrbSlots(+Repeat).
+"PotionOfCapacity" => Some(vec![Effect::ChangeOrbSlots { delta: AmountSpec::Canonical("Repeat".to_string()) }]),
+
+// PotionOfDoom.cs L74-83: TargetType.AnyEnemy, CombatOnly. ApplyPower<DoomPower>(target, Doom=33). Canonical key "DoomPower".
+"PotionOfDoom" => Some(vec![Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("DoomPower".to_string()), target: Target::ChosenEnemy }]),
+
+// PotionShapedRock.cs L61-65: TargetType.AnyEnemy, CombatOnly. CreatureCmd.Damage(target, Damage=15, Unpowered). Token rarity.
+"PotionShapedRock" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+
+// PowderedDemise.cs L61-65: TargetType.AnyEnemy, CombatOnly. ApplyPower<DemisePower>(target, Demise=9). Canonical key "Demise" (DynamicVar literal name, not PowerVar generic).
+"PowderedDemise" => Some(vec![Effect::ApplyPower { power_id: "DemisePower".to_string(), amount: AmountSpec::Canonical("Demise".to_string()), target: Target::ChosenEnemy }]),
+
+// SKIP PowerPotion: random-card-from-pool factory (3 Power-type cards from character pool). Not a primitive.
+
+// RadiantTincture.cs L76-81: TargetType.AnyPlayer, CombatOnly. GainEnergy(1), ApplyPower<RadiancePower>(target, RadiancePower=3).
+"RadiantTincture" => Some(vec![
+    Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) },
+    Effect::ApplyPower { power_id: "RadiancePower".to_string(), amount: AmountSpec::Canonical("RadiancePower".to_string()), target: Target::SelfPlayer },
+]),
+
+// RegenPotion.cs L82-86: TargetType.AnyPlayer, CombatOnly. ApplyPower<RegenPower>(target, RegenPower=5).
+"RegenPotion" => Some(vec![Effect::ApplyPower { power_id: "RegenPower".to_string(), amount: AmountSpec::Canonical("RegenPower".to_string()), target: Target::SelfPlayer }]),
+
+// ShacklingPotion.cs L74-86: TargetType.AllEnemies, CombatOnly. ApplyPower<ShacklingPotionPower>(allEnemies, Strength=7).
+"ShacklingPotion" => Some(vec![Effect::ApplyPower { power_id: "ShacklingPotionPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::AllEnemies }]),
+
+// ShipInABottle.cs L73-78: TargetType.AnyPlayer, CombatOnly. GainBlock(target, Block=10, Unpowered), ApplyPower<BlockNextTurnPower>(target, Block=10).
+"ShipInABottle" => Some(vec![
+    Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+    Effect::ApplyPower { power_id: "BlockNextTurnPower".to_string(), amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+]),
+
+// SKIP SkillPotion: random-card-from-pool factory (3 Skill-type cards from character pool). Not a primitive.
+
+// SneckoOil.cs L82-104: TargetType.AnyPlayer, CombatOnly. Draw Cards(7), then for each non-X card in hand with cost>=0 → set this-turn-or-until-played cost to RNG.NextInt(4). SetCardCost primitive exists but takes a fixed `cost: AmountSpec`, not a per-card RNG sample. The "randomize cost" semantics aren't reproducible as data (each card's cost is an independent draw).
+// SKIP SneckoOil: cost-randomization per hand card needs per-card RNG sampling. SetCardCost takes one fixed AmountSpec.
+
+// SoldiersStew.cs L63-79: TargetType.AnyPlayer, CombatOnly. for each card in AllCards tagged Strike → cardModel.BaseReplayCount += 1. Per-card BaseReplayCount mutation across all combat piles is not expressible (no primitive increments a card-instance counter; ApplyKeywordToCards stubs add a keyword but not a numeric tally).
+// SKIP SoldiersStew: increments BaseReplayCount on all Strike-tagged cards across combat piles. No primitive for per-card numeric mutation.
+
+// SpeedPotion.cs L72-77: TargetType.AnyPlayer, CombatOnly. ApplyPower<SpeedPotionPower>(target, Dexterity=5).
+"SpeedPotion" => Some(vec![Effect::ApplyPower { power_id: "SpeedPotionPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }]),
+
+// StableSerum.cs L72-76: TargetType.AnyPlayer, CombatOnly. ApplyPower<RetainHandPower>(target, Repeat=2).
+"StableSerum" => Some(vec![Effect::ApplyPower { power_id: "RetainHandPower".to_string(), amount: AmountSpec::Canonical("Repeat".to_string()), target: Target::SelfPlayer }]),
+
+// StarPotion.cs L60-63: TargetType.Self, CombatOnly. PlayerCmd.GainStars(Stars=3).
+"StarPotion" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+
+// StrengthPotion.cs L74-83: TargetType.AnyPlayer, CombatOnly. ApplyPower<StrengthPower>(target, Strength=2).
+"StrengthPotion" => Some(vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
+
+// SwiftPotion.cs L62-71: TargetType.AnyPlayer, CombatOnly. Draw Cards(3).
+"SwiftPotion" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+
+// SKIP TouchOfInsanity: TargetType.Self, CombatOnly. Player picks 1 cost-bearing hand card → SetToFreeThisCombat. Cost override (free for the whole combat) on an already-in-hand specific instance is exactly the SetCardCost(scope=ThisCombat) shape. The selector is interactive over a filtered hand. PRIMITIVE EXISTS but is STUB — encoding doesn't currently function. Marking SKIP for now to keep batch's encoded rows runnable.
+
+// VulnerablePotion.cs L74-83: TargetType.AnyEnemy, CombatOnly. ApplyPower<VulnerablePower>(target, Vulnerable=3). Canonical key "VulnerablePower".
+"VulnerablePotion" => Some(vec![Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }]),
+
+// WeakPotion.cs L74-83: TargetType.AnyEnemy, CombatOnly. ApplyPower<WeakPower>(target, Weak=3). Canonical key "WeakPower".
+"WeakPotion" => Some(vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::ChosenEnemy }]),
+
+// ===== Summary =====
+//
+// Total potion .cs files surveyed: 64
+// Encoded arms (data-table rows):  45
+// SKIPped:                         19
+//   (of which 1 is the no-OnUse deprecated stub: DeprecatedPotion)
+//
+// SKIP breakdown by reason (each potion counted in exactly one bucket):
+//   * Random-card-from-pool factory (CardFactory.GetDistinctForCombat /
+//     Shiv.CreateInHand / Soul.CreateInHand bespoke factories): 9
+//       AttackPotion, ColorlessPotion, CosmicConcoction, CunningPotion,
+//       OrobicAcid, PotOfGhouls, PowerPotion, SkillPotion
+//       (CosmicConcoction also does per-card Upgrade post-spawn)
+//     [actual count: 8 unique entries — see list above]
+//   * Target-relative AmountSpec gap (target.MaxHp%, target.Block*2): 2
+//       BloodPotion, Fortifier
+//   * Non-OnUse hook trigger PLUS target-relative percentage Heal: 1
+//       FairyInABottle (AfterPreventingDeath + target.MaxHp * 0.3)
+//   * Summon-with-HP-arg gap (SummonOsty primitive lacks HP): 1
+//       BoneBrew
+//   * Multi-step interactive choice with linked downstream count: 1
+//       GamblersBrew (DiscardN + DrawN where N = picked count)
+//   * Per-card random RNG mutation (cost / replay-count): 2
+//       SneckoOil (per-card cost randomization),
+//       SoldiersStew (per-card BaseReplayCount increment)
+//   * Bespoke run-state branching on Room type: 1
+//       FoulPotion
+//   * Orb-queue-capacity loop count: 1
+//       EssenceOfDarkness
+//   * Primitive present but STUB / functional gap: 1
+//       TouchOfInsanity (SetCardCost ThisCombat scope is STUB; deferred)
+//   * Deprecated stub with no OnUse override: 1
+//       DeprecatedPotion
+//
+// Tally: 8 + 2 + 1 + 1 + 1 + 2 + 1 + 1 + 1 + 1 = 19. ✓
+//
+// Top 5 hooks / Cmd patterns that almost-work but need ONE more primitive:
+//   1. Target-relative AmountSpec (TargetMaxHp, TargetBlock).  Would unlock
+//      BloodPotion, FairyInABottle (heal arm), Fortifier — all three "scale by
+//      target's resource" potions.
+//   2. SummonOsty { osty_id, max_hp: AmountSpec }.  Adding an HP arg unlocks
+//      BoneBrew and the queued card SKIPs (Afterlife, Bodyguard).
+//   3. Card-factory primitive: AddRandomCardFromPool { pool: <type>, n,
+//      destination, set_free_this_turn: bool }.  Unlocks all 7 random-card
+//      potions (AttackPotion / SkillPotion / PowerPotion / ColorlessPotion /
+//      CosmicConcoction / OrobicAcid) + Shiv/Soul factory potions
+//      (CunningPotion / PotOfGhouls).  Single largest SKIP category by count.
+//   4. AmountSpec::PickedCardCount (binds the count from a preceding
+//      PlayerInteractive selector into the next step's amount).  Unlocks
+//      GamblersBrew (DiscardN → DrawN) — same shape will help future
+//      CalculatedGamble card port too.
+//   5. ChannelOrbToFillSlots / Repeat { count: OrbSlotsRemaining, body: [...] }
+//      — orb-queue-aware loop count.  Unlocks EssenceOfDarkness and any
+//      future "fill all empty orb slots" effect.
+//
+// No abstract-base / deprecated-stub mysteries beyond DeprecatedPotion.cs,
+// which declares Rarity=None / TargetType=AnyEnemy but inherits the base
+// PotionModel.OnUse (no override). One row in SKIP-no-OnUse category.

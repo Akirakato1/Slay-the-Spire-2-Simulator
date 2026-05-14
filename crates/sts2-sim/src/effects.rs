@@ -63,6 +63,28 @@ fn relic_canonical_int_value(relic_id: &str, var_kind: &str) -> i32 {
     0
 }
 
+/// Resolve a potion's canonical-var integer value by key. Same shape as
+/// `relic_canonical_int_value`; potion vars share the kind/generic/
+/// base_value schema and don't upgrade. Returns 0 if no match.
+fn potion_canonical_int_value(potion_id: &str, var_kind: &str) -> i32 {
+    let Some(potion) = crate::potion::by_id(potion_id) else {
+        return 0;
+    };
+    for v in &potion.canonical_vars {
+        if v.kind == var_kind
+            || v.generic.as_deref() == Some(var_kind)
+            || v
+                .generic
+                .as_deref()
+                .and_then(|g| g.strip_suffix("Power"))
+                == Some(var_kind)
+        {
+            return v.base_value.unwrap_or(0.0) as i32;
+        }
+    }
+    0
+}
+
 /// How a numeric argument is computed at execution time.
 ///
 /// Closed set derived from the vocabulary survey (§5 of the vocab doc).
@@ -671,6 +693,30 @@ impl<'a> EffectContext<'a> {
             source_relic_id: Some(relic_id),
         }
     }
+
+    /// Builder for potion-OnUse invocations. The actor is the using
+    /// player; `Canonical` amounts resolve through the potion's
+    /// `canonical_vars` table — same schema as relic vars, so we
+    /// tunnel through the same `source_relic_id` slot. (`Canonical`
+    /// resolution checks card first, then this slot, then a separate
+    /// potion lookup — see `AmountSpec::resolve`.)
+    pub fn for_potion_use(
+        player_idx: usize,
+        target: Option<(CombatSide, usize)>,
+        potion_id: &'a str,
+    ) -> Self {
+        Self {
+            player_idx,
+            target,
+            source_card_id: None,
+            upgrade_level: 0,
+            enchantment: None,
+            x_value: 0,
+            actor: (CombatSide::Player, player_idx),
+            actor_amount: 0,
+            source_relic_id: Some(potion_id),
+        }
+    }
 }
 
 impl AmountSpec {
@@ -688,8 +734,15 @@ impl AmountSpec {
                         return canonical_int_value(card, var_kind, ctx.upgrade_level);
                     }
                 }
-                if let Some(relic_id) = ctx.source_relic_id {
-                    return relic_canonical_int_value(relic_id, var_kind);
+                if let Some(id) = ctx.source_relic_id {
+                    // The slot is shared between relics and potions —
+                    // try relic first, then potion (data tables are
+                    // disjoint, so at most one will resolve).
+                    let v = relic_canonical_int_value(id, var_kind);
+                    if v != 0 {
+                        return v;
+                    }
+                    return potion_canonical_int_value(id, var_kind);
                 }
                 0
             }
@@ -1084,6 +1137,146 @@ pub fn fire_relic_hooks(
             let ctx = EffectContext::for_relic_hook(player_idx, relic_id.as_str());
             execute_effects(cs, &body, &ctx);
         }
+    }
+}
+
+// ========================================================================
+// Potion VM — per-potion data table parallel to card_effects.
+// ========================================================================
+
+/// Per-potion OnUse body. Same shape as `card_effects` — looked up by
+/// id, returns an effect list. Callers (env.rs `UsePotion`, mid-combat
+/// potion-throw effects, etc.) build an `EffectContext` whose
+/// `source_relic_id`-equivalent is the potion id and dispatch through
+/// `execute_effects`. AmountSpec::Canonical resolves through the
+/// potion's `canonical_vars` table — see `for_potion_use` builder.
+///
+/// Survey: `tools/merge_potion_ports/batch_p_1.txt`. 45 of 64 potions
+/// encoded; rest depend on primitives we haven't built (CardFactory
+/// random pools, target-relative AmountSpec, etc.).
+pub fn potion_effects(potion_id: &str) -> Option<Vec<Effect>> {
+    match potion_id {
+        // ===== Manual potion ports (batch_p_1) =====
+        // 45 hand-curated arms. Source: tools/merge_potion_ports/batch_p_1.txt.
+
+
+        "Ashwater" => Some(vec![Effect::ExhaustCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+
+        "BeetleJuice" => Some(vec![Effect::ApplyPower { power_id: "ShrinkPower".to_string(), amount: AmountSpec::Canonical("Repeat".to_string()), target: Target::ChosenEnemy }]),
+
+        "BlessingOfTheForge" => Some(vec![Effect::UpgradeCards { from: Pile::Hand, selector: Selector::FirstMatching { n: i32::MAX, filter: CardFilter::Upgradable } }]),
+
+        "BlockPotion" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+
+        "BottledPotential" => Some(vec![
+            Effect::MoveCard { from: Pile::Hand, to: Pile::Draw, selector: Selector::All },
+            Effect::Shuffle { pile: Pile::Draw },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        ]),
+
+        "Clarity" => Some(vec![
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+            Effect::ApplyPower { power_id: "ClarityPower".to_string(), amount: AmountSpec::Canonical("ClarityPower".to_string()), target: Target::SelfPlayer },
+        ]),
+
+        "CureAll" => Some(vec![
+            Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        ]),
+
+        "DexterityPotion" => Some(vec![Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }]),
+
+        "DistilledChaos" => Some(vec![Effect::AutoplayFromDraw { n: 3 }]),
+
+        "DropletOfPrecognition" => Some(vec![Effect::MoveCard { from: Pile::Draw, to: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+
+        "Duplicator" => Some(vec![Effect::ApplyPower { power_id: "DuplicationPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+
+        "EnergyPotion" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+
+        "EntropicBrew" => Some(vec![Effect::FillPotionSlots]),
+
+        "ExplosiveAmpoule" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+
+        "FirePotion" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+
+        "FlexPotion" => Some(vec![Effect::ApplyPower { power_id: "FlexPotionPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
+
+        "FocusPotion" => Some(vec![Effect::ApplyPower { power_id: "FocusPower".to_string(), amount: AmountSpec::Canonical("FocusPower".to_string()), target: Target::SelfPlayer }]),
+
+        "FruitJuice" => Some(vec![Effect::ChangeMaxHp { amount: AmountSpec::Canonical("MaxHp".to_string()), target: Target::SelfPlayer }]),
+
+        "FyshOil" => Some(vec![
+            Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer },
+            Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer },
+        ]),
+
+        "GhostInAJar" => Some(vec![Effect::ApplyPower { power_id: "IntangiblePower".to_string(), amount: AmountSpec::Canonical("IntangiblePower".to_string()), target: Target::SelfPlayer }]),
+
+        "GigantificationPotion" => Some(vec![Effect::ApplyPower { power_id: "GigantificationPower".to_string(), amount: AmountSpec::Canonical("GigantificationPower".to_string()), target: Target::SelfPlayer }]),
+
+        "GlowwaterPotion" => Some(vec![
+            Effect::ExhaustCards { from: Pile::Hand, selector: Selector::All },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        ]),
+
+        "HeartOfIron" => Some(vec![Effect::ApplyPower { power_id: "PlatingPower".to_string(), amount: AmountSpec::Canonical("PlatingPower".to_string()), target: Target::SelfPlayer }]),
+
+        "KingsCourage" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }]),
+
+        "LiquidBronze" => Some(vec![Effect::ApplyPower { power_id: "ThornsPower".to_string(), amount: AmountSpec::Canonical("ThornsPower".to_string()), target: Target::SelfPlayer }]),
+
+        "LiquidMemories" => Some(vec![Effect::MoveCard { from: Pile::Discard, to: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+
+        "LuckyTonic" => Some(vec![Effect::ApplyPower { power_id: "BufferPower".to_string(), amount: AmountSpec::Canonical("BufferPower".to_string()), target: Target::SelfPlayer }]),
+
+        "MazalethsGift" => Some(vec![Effect::ApplyPower { power_id: "RitualPower".to_string(), amount: AmountSpec::Canonical("RitualPower".to_string()), target: Target::SelfPlayer }]),
+
+        "PoisonPotion" => Some(vec![Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("PoisonPower".to_string()), target: Target::ChosenEnemy }]),
+
+        "PotionOfBinding" => Some(vec![
+            Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::AllEnemies },
+            Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::AllEnemies },
+        ]),
+
+        "PotionOfCapacity" => Some(vec![Effect::ChangeOrbSlots { delta: AmountSpec::Canonical("Repeat".to_string()) }]),
+
+        "PotionOfDoom" => Some(vec![Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("DoomPower".to_string()), target: Target::ChosenEnemy }]),
+
+        "PotionShapedRock" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+
+        "PowderedDemise" => Some(vec![Effect::ApplyPower { power_id: "DemisePower".to_string(), amount: AmountSpec::Canonical("Demise".to_string()), target: Target::ChosenEnemy }]),
+
+        "RadiantTincture" => Some(vec![
+            Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) },
+            Effect::ApplyPower { power_id: "RadiancePower".to_string(), amount: AmountSpec::Canonical("RadiancePower".to_string()), target: Target::SelfPlayer },
+        ]),
+
+        "RegenPotion" => Some(vec![Effect::ApplyPower { power_id: "RegenPower".to_string(), amount: AmountSpec::Canonical("RegenPower".to_string()), target: Target::SelfPlayer }]),
+
+        "ShacklingPotion" => Some(vec![Effect::ApplyPower { power_id: "ShacklingPotionPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::AllEnemies }]),
+
+        "ShipInABottle" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::ApplyPower { power_id: "BlockNextTurnPower".to_string(), amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        ]),
+
+        "SpeedPotion" => Some(vec![Effect::ApplyPower { power_id: "SpeedPotionPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }]),
+
+        "StableSerum" => Some(vec![Effect::ApplyPower { power_id: "RetainHandPower".to_string(), amount: AmountSpec::Canonical("Repeat".to_string()), target: Target::SelfPlayer }]),
+
+        "StarPotion" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+
+        "StrengthPotion" => Some(vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
+
+        "SwiftPotion" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+
+        "VulnerablePotion" => Some(vec![Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }]),
+
+        "WeakPotion" => Some(vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::ChosenEnemy }]),
+
+
+        _ => None,
     }
 }
 

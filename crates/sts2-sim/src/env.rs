@@ -233,10 +233,18 @@ impl CombatEnv {
                 self.detect_terminal(&mut outcome);
                 outcome
             }
-            Action::UsePotion { .. } => StepOutcome {
-                play_result: Some(PlayResult::Unhandled),
-                ..StepOutcome::default()
-            },
+            Action::UsePotion { player_idx, slot_index: _, target } => {
+                // Combat state doesn't carry the potion belt today; the
+                // caller (Python-side strategic layer) supplies the
+                // potion id via a side channel. Until the belt lands
+                // here we route via `step_with_potion_id` for tests
+                // and leave this arm as Unhandled.
+                let _ = (player_idx, target);
+                StepOutcome {
+                    play_result: Some(PlayResult::Unhandled),
+                    ..StepOutcome::default()
+                }
+            }
         }
     }
 

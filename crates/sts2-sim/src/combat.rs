@@ -757,6 +757,25 @@ impl CombatState {
     }
 
     /// Snapshot (player_idx, relic_id) pairs so hook dispatchers can mutate
+    /// Use a potion: look up its OnUse effect list and run it through the
+    /// VM. Returns true if the potion id was found and dispatched, false
+    /// if unknown (caller decides whether to charge the slot or no-op).
+    /// `target` is honored for AnyEnemy potions (FirePotion etc.).
+    pub fn use_potion(
+        &mut self,
+        player_idx: usize,
+        potion_id: &str,
+        target: Option<(CombatSide, usize)>,
+    ) -> bool {
+        let Some(effects) = crate::effects::potion_effects(potion_id) else {
+            return false;
+        };
+        let ctx =
+            crate::effects::EffectContext::for_potion_use(player_idx, target, potion_id);
+        crate::effects::execute_effects(self, &effects, &ctx);
+        true
+    }
+
     /// freely without iterator invalidation. Walks every player's relic
     /// list in canonical order.
     fn collect_player_relics(&self) -> Vec<(usize, String)> {
@@ -14265,6 +14284,57 @@ mod tests {
         let turn_energy = cs.allies[0].player.as_ref().unwrap().turn_energy;
         assert_eq!(after, turn_energy + 1, "starting was {starting}");
     }
+
+    // ---------- Potion VM (data-driven OnUse dispatch) tests --------------
+
+    #[test]
+    fn block_potion_gains_twelve_block() {
+        let mut cs = ironclad_combat();
+        let ok = cs.use_potion(0, "BlockPotion", None);
+        assert!(ok);
+        assert_eq!(cs.allies[0].block, 12);
+    }
+
+    #[test]
+    fn energy_potion_grants_two_energy() {
+        let mut cs = ironclad_combat();
+        let start = cs.allies[0].player.as_ref().unwrap().energy;
+        let ok = cs.use_potion(0, "EnergyPotion", None);
+        assert!(ok);
+        let after = cs.allies[0].player.as_ref().unwrap().energy;
+        assert_eq!(after - start, 2);
+    }
+
+    #[test]
+    fn fire_potion_damages_chosen_enemy() {
+        let mut cs = ironclad_combat();
+        let target_hp_before = cs.enemies[0].current_hp;
+        let ok = cs.use_potion(0, "FirePotion", Some((CombatSide::Enemy, 0)));
+        assert!(ok);
+        let target_hp_after = cs.enemies[0].current_hp;
+        // FirePotion: 20 damage (Unpowered). Other enemies untouched.
+        assert!(target_hp_before - target_hp_after >= 1);
+    }
+
+    #[test]
+    fn dexterity_potion_applies_dex_to_self() {
+        let mut cs = ironclad_combat();
+        let ok = cs.use_potion(0, "DexterityPotion", None);
+        assert!(ok);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DexterityPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn use_potion_unknown_returns_false() {
+        let mut cs = ironclad_combat();
+        let ok = cs.use_potion(0, "NotARealPotion", None);
+        assert!(!ok);
+    }
+
+    // ---------- end Potion VM tests ---------------------------------------
 
     #[test]
     fn black_blood_heals_on_victory() {
