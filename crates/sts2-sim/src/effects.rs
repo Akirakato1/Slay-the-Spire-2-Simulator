@@ -2003,6 +2003,490 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
              vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
         ]),
 
+        "ChosenCheese" => Some(vec![
+            (RelicHook::AfterCombatEnd,
+             vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Canonical("MaxHp".to_string()) }]),
+        ]),
+
+        "CentennialPuzzle" => Some(vec![
+            (RelicHook::AfterDamageReceived,
+             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        ]),
+
+        "SelfFormingClay" => Some(vec![
+            (RelicHook::AfterDamageReceived,
+             vec![Effect::ApplyPower {
+                 power_id: "SelfFormingClayPower".to_string(),
+                 amount: AmountSpec::Canonical("BlockNextTurn".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "DemonTongue" => Some(vec![
+            (RelicHook::AfterDamageReceived,
+             vec![Effect::Heal { amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+        ]),
+
+        "HandDrill" => Some(vec![
+            (RelicHook::AfterDamageGiven,
+             vec![Effect::ApplyPower {
+                 power_id: "VulnerablePower".to_string(),
+                 amount: AmountSpec::Canonical("Vulnerable".to_string()),
+                 target: Target::ChosenEnemy,
+             }]),
+        ]),
+
+        "BronzeScales" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::ApplyPower {
+                 power_id: "ThornsPower".to_string(),
+                 amount: AmountSpec::Canonical("ThornsPower".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "SwordOfJade" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::ApplyPower {
+                 power_id: "StrengthPower".to_string(),
+                 amount: AmountSpec::Canonical("Strength".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "Pantograph" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::Heal {
+                 amount: AmountSpec::Canonical("Heal".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "Candelabra" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::Conditional {
+                 condition: Condition::RoundEquals { n: 2 },
+                 then_branch: vec![Effect::GainEnergy {
+                     amount: AmountSpec::Canonical("Energy".to_string()),
+                 }],
+                 else_branch: vec![],
+             }]),
+        ]),
+
+        "Chandelier" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::Conditional {
+                 condition: Condition::RoundEquals { n: 3 },
+                 then_branch: vec![Effect::GainEnergy {
+                     amount: AmountSpec::Canonical("Energy".to_string()),
+                 }],
+                 else_branch: vec![],
+             }]),
+        ]),
+
+        "PaelsFlesh" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::Conditional {
+                 condition: Condition::RoundGe { n: 3 },
+                 then_branch: vec![Effect::GainEnergy {
+                     amount: AmountSpec::Canonical("Energy".to_string()),
+                 }],
+                 else_branch: vec![],
+             }]),
+        ]),
+
+        "BigHat" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::AddRandomCardFromPool {
+                 pool: CardPoolRef::CharacterAny,
+                 filter: CardFilter::HasKeyword("Ethereal".to_string()),
+                 n: AmountSpec::Canonical("Cards".to_string()),
+                 pile: Pile::Hand,
+                 upgrade: 0,
+                 free_this_turn: true,
+                 distinct: true,
+             }]),
+        ]),
+
+        "Crossbow" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::AddRandomCardFromPool {
+                 pool: CardPoolRef::CharacterAttack,
+                 filter: CardFilter::Any,
+                 n: AmountSpec::Fixed(1),
+                 pile: Pile::Hand,
+                 upgrade: 0,
+                 free_this_turn: true,
+                 distinct: true,
+             }]),
+        ]),
+
+        "OrangeDough" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::AddRandomCardFromPool {
+                 pool: CardPoolRef::Colorless,
+                 filter: CardFilter::Any,
+                 n: AmountSpec::Canonical("Cards".to_string()),
+                 pile: Pile::Hand,
+                 upgrade: 0,
+                 free_this_turn: false,
+                 distinct: true,
+             }]),
+        ]),
+
+        "DaughterOfTheWind" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+             vec![Effect::GainBlock {
+                 amount: AmountSpec::Canonical("Block".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "GamePiece" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Power".to_string())) },
+             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        ]),
+
+        "HelicalDart" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::TaggedAs("Shiv".to_string())) },
+             vec![Effect::ApplyPower {
+                 power_id: "HelicalDartPower".to_string(),
+                 amount: AmountSpec::Canonical("Dexterity".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "IronClub" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: None },
+             vec![Effect::DrawCards { amount: AmountSpec::Fixed(1) }]),
+        ]),
+
+        "IvoryTile" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: None },
+             vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+        ]),
+
+        "Kunai" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+             vec![Effect::ApplyPower {
+                 power_id: "DexterityPower".to_string(),
+                 amount: AmountSpec::Canonical("Dexterity".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "Shuriken" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+             vec![Effect::ApplyPower {
+                 power_id: "StrengthPower".to_string(),
+                 amount: AmountSpec::Canonical("Strength".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "Nunchaku" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+             vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+        ]),
+
+        "TuningFork" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Skill".to_string())) },
+             vec![Effect::GainBlock {
+                 amount: AmountSpec::Canonical("Block".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "LetterOpener" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Skill".to_string())) },
+             vec![Effect::DealDamage {
+                 amount: AmountSpec::Canonical("Damage".to_string()),
+                 target: Target::AllEnemies,
+                 hits: 1,
+             }]),
+        ]),
+
+        "Kusarigama" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+             vec![Effect::DealDamage {
+                 amount: AmountSpec::Canonical("Damage".to_string()),
+                 target: Target::RandomEnemy,
+                 hits: 1,
+             }]),
+        ]),
+
+        "OrnamentalFan" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+             vec![Effect::GainBlock {
+                 amount: AmountSpec::Canonical("Block".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "LostWisp" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Power".to_string())) },
+             vec![Effect::DealDamage {
+                 amount: AmountSpec::Canonical("Damage".to_string()),
+                 target: Target::AllEnemies,
+                 hits: 1,
+             }]),
+        ]),
+
+        "Permafrost" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Power".to_string())) },
+             vec![Effect::GainBlock {
+                 amount: AmountSpec::Canonical("Block".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "RazorTooth" => Some(vec![
+            // Body is "upgrade the played card" — needs a Source-card selector that
+            // we don't have yet. Documented placeholder; runtime no-op.
+            (RelicHook::AfterCardPlayed { filter: None }, vec![]),
+        ]),
+
+        "MummifiedHand" => Some(vec![
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Power".to_string())) }, vec![]),
+        ]),
+
+        "CloakClasp" => Some(vec![
+            (RelicHook::BeforeTurnEnd { owner_side_only: true },
+             vec![Effect::GainBlock {
+                 amount: AmountSpec::Mul {
+                     left: Box::new(AmountSpec::CardCountInPile {
+                         pile: PileSelector::Single(Pile::Hand),
+                         filter: CardFilter::Any,
+                     }),
+                     right: Box::new(AmountSpec::Canonical("Block".to_string())),
+                 },
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "ScreamingFlagon" => Some(vec![
+            (RelicHook::BeforeTurnEnd { owner_side_only: true },
+             vec![Effect::Conditional {
+                 condition: Condition::CardCountInPile {
+                     pile: Pile::Hand,
+                     op: Comparison::Eq,
+                     value: 0,
+                 },
+                 then_branch: vec![Effect::DealDamage {
+                     amount: AmountSpec::Canonical("Damage".to_string()),
+                     target: Target::AllEnemies,
+                     hits: 1,
+                 }],
+                 else_branch: vec![],
+             }]),
+        ]),
+
+        "Orichalcum" => Some(vec![
+            (RelicHook::BeforeTurnEnd { owner_side_only: true },
+             vec![Effect::GainBlock {
+                 amount: AmountSpec::Canonical("Block".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "FakeOrichalcum" => Some(vec![
+            (RelicHook::BeforeTurnEnd { owner_side_only: true },
+             vec![Effect::GainBlock {
+                 amount: AmountSpec::Canonical("Block".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "PaelsTears" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::Conditional {
+                 condition: Condition::Not(Box::new(Condition::RoundEquals { n: 1 })),
+                 then_branch: vec![Effect::GainEnergy {
+                     amount: AmountSpec::Canonical("Energy".to_string()),
+                 }],
+                 else_branch: vec![],
+             }]),
+        ]),
+
+        "RippleBasin" => Some(vec![
+            (RelicHook::BeforeTurnEnd { owner_side_only: true },
+             vec![Effect::Conditional {
+                 // No Attack played this turn — Eq comparison against count.
+                 // Approximated by re-using HandHasCardMatching's "any" idiom but
+                 // inverted; since we lack a CardsPlayedThisTurn-comparison
+                 // primitive in Condition, body is ungated here.
+                 condition: Condition::Always,
+                 then_branch: vec![Effect::GainBlock {
+                     amount: AmountSpec::Canonical("Block".to_string()),
+                     target: Target::SelfPlayer,
+                 }],
+                 else_branch: vec![],
+             }]),
+        ]),
+
+        "DiamondDiadem" => Some(vec![
+            (RelicHook::BeforeTurnEnd { owner_side_only: true },
+             vec![Effect::Conditional {
+                 // CardsPlayedThisTurn<=2 — no direct LE in Condition for
+                 // CardsPlayedThisTurn AmountSpec; approximate as Always so the
+                 // body lands even when the player overplayed. STUB.
+                 condition: Condition::Always,
+                 then_branch: vec![Effect::ApplyPower {
+                     power_id: "DiamondDiademPower".to_string(),
+                     amount: AmountSpec::Fixed(1),
+                     target: Target::SelfPlayer,
+                 }],
+                 else_branch: vec![],
+             }]),
+        ]),
+
+        "StoneCalendar" => Some(vec![
+            (RelicHook::BeforeTurnEnd { owner_side_only: true },
+             vec![Effect::Conditional {
+                 condition: Condition::RoundEquals { n: 7 },
+                 then_branch: vec![Effect::DealDamage {
+                     amount: AmountSpec::Canonical("Damage".to_string()),
+                     target: Target::AllEnemies,
+                     hits: 1,
+                 }],
+                 else_branch: vec![],
+             }]),
+        ]),
+
+        "SealOfGold" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![
+                 Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) },
+                 Effect::LoseGold { amount: AmountSpec::Canonical("Gold".to_string()) },
+             ]),
+        ]),
+
+        "BoneTea" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::UpgradeCards { from: Pile::Hand, selector: Selector::All }]),
+        ]),
+
+        "TeaOfDiscourtesy" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::Repeat {
+                 count: AmountSpec::Canonical("DazedCount".to_string()),
+                 body: vec![Effect::AddCardToPile {
+                     card_id: "Dazed".to_string(),
+                     upgrade: 0,
+                     pile: Pile::Draw,
+                 }],
+             }]),
+        ]),
+
+        "BoundPhylactery" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::SummonOsty {
+                 osty_id: "BoundPhylactery".to_string(),
+                 max_hp: Some(AmountSpec::Canonical("Summon".to_string())),
+             }]),
+        ]),
+
+        "PhylacteryUnbound" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::SummonOsty {
+                 osty_id: "PhylacteryUnbound".to_string(),
+                 max_hp: Some(AmountSpec::Canonical("StartOfCombat".to_string())),
+             }]),
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::SummonOsty {
+                 osty_id: "PhylacteryUnbound".to_string(),
+                 max_hp: Some(AmountSpec::Canonical("StartOfTurn".to_string())),
+             }]),
+        ]),
+
+        "Byrdpip" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::SummonOsty {
+                 osty_id: "Byrdpip".to_string(),
+                 max_hp: None,
+             }]),
+        ]),
+
+        "PaelsLegion" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::SummonOsty {
+                 osty_id: "PaelsLegion".to_string(),
+                 max_hp: None,
+             }]),
+        ]),
+
+        "MeatOnTheBone" => Some(vec![
+            (RelicHook::AfterCombatVictory,
+             vec![Effect::Conditional {
+                 // CurrentHp/MaxHp <= 50% — needs HpPctLe Condition variant.
+                 condition: Condition::Always,
+                 then_branch: vec![Effect::Heal {
+                     amount: AmountSpec::Canonical("Heal".to_string()),
+                     target: Target::SelfPlayer,
+                 }],
+                 else_branch: vec![],
+             }]),
+        ]),
+
+        "RedSkull" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::ApplyPower {
+                 power_id: "StrengthPower".to_string(),
+                 amount: AmountSpec::Canonical("Strength".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "MrStruggles" => Some(vec![
+            (RelicHook::AfterPlayerTurnStart { first_turn_only: false },
+             vec![Effect::DealDamage {
+                 amount: AmountSpec::Fixed(1),
+                 target: Target::AllEnemies,
+                 hits: 1,
+             }]),
+        ]),
+
+        "LunarPastry" => Some(vec![
+            (RelicHook::AfterPlayerTurnEnd,
+             vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+        ]),
+
+        "ParryingShield" => Some(vec![
+            (RelicHook::AfterPlayerTurnEnd,
+             vec![Effect::DealDamage {
+                 amount: AmountSpec::Canonical("Damage".to_string()),
+                 target: Target::RandomEnemy,
+                 hits: 1,
+             }]),
+        ]),
+
+        "Pendulum" => Some(vec![
+            (RelicHook::AfterPlayerTurnStart { first_turn_only: false },
+             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        ]),
+
+        "HappyFlower" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+        ]),
+
+        "FakeHappyFlower" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+        ]),
+
+        "BeatingRemnant" => Some(vec![
+            (RelicHook::AfterDamageReceived, vec![]),
+        ]),
+
+        "EmotionChip" => Some(vec![
+            (RelicHook::AfterDamageReceived, vec![]),
+        ]),
+
+        "LavaLamp" => Some(vec![
+            (RelicHook::AfterDamageReceived, vec![]),
+        ]),
+
 
         _ => None,
     }
