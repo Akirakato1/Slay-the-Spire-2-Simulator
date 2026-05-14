@@ -684,6 +684,21 @@ impl CombatState {
         card_id: &str,
         upgrade_level: i32,
     ) -> bool {
+        self.add_card_to_pile(player_idx, card_id, upgrade_level, PileType::Hand)
+    }
+
+    /// Append a freshly-instantiated card to the chosen pile (Hand,
+    /// Discard, Draw, or Exhaust). Used by OnPlay handlers that
+    /// conjure status / token cards into a specific pile — e.g.,
+    /// BoostAway dazes into discard, CollisionCourse drops Debris in
+    /// hand.
+    pub fn add_card_to_pile(
+        &mut self,
+        player_idx: usize,
+        card_id: &str,
+        upgrade_level: i32,
+        pile: PileType,
+    ) -> bool {
         let Some(card) = crate::card::by_id(card_id) else {
             return false;
         };
@@ -691,9 +706,16 @@ impl CombatState {
         else {
             return false;
         };
-        ps.hand
-            .cards
-            .push(CardInstance::from_card(card, upgrade_level));
+        let instance = CardInstance::from_card(card, upgrade_level);
+        match pile {
+            PileType::Hand => ps.hand.cards.push(instance),
+            PileType::Discard => ps.discard.cards.push(instance),
+            PileType::Draw => ps.draw.cards.push(instance),
+            PileType::Exhaust => ps.exhaust.cards.push(instance),
+            // None / Play / Deck have no in-combat pile representation
+            // here; treat as a silent no-op rather than panicking.
+            _ => return false,
+        }
         true
     }
 
@@ -1531,6 +1553,76 @@ fn dispatch_on_play(
                 "StrengthPower",
                 strength,
             );
+            true
+        }
+        // ---------- Defect / Regent cross-pool commons -----------
+        // BeamCell (Defect common Attack, 0E, AnyEnemy): 3 damage
+        // (4 upgraded) + 1 Vulnerable (2 upgraded). Identical shape
+        // to Bash but smaller numbers.
+        "BeamCell" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let vuln = canonical_int_value(card, "Vulnerable", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.apply_power(target.0, target.1, "VulnerablePower", vuln);
+            true
+        }
+        // BoostAway (Defect common Skill, 0E, Self): 6 block (9
+        // upgraded) + add a Dazed (status) to discard. Dazed is
+        // Ethereal+Unplayable; full keyword handling deferred but
+        // tracking it in discard is correct for now.
+        "BoostAway" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            cs.add_card_to_pile(player_idx, "Dazed", 0, PileType::Discard);
+            true
+        }
+        // AstralPulse (Regent common Attack, 0E, AllEnemies): 14
+        // damage (18 upgraded) to each enemy. CanonicalStarCost=3 is
+        // the Regent star-cost mechanic — not modeled yet; card costs
+        // 0 energy and free-fires until the star economy lands.
+        "AstralPulse" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let n = cs.enemies.len();
+            for i in 0..n {
+                if cs.enemies[i].current_hp == 0 {
+                    continue;
+                }
+                cs.deal_damage_enchanted(
+                    (CombatSide::Player, player_idx),
+                    (CombatSide::Enemy, i),
+                    damage,
+                    ValueProp::MOVE,
+                    enchantment,
+                );
+            }
+            true
+        }
+        // CollisionCourse (Regent common Attack, 0E, AnyEnemy): 11
+        // damage (15 upgraded) + add Debris (status, 1E Exhaust) to
+        // hand. Debris OnPlay isn't ported yet — tracking presence
+        // suffices for the agent's hand observation.
+        "CollisionCourse" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.add_card_to_pile(player_idx, "Debris", 0, PileType::Hand);
             true
         }
         // BladeDance (Silent common Exhaust Skill, 1E, Self): add N
@@ -4442,6 +4534,104 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Defect/Regent cross-pool commons tests -------------------
+
+    #[test]
+    fn beam_cell_deals_three_and_one_vulnerable() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "BeamCell",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 3);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            1
+        );
+    }
+
+    #[test]
+    fn upgraded_beam_cell_deals_four_two_vulnerable() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "BeamCell",
+            1,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 4);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            2
+        );
+    }
+
+    #[test]
+    fn boost_away_grants_six_block_and_dazes() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "BoostAway", 0, None);
+        assert_eq!(cs.allies[0].block, 6);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.discard.cards.iter().any(|c| c.id == "Dazed"));
+    }
+
+    #[test]
+    fn upgraded_boost_away_grants_nine_block() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "BoostAway", 1, None);
+        assert_eq!(cs.allies[0].block, 9);
+    }
+
+    #[test]
+    fn astral_pulse_hits_each_enemy_for_fourteen() {
+        let mut cs = ironclad_combat();
+        let h0 = cs.enemies[0].current_hp;
+        let h1 = cs.enemies[1].current_hp;
+        inject_card_and_play(&mut cs, "AstralPulse", 0, None);
+        assert_eq!(cs.enemies[0].current_hp, h0 - 14);
+        assert_eq!(cs.enemies[1].current_hp, h1 - 14);
+    }
+
+    #[test]
+    fn upgraded_astral_pulse_does_eighteen() {
+        let mut cs = ironclad_combat();
+        let h0 = cs.enemies[0].current_hp;
+        inject_card_and_play(&mut cs, "AstralPulse", 1, None);
+        assert_eq!(cs.enemies[0].current_hp, h0 - 18);
+    }
+
+    #[test]
+    fn collision_course_deals_eleven_and_adds_debris() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "CollisionCourse",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 11);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.hand.cards.iter().any(|c| c.id == "Debris"));
+    }
+
+    #[test]
+    fn upgraded_collision_course_deals_fifteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "CollisionCourse",
+            1,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 15);
     }
 
     // ---------- BladeDance + Snakebite tests -----------------------------
