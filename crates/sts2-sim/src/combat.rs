@@ -3641,6 +3641,111 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: Vantom (boss) ------------------------------
+//
+// Reflects C# `Vantom.GenerateMoveStateMachine`:
+//   Init: InkBlot.
+//   Chain: InkBlot → InkyLance → Dismember → Prepare → InkBlot (loop).
+//
+// A0 payloads:
+//   - InkBlot:   7 damage (DeadlyEnemies: 8)
+//   - InkyLance: 6 damage × 2 (DeadlyEnemies: 7)
+//   - Dismember: 27 damage + 3 Wound cards added to player's discard
+//                (DeadlyEnemies: 30)
+//   - Prepare:   apply StrengthPower(+2) to self
+
+const VANTOM_INK_BLOT_DAMAGE: i32 = 7;
+const VANTOM_INKY_LANCE_DAMAGE: i32 = 6;
+const VANTOM_INKY_LANCE_HITS: i32 = 2;
+const VANTOM_DISMEMBER_DAMAGE: i32 = 27;
+const VANTOM_DISMEMBER_WOUND_COUNT: i32 = 3;
+const VANTOM_PREPARE_STRENGTH: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum VantomIntent {
+    InkBlot,
+    InkyLance,
+    Dismember,
+    Prepare,
+}
+
+impl VantomIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            VantomIntent::InkBlot => "INK_BLOT_MOVE",
+            VantomIntent::InkyLance => "INKY_LANCE_MOVE",
+            VantomIntent::Dismember => "DISMEMBER_MOVE",
+            VantomIntent::Prepare => "PREPARE_MOVE",
+        }
+    }
+}
+
+pub fn pick_vantom_intent(
+    last_intent: Option<VantomIntent>,
+) -> VantomIntent {
+    match last_intent {
+        None => VantomIntent::InkBlot,
+        Some(VantomIntent::InkBlot) => VantomIntent::InkyLance,
+        Some(VantomIntent::InkyLance) => VantomIntent::Dismember,
+        Some(VantomIntent::Dismember) => VantomIntent::Prepare,
+        Some(VantomIntent::Prepare) => VantomIntent::InkBlot,
+    }
+}
+
+pub fn execute_vantom_move(
+    cs: &mut CombatState,
+    vantom_idx: usize,
+    target_player_idx: usize,
+    intent: VantomIntent,
+) {
+    let attacker = (CombatSide::Enemy, vantom_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        VantomIntent::InkBlot => {
+            cs.deal_damage(
+                attacker,
+                player,
+                VANTOM_INK_BLOT_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        VantomIntent::InkyLance => {
+            for _ in 0..VANTOM_INKY_LANCE_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    VANTOM_INKY_LANCE_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        VantomIntent::Dismember => {
+            cs.deal_damage(
+                attacker,
+                player,
+                VANTOM_DISMEMBER_DAMAGE,
+                ValueProp::MOVE,
+            );
+            for _ in 0..VANTOM_DISMEMBER_WOUND_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Wound",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+        VantomIntent::Prepare => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                vantom_idx,
+                "StrengthPower",
+                VANTOM_PREPARE_STRENGTH,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: SoulNexus ----------------------------------
 //
 // Reflects C# `SoulNexus.GenerateMoveStateMachine`:
@@ -10808,6 +10913,86 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- Vantom tests -----------------------------------------------
+
+    #[test]
+    fn vantom_walks_four_state_chain() {
+        assert_eq!(pick_vantom_intent(None), VantomIntent::InkBlot);
+        assert_eq!(
+            pick_vantom_intent(Some(VantomIntent::InkBlot)),
+            VantomIntent::InkyLance
+        );
+        assert_eq!(
+            pick_vantom_intent(Some(VantomIntent::InkyLance)),
+            VantomIntent::Dismember
+        );
+        assert_eq!(
+            pick_vantom_intent(Some(VantomIntent::Dismember)),
+            VantomIntent::Prepare
+        );
+        assert_eq!(
+            pick_vantom_intent(Some(VantomIntent::Prepare)),
+            VantomIntent::InkBlot
+        );
+    }
+
+    #[test]
+    fn vantom_ink_blot_deals_seven() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_vantom_move(&mut cs, 0, 0, VantomIntent::InkBlot);
+        assert_eq!(cs.allies[0].current_hp, hp - 7);
+    }
+
+    #[test]
+    fn vantom_inky_lance_six_times_two() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_vantom_move(&mut cs, 0, 0, VantomIntent::InkyLance);
+        assert_eq!(cs.allies[0].current_hp, hp - 12);
+    }
+
+    #[test]
+    fn vantom_dismember_27_damage_and_three_wounds() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        let discard_before = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.discard.cards.len())
+            .unwrap_or(0);
+        execute_vantom_move(&mut cs, 0, 0, VantomIntent::Dismember);
+        assert_eq!(cs.allies[0].current_hp, hp - 27);
+        let discard_after = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.discard.cards.len())
+            .unwrap_or(0);
+        assert_eq!(discard_after - discard_before, 3);
+        let wounds = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| {
+                p.discard
+                    .cards
+                    .iter()
+                    .filter(|c| c.id == "Wound")
+                    .count()
+            })
+            .unwrap_or(0);
+        assert_eq!(wounds, 3);
+    }
+
+    #[test]
+    fn vantom_prepare_grants_two_strength() {
+        let mut cs = ironclad_combat();
+        execute_vantom_move(&mut cs, 0, 0, VantomIntent::Prepare);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
     }
 
     // ---------- SoulNexus tests --------------------------------------------

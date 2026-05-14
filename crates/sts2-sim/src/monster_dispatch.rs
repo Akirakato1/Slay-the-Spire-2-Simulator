@@ -94,6 +94,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "BowlbugSilk"
             | "BowlbugNectar"
             | "BowlbugEgg"
+            | "Vantom"
     )
 }
 
@@ -542,6 +543,18 @@ pub fn dispatch_enemy_turn(
         "BowlbugEgg" => {
             let intent = pick_bowlbug_egg_intent(None);
             execute_bowlbug_egg_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "Vantom" => {
+            let last = last_ref.and_then(|s| match s {
+                "INK_BLOT_MOVE" => Some(VantomIntent::InkBlot),
+                "INKY_LANCE_MOVE" => Some(VantomIntent::InkyLance),
+                "DISMEMBER_MOVE" => Some(VantomIntent::Dismember),
+                "PREPARE_MOVE" => Some(VantomIntent::Prepare),
+                _ => None,
+            });
+            let intent = pick_vantom_intent(last);
+            execute_vantom_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {
