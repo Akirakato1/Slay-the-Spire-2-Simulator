@@ -25,6 +25,11 @@
     "stack_type": "Counter"
   },
   {
+    "id": "AnticipatePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
     "id": "ArsenalPower",
     "power_type": "Buff",
     "stack_type": "Counter"
@@ -597,6 +602,11 @@
   },
   {
     "id": "HeistPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HelicalDartPower",
     "power_type": "Buff",
     "stack_type": "Counter"
   },
@@ -1219,6 +1229,11 @@
   },
   {
     "id": "SpectrumShiftPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SpeedPotionPower",
     "power_type": "Buff",
     "stack_type": "Counter"
   },

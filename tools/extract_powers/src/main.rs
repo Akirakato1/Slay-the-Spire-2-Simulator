@@ -93,14 +93,16 @@ fn main() -> Result<()> {
 fn parse_power(id: &str, source: &str) -> Result<PowerData> {
     // Type override is the only one that's *required* — every power must be
     // Buff or Debuff. Most powers override it directly; TemporaryStrengthPower
-    // subclasses (SetupStrikePower etc.) inherit their Type from the abstract
-    // parent, which returns Buff (IsPositive=true default) or Debuff
-    // (IsPositive=false). We default to Buff and let an `IsPositive`
+    // and TemporaryDexterityPower subclasses inherit their Type from the
+    // abstract parent, which returns Buff (IsPositive=true default) or
+    // Debuff (IsPositive=false). We default to Buff and let an `IsPositive`
     // override in the subclass flip to Debuff.
-    let inherits_temp_strength = source.contains(": TemporaryStrengthPower");
+    let inherits_temp_buff =
+        source.contains(": TemporaryStrengthPower")
+            || source.contains(": TemporaryDexterityPower");
     let power_type = match parse_enum_property(source, "Type", "PowerType") {
         Some(t) => t,
-        None if inherits_temp_strength => {
+        None if inherits_temp_buff => {
             if parse_bool_property(source, "IsPositive") == Some(false) {
                 "Debuff".to_string()
             } else {
@@ -111,8 +113,9 @@ fn parse_power(id: &str, source: &str) -> Result<PowerData> {
     };
     let stack_type = parse_enum_property(source, "StackType", "PowerStackType")
         .unwrap_or_else(|| {
-            if inherits_temp_strength {
-                // TemporaryStrengthPower hardcodes StackType.Counter.
+            if inherits_temp_buff {
+                // TemporaryStrength/DexterityPower both hardcode
+                // StackType.Counter in the abstract base.
                 "Counter".to_string()
             } else {
                 "None".to_string()
@@ -155,6 +158,7 @@ fn list_power_ids_on_disk(powers_dir: &Path) -> Result<Vec<String>> {
     // resolving) avoids accidentally pulling in helper classes.
     const INTERMEDIATE_POWER_BASES: &[&str] = &[
         "TemporaryStrengthPower",
+        "TemporaryDexterityPower",
     ];
     let mut out: Vec<String> = Vec::new();
     for entry in fs::read_dir(powers_dir)? {

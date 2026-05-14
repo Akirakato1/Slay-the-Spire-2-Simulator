@@ -555,32 +555,31 @@ impl CombatState {
         }
     }
 
-    /// Fire `AfterTurnEnd` for `TemporaryStrengthPower`-style powers
-    /// on the side whose turn just ended. Each known temporary-strength
-    /// power id, on creatures whose side matches: remove the stack, and
-    /// subtract `sign * amount` from StrengthPower (sign = +1 for
-    /// positive variants like SetupStrikePower; negative variants would
-    /// use -1, none ported yet).
+    /// Fire `AfterTurnEnd` for `TemporaryStrengthPower` and
+    /// `TemporaryDexterityPower` subclasses on the side whose turn
+    /// just ended. Each entry: (temp-power id, sign, target-power id).
+    /// On match, remove the temp-power stack and apply -sign*amount
+    /// of the target-power (undoing the BeforeApplied silent grant).
+    /// sign=+1 for IsPositive subclasses (SetupStrikePower,
+    /// AnticipatePower); sign=-1 for IsPositive=false (ManglePower).
     fn tick_temporary_strength_powers(&mut self, side: CombatSide) {
-        const TEMP_STRENGTH_POWERS: &[(&str, i32)] = &[
-            ("SetupStrikePower", 1),
-            // ManglePower: IsPositive=false → applies -Amount Strength.
-            // On owner-side turn end, removes itself and re-applies
-            // +Amount Strength to undo.
-            ("ManglePower", -1),
+        const TEMP_POWERS: &[(&str, i32, &str)] = &[
+            ("SetupStrikePower", 1, "StrengthPower"),
+            ("ManglePower", -1, "StrengthPower"),
+            ("AnticipatePower", 1, "DexterityPower"),
         ];
         let n_allies = self.allies.len();
         let n_enemies = self.enemies.len();
-        let mut undo: Vec<(CombatSide, usize, &'static str, i32, i32)> =
+        let mut undo: Vec<(CombatSide, usize, &'static str, i32, i32, &'static str)> =
             Vec::new();
         for i in 0..n_allies {
             if side != CombatSide::Player {
                 continue;
             }
-            for (id, sign) in TEMP_STRENGTH_POWERS {
+            for (id, sign, target) in TEMP_POWERS {
                 let amount = self.get_power_amount(CombatSide::Player, i, id);
                 if amount != 0 {
-                    undo.push((CombatSide::Player, i, id, *sign, amount));
+                    undo.push((CombatSide::Player, i, id, *sign, amount, target));
                 }
             }
         }
@@ -588,19 +587,19 @@ impl CombatState {
             if side != CombatSide::Enemy {
                 continue;
             }
-            for (id, sign) in TEMP_STRENGTH_POWERS {
+            for (id, sign, target) in TEMP_POWERS {
                 let amount = self.get_power_amount(CombatSide::Enemy, i, id);
                 if amount != 0 {
-                    undo.push((CombatSide::Enemy, i, id, *sign, amount));
+                    undo.push((CombatSide::Enemy, i, id, *sign, amount, target));
                 }
             }
         }
-        for (s, idx, id, sign, amount) in undo {
-            // Remove the temp-strength stack entirely.
+        for (s, idx, id, sign, amount, target) in undo {
+            // Remove the temp-power stack entirely.
             self.decrement_power(s, idx, id, amount);
-            // Subtract sign * amount of StrengthPower (undoing the
+            // Subtract sign * amount of the target power (undoing the
             // BeforeApplied silent grant).
-            self.apply_power(s, idx, "StrengthPower", -(sign * amount));
+            self.apply_power(s, idx, target, -(sign * amount));
         }
     }
 
@@ -1532,6 +1531,89 @@ fn dispatch_on_play(
                 "StrengthPower",
                 strength,
             );
+            true
+        }
+        // Anticipate (Silent common Skill, 0E, Self): apply 2
+        // AnticipatePower (3 upgraded). AnticipatePower extends
+        // TemporaryDexterityPower (IsPositive=true) → silently grants
+        // matching DexterityPower amount; at end of owner's turn,
+        // removes itself + restores Dexterity. tick_temporary_strength_powers
+        // handles the cleanup via the (AnticipatePower, +1, DexterityPower)
+        // table entry.
+        "Anticipate" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let dex = canonical_int_value(card, "Dexterity", upgrade_level);
+            cs.apply_power(
+                CombatSide::Player,
+                player_idx,
+                "AnticipatePower",
+                dex,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                player_idx,
+                "DexterityPower",
+                dex,
+            );
+            true
+        }
+        // Untouchable (Silent common Skill, 2E, Self): 6 block (8
+        // upgraded). Sly keyword is a metadata tag with no effect on
+        // OnPlay.
+        "Untouchable" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            true
+        }
+        // FlickFlack (Silent common Attack, 1E, AllEnemies): 6 damage
+        // (8 upgraded) to all enemies once. Sly keyword tag only.
+        "FlickFlack" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let n = cs.enemies.len();
+            for i in 0..n {
+                if cs.enemies[i].current_hp == 0 {
+                    continue;
+                }
+                cs.deal_damage_enchanted(
+                    (CombatSide::Player, player_idx),
+                    (CombatSide::Enemy, i),
+                    damage,
+                    ValueProp::MOVE,
+                    enchantment,
+                );
+            }
+            true
+        }
+        // Ricochet (Silent common Attack, 2E, RandomEnemy, Sly): 3
+        // damage × 4 hits (5 hits upgraded), each picks a fresh random
+        // alive enemy. Identical pattern to SwordBoomerang.
+        "Ricochet" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let hits = canonical_int_value(card, "Repeat", upgrade_level);
+            for _ in 0..hits {
+                let alive: Vec<usize> = cs
+                    .enemies
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.current_hp > 0)
+                    .map(|(i, _)| i)
+                    .collect();
+                if alive.is_empty() {
+                    break;
+                }
+                let pick = cs.rng.next_int_range(0, alive.len() as i32) as usize;
+                let idx = alive[pick];
+                cs.deal_damage_enchanted(
+                    (CombatSide::Player, player_idx),
+                    (CombatSide::Enemy, idx),
+                    damage,
+                    ValueProp::MOVE,
+                    enchantment,
+                );
+            }
             true
         }
         // Shiv (Token Attack, 0 cost, AnyEnemy): 4 damage (6 upgraded).
@@ -4339,6 +4421,113 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Anticipate/Untouchable/FlickFlack/Ricochet tests ---------
+
+    #[test]
+    fn anticipate_grants_two_temp_dexterity() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "Anticipate", 0, None);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "AnticipatePower"),
+            2
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DexterityPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn anticipate_dex_clears_at_end_of_player_turn() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "Anticipate", 0, None);
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "AnticipatePower"),
+            0
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DexterityPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn anticipate_preserves_permanent_dex() {
+        // Existing permanent Dex(3) + Anticipate(2 temp). After EOT,
+        // perma Dex stays at 3.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "DexterityPower", 3);
+        inject_card_and_play(&mut cs, "Anticipate", 0, None);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DexterityPower"),
+            5
+        );
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DexterityPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn untouchable_grants_six_block() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        inject_card_and_play(&mut cs, "Untouchable", 0, None);
+        assert_eq!(cs.allies[0].block, 6);
+    }
+
+    #[test]
+    fn upgraded_untouchable_grants_eight_block() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        inject_card_and_play(&mut cs, "Untouchable", 1, None);
+        assert_eq!(cs.allies[0].block, 8);
+    }
+
+    #[test]
+    fn flick_flack_hits_each_enemy_once() {
+        let mut cs = ironclad_combat();
+        let h0 = cs.enemies[0].current_hp;
+        let h1 = cs.enemies[1].current_hp;
+        inject_card_and_play(&mut cs, "FlickFlack", 0, None);
+        assert_eq!(cs.enemies[0].current_hp, h0 - 6);
+        assert_eq!(cs.enemies[1].current_hp, h1 - 6);
+    }
+
+    #[test]
+    fn upgraded_flick_flack_does_eight_damage() {
+        let mut cs = ironclad_combat();
+        let h0 = cs.enemies[0].current_hp;
+        inject_card_and_play(&mut cs, "FlickFlack", 1, None);
+        assert_eq!(cs.enemies[0].current_hp, h0 - 8);
+    }
+
+    #[test]
+    fn ricochet_does_four_hits_three_damage() {
+        let mut cs = ironclad_combat();
+        cs.rng = Rng::new(42, 0);
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let total_before: i32 = cs.enemies.iter().map(|e| e.current_hp).sum();
+        inject_card_and_play(&mut cs, "Ricochet", 0, None);
+        let total_after: i32 = cs.enemies.iter().map(|e| e.current_hp).sum();
+        // 4 hits × 3 damage = 12.
+        assert_eq!(total_before - total_after, 12);
+    }
+
+    #[test]
+    fn upgraded_ricochet_does_five_hits() {
+        let mut cs = ironclad_combat();
+        cs.rng = Rng::new(42, 0);
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let total_before: i32 = cs.enemies.iter().map(|e| e.current_hp).sum();
+        inject_card_and_play(&mut cs, "Ricochet", 1, None);
+        let total_after: i32 = cs.enemies.iter().map(|e| e.current_hp).sum();
+        // 5 hits × 3 damage = 15.
+        assert_eq!(total_before - total_after, 15);
     }
 
     // ---------- Shiv-creating cards tests --------------------------------
