@@ -3952,6 +3952,98 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: TorchHeadAmalgam ---------------------------
+//
+// Reflects C# `TorchHeadAmalgam.GenerateMoveStateMachine`:
+//   Init: Tackle1.
+//   Chain: Tackle1 → Tackle2 → Beam → Tackle3 → Tackle4 → Beam → ...
+//   (3-state loop Beam ↔ Tackle3 ↔ Tackle4 after the opening pair).
+//
+// Spawn (AfterAddedToRoom): apply MinionPower(1) (cosmetic minion
+// identifier in C#; no gameplay hooks today, so the port skips it).
+//
+// A0 payloads:
+//   - Tackle1/Tackle2: 18 dmg each (DeadlyEnemies: 19)
+//   - Beam: 8 dmg × 3 hits
+//   - Tackle3/Tackle4: 14 dmg each (DeadlyEnemies: 15)
+
+const TORCH_HEAD_TACKLE_DAMAGE: i32 = 18;
+const TORCH_HEAD_WEAK_TACKLE_DAMAGE: i32 = 14;
+const TORCH_HEAD_BEAM_DAMAGE: i32 = 8;
+const TORCH_HEAD_BEAM_HITS: i32 = 3;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TorchHeadAmalgamIntent {
+    Tackle1,
+    Tackle2,
+    Beam,
+    Tackle3,
+    Tackle4,
+}
+
+impl TorchHeadAmalgamIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            TorchHeadAmalgamIntent::Tackle1 => "TACKLE_1_MOVE",
+            TorchHeadAmalgamIntent::Tackle2 => "TACKLE_2_MOVE",
+            TorchHeadAmalgamIntent::Beam => "BEAM_MOVE",
+            TorchHeadAmalgamIntent::Tackle3 => "TACKLE_3_MOVE",
+            TorchHeadAmalgamIntent::Tackle4 => "TACKLE_4_MOVE",
+        }
+    }
+}
+
+pub fn pick_torch_head_amalgam_intent(
+    last_intent: Option<TorchHeadAmalgamIntent>,
+) -> TorchHeadAmalgamIntent {
+    match last_intent {
+        None => TorchHeadAmalgamIntent::Tackle1,
+        Some(TorchHeadAmalgamIntent::Tackle1) => TorchHeadAmalgamIntent::Tackle2,
+        Some(TorchHeadAmalgamIntent::Tackle2) => TorchHeadAmalgamIntent::Beam,
+        Some(TorchHeadAmalgamIntent::Beam) => TorchHeadAmalgamIntent::Tackle3,
+        Some(TorchHeadAmalgamIntent::Tackle3) => TorchHeadAmalgamIntent::Tackle4,
+        Some(TorchHeadAmalgamIntent::Tackle4) => TorchHeadAmalgamIntent::Beam,
+    }
+}
+
+pub fn execute_torch_head_amalgam_move(
+    cs: &mut CombatState,
+    torch_idx: usize,
+    target_player_idx: usize,
+    intent: TorchHeadAmalgamIntent,
+) {
+    let attacker = (CombatSide::Enemy, torch_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        TorchHeadAmalgamIntent::Tackle1 | TorchHeadAmalgamIntent::Tackle2 => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TORCH_HEAD_TACKLE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        TorchHeadAmalgamIntent::Tackle3 | TorchHeadAmalgamIntent::Tackle4 => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TORCH_HEAD_WEAK_TACKLE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        TorchHeadAmalgamIntent::Beam => {
+            for _ in 0..TORCH_HEAD_BEAM_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    TORCH_HEAD_BEAM_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: SoulFysh (boss) ----------------------------
 //
 // Reflects C# `SoulFysh.GenerateMoveStateMachine`:
@@ -12423,6 +12515,83 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- TorchHeadAmalgam tests -------------------------------------
+
+    #[test]
+    fn torch_head_walks_five_state_chain() {
+        assert_eq!(
+            pick_torch_head_amalgam_intent(None),
+            TorchHeadAmalgamIntent::Tackle1
+        );
+        assert_eq!(
+            pick_torch_head_amalgam_intent(Some(TorchHeadAmalgamIntent::Tackle1)),
+            TorchHeadAmalgamIntent::Tackle2
+        );
+        assert_eq!(
+            pick_torch_head_amalgam_intent(Some(TorchHeadAmalgamIntent::Tackle2)),
+            TorchHeadAmalgamIntent::Beam
+        );
+        assert_eq!(
+            pick_torch_head_amalgam_intent(Some(TorchHeadAmalgamIntent::Beam)),
+            TorchHeadAmalgamIntent::Tackle3
+        );
+        assert_eq!(
+            pick_torch_head_amalgam_intent(Some(TorchHeadAmalgamIntent::Tackle3)),
+            TorchHeadAmalgamIntent::Tackle4
+        );
+        assert_eq!(
+            pick_torch_head_amalgam_intent(Some(TorchHeadAmalgamIntent::Tackle4)),
+            TorchHeadAmalgamIntent::Beam
+        );
+    }
+
+    #[test]
+    fn torch_head_tackle1_2_deal_eighteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_torch_head_amalgam_move(
+            &mut cs,
+            0,
+            0,
+            TorchHeadAmalgamIntent::Tackle1,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 18);
+        let hp2 = cs.allies[0].current_hp;
+        execute_torch_head_amalgam_move(
+            &mut cs,
+            0,
+            0,
+            TorchHeadAmalgamIntent::Tackle2,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp2 - 18);
+    }
+
+    #[test]
+    fn torch_head_tackle3_4_deal_fourteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_torch_head_amalgam_move(
+            &mut cs,
+            0,
+            0,
+            TorchHeadAmalgamIntent::Tackle3,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 14);
+    }
+
+    #[test]
+    fn torch_head_beam_eight_times_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_torch_head_amalgam_move(
+            &mut cs,
+            0,
+            0,
+            TorchHeadAmalgamIntent::Beam,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 24);
     }
 
     // ---------- SoulFysh tests ---------------------------------------------

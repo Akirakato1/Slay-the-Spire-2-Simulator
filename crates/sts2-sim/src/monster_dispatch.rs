@@ -111,6 +111,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "InfestedPrism"
             | "PhrogParasite"
             | "SoulFysh"
+            | "TorchHeadAmalgam"
     )
 }
 
@@ -707,6 +708,19 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "TorchHeadAmalgam" => {
+            let last = last_ref.and_then(|s| match s {
+                "TACKLE_1_MOVE" => Some(TorchHeadAmalgamIntent::Tackle1),
+                "TACKLE_2_MOVE" => Some(TorchHeadAmalgamIntent::Tackle2),
+                "BEAM_MOVE" => Some(TorchHeadAmalgamIntent::Beam),
+                "TACKLE_3_MOVE" => Some(TorchHeadAmalgamIntent::Tackle3),
+                "TACKLE_4_MOVE" => Some(TorchHeadAmalgamIntent::Tackle4),
+                _ => None,
+            });
+            let intent = pick_torch_head_amalgam_intent(last);
+            execute_torch_head_amalgam_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {
