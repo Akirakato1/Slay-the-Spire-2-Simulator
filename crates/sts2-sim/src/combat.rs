@@ -4129,6 +4129,96 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: Fabricator ---------------------------------
+//
+// Reflects C# `Fabricator.GenerateMoveStateMachine`:
+//   Init: ConditionalBranch(CanFabricate → RandomBranch(Fabricate,
+//   FabricatingStrike); else Disintegrate). All FollowUps return
+//   to the same conditional branch.
+//
+// CanFabricate = (alive teammates < 4). Without summon system,
+// teammate count stays at 0, so CanFabricate is always true and
+// Disintegrate is unreachable. Fabricate summons DefensiveBot +
+// AggroBot — both deferred (no-op). FabricatingStrike still deals
+// damage; its summon is skipped too.
+//
+// A0 payloads:
+//   - Fabricate:         no-op (summon DefensiveBot + AggroBot
+//                        deferred)
+//   - FabricatingStrike: 18 dmg (DeadlyEnemies: 21); the summon
+//                        portion deferred
+//   - Disintegrate:      11 dmg (DeadlyEnemies: 13) — unreachable
+//                        in current port
+
+const FABRICATOR_FABRICATING_STRIKE_DAMAGE: i32 = 18;
+const FABRICATOR_DISINTEGRATE_DAMAGE: i32 = 11;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FabricatorIntent {
+    Fabricate,
+    FabricatingStrike,
+    Disintegrate,
+}
+
+impl FabricatorIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            FabricatorIntent::Fabricate => "FABRICATE_MOVE",
+            FabricatorIntent::FabricatingStrike => "FABRICATING_STRIKE_MOVE",
+            FabricatorIntent::Disintegrate => "DISINTEGRATE_MOVE",
+        }
+    }
+}
+
+pub fn pick_fabricator_intent(
+    rng: &mut Rng,
+    last_intent: Option<FabricatorIntent>,
+    can_fabricate: bool,
+) -> FabricatorIntent {
+    let _ = last_intent; // Move repeats are allowed (CanRepeatForever).
+    if !can_fabricate {
+        return FabricatorIntent::Disintegrate;
+    }
+    // 50/50 between the two fabricate-class moves.
+    if rng.next_int_range(0, 2) == 0 {
+        FabricatorIntent::Fabricate
+    } else {
+        FabricatorIntent::FabricatingStrike
+    }
+}
+
+pub fn execute_fabricator_move(
+    cs: &mut CombatState,
+    fab_idx: usize,
+    target_player_idx: usize,
+    intent: FabricatorIntent,
+) {
+    let attacker = (CombatSide::Enemy, fab_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        FabricatorIntent::Fabricate => {
+            // No-op — would summon DefensiveBot + AggroBot in C#.
+        }
+        FabricatorIntent::FabricatingStrike => {
+            cs.deal_damage(
+                attacker,
+                player,
+                FABRICATOR_FABRICATING_STRIKE_DAMAGE,
+                ValueProp::MOVE,
+            );
+            // Summon AggroBot omitted (deferred).
+        }
+        FabricatorIntent::Disintegrate => {
+            cs.deal_damage(
+                attacker,
+                player,
+                FABRICATOR_DISINTEGRATE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: Doormaker (boss) ---------------------------
 //
 // Reflects C# `Doormaker.GenerateMoveStateMachine`. Init:
@@ -14232,6 +14322,58 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- Fabricator tests -------------------------------------------
+
+    #[test]
+    fn fabricator_can_fabricate_picks_one_of_two() {
+        let mut rng = Rng::new(1, 0);
+        for _ in 0..20 {
+            let intent = pick_fabricator_intent(&mut rng, None, true);
+            assert!(matches!(
+                intent,
+                FabricatorIntent::Fabricate | FabricatorIntent::FabricatingStrike
+            ));
+        }
+    }
+
+    #[test]
+    fn fabricator_cannot_fabricate_picks_disintegrate() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_fabricator_intent(&mut rng, None, false),
+            FabricatorIntent::Disintegrate
+        );
+    }
+
+    #[test]
+    fn fabricator_fabricate_is_noop() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_fabricator_move(&mut cs, 0, 0, FabricatorIntent::Fabricate);
+        assert_eq!(cs.allies[0].current_hp, hp);
+    }
+
+    #[test]
+    fn fabricator_fabricating_strike_deals_eighteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_fabricator_move(
+            &mut cs,
+            0,
+            0,
+            FabricatorIntent::FabricatingStrike,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 18);
+    }
+
+    #[test]
+    fn fabricator_disintegrate_deals_eleven() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_fabricator_move(&mut cs, 0, 0, FabricatorIntent::Disintegrate);
+        assert_eq!(cs.allies[0].current_hp, hp - 11);
     }
 
     // ---------- Doormaker tests --------------------------------------------

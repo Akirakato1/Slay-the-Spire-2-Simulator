@@ -157,6 +157,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "HauntedShip"
             | "LagavulinMatriarch"
             | "Doormaker"
+            | "Fabricator"
     )
 }
 
@@ -771,6 +772,27 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "Fabricator" => {
+            let last = last_ref.and_then(|s| match s {
+                "FABRICATE_MOVE" => Some(FabricatorIntent::Fabricate),
+                "FABRICATING_STRIKE_MOVE" => Some(FabricatorIntent::FabricatingStrike),
+                "DISINTEGRATE_MOVE" => Some(FabricatorIntent::Disintegrate),
+                _ => None,
+            });
+            // CanFabricate = alive teammates < 4 (excluding self).
+            let live_teammates = cs
+                .enemies
+                .iter()
+                .enumerate()
+                .filter(|(i, e)| *i != enemy_idx && e.current_hp > 0)
+                .count();
+            let can_fabricate = live_teammates < 4;
+            let mut rng = take_rng(cs);
+            let intent = pick_fabricator_intent(&mut rng, last, can_fabricate);
+            put_rng(cs, rng);
+            execute_fabricator_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "Doormaker" => {
