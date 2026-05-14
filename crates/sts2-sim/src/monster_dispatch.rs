@@ -97,6 +97,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "Vantom"
             | "SpinyToad"
             | "GlobeHead"
+            | "SlimedBerserker"
     )
 }
 
@@ -579,6 +580,20 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_globe_head_intent(last);
             execute_globe_head_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "SlimedBerserker" => {
+            let last = last_ref.and_then(|s| match s {
+                "VOMIT_ICHOR_MOVE" => Some(SlimedBerserkerIntent::VomitIchor),
+                "FURIOUS_PUMMELING_MOVE" => {
+                    Some(SlimedBerserkerIntent::FuriousPummeling)
+                }
+                "LEECHING_HUG_MOVE" => Some(SlimedBerserkerIntent::LeechingHug),
+                "SMOTHER_MOVE" => Some(SlimedBerserkerIntent::Smother),
+                _ => None,
+            });
+            let intent = pick_slimed_berserker_intent(last);
+            execute_slimed_berserker_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {

@@ -3641,6 +3641,111 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: SlimedBerserker ----------------------------
+//
+// Reflects C# `SlimedBerserker.GenerateMoveStateMachine`:
+//   Init: VomitIchor.
+//   Chain: VomitIchor → FuriousPummeling → LeechingHug → Smother →
+//          VomitIchor (loop).
+//
+// A0 payloads:
+//   - VomitIchor:       add 10 Slimed cards to player's discard
+//   - FuriousPummeling: 4 damage × 4 hits (DeadlyEnemies: 5)
+//   - LeechingHug:      3 Weak on player + 3 self-Strength
+//   - Smother:          30 damage (DeadlyEnemies: 33)
+
+const SLIMED_BERSERKER_VOMIT_COUNT: i32 = 10;
+const SLIMED_BERSERKER_PUMMEL_DAMAGE: i32 = 4;
+const SLIMED_BERSERKER_PUMMEL_HITS: i32 = 4;
+const SLIMED_BERSERKER_HUG_WEAK: i32 = 3;
+const SLIMED_BERSERKER_HUG_STRENGTH: i32 = 3;
+const SLIMED_BERSERKER_SMOTHER_DAMAGE: i32 = 30;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SlimedBerserkerIntent {
+    VomitIchor,
+    FuriousPummeling,
+    LeechingHug,
+    Smother,
+}
+
+impl SlimedBerserkerIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            SlimedBerserkerIntent::VomitIchor => "VOMIT_ICHOR_MOVE",
+            SlimedBerserkerIntent::FuriousPummeling => "FURIOUS_PUMMELING_MOVE",
+            SlimedBerserkerIntent::LeechingHug => "LEECHING_HUG_MOVE",
+            SlimedBerserkerIntent::Smother => "SMOTHER_MOVE",
+        }
+    }
+}
+
+pub fn pick_slimed_berserker_intent(
+    last_intent: Option<SlimedBerserkerIntent>,
+) -> SlimedBerserkerIntent {
+    match last_intent {
+        None => SlimedBerserkerIntent::VomitIchor,
+        Some(SlimedBerserkerIntent::VomitIchor) => SlimedBerserkerIntent::FuriousPummeling,
+        Some(SlimedBerserkerIntent::FuriousPummeling) => SlimedBerserkerIntent::LeechingHug,
+        Some(SlimedBerserkerIntent::LeechingHug) => SlimedBerserkerIntent::Smother,
+        Some(SlimedBerserkerIntent::Smother) => SlimedBerserkerIntent::VomitIchor,
+    }
+}
+
+pub fn execute_slimed_berserker_move(
+    cs: &mut CombatState,
+    slimed_idx: usize,
+    target_player_idx: usize,
+    intent: SlimedBerserkerIntent,
+) {
+    let attacker = (CombatSide::Enemy, slimed_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        SlimedBerserkerIntent::VomitIchor => {
+            for _ in 0..SLIMED_BERSERKER_VOMIT_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Slimed",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+        SlimedBerserkerIntent::FuriousPummeling => {
+            for _ in 0..SLIMED_BERSERKER_PUMMEL_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    SLIMED_BERSERKER_PUMMEL_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        SlimedBerserkerIntent::LeechingHug => {
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                SLIMED_BERSERKER_HUG_WEAK,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                slimed_idx,
+                "StrengthPower",
+                SLIMED_BERSERKER_HUG_STRENGTH,
+            );
+        }
+        SlimedBerserkerIntent::Smother => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SLIMED_BERSERKER_SMOTHER_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: GlobeHead ----------------------------------
 //
 // Reflects C# `GlobeHead.GenerateMoveStateMachine`:
@@ -11098,6 +11203,113 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- SlimedBerserker tests --------------------------------------
+
+    #[test]
+    fn slimed_berserker_walks_four_state_chain() {
+        assert_eq!(
+            pick_slimed_berserker_intent(None),
+            SlimedBerserkerIntent::VomitIchor
+        );
+        assert_eq!(
+            pick_slimed_berserker_intent(Some(SlimedBerserkerIntent::VomitIchor)),
+            SlimedBerserkerIntent::FuriousPummeling
+        );
+        assert_eq!(
+            pick_slimed_berserker_intent(Some(
+                SlimedBerserkerIntent::FuriousPummeling
+            )),
+            SlimedBerserkerIntent::LeechingHug
+        );
+        assert_eq!(
+            pick_slimed_berserker_intent(Some(SlimedBerserkerIntent::LeechingHug)),
+            SlimedBerserkerIntent::Smother
+        );
+        assert_eq!(
+            pick_slimed_berserker_intent(Some(SlimedBerserkerIntent::Smother)),
+            SlimedBerserkerIntent::VomitIchor
+        );
+    }
+
+    #[test]
+    fn slimed_berserker_vomit_ichor_adds_ten_slimed() {
+        let mut cs = ironclad_combat();
+        let before = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.discard.cards.len())
+            .unwrap_or(0);
+        execute_slimed_berserker_move(
+            &mut cs,
+            0,
+            0,
+            SlimedBerserkerIntent::VomitIchor,
+        );
+        let after = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.discard.cards.len())
+            .unwrap_or(0);
+        assert_eq!(after - before, 10);
+        let slimed = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| {
+                p.discard
+                    .cards
+                    .iter()
+                    .filter(|c| c.id == "Slimed")
+                    .count()
+            })
+            .unwrap_or(0);
+        assert_eq!(slimed, 10);
+    }
+
+    #[test]
+    fn slimed_berserker_furious_pummeling_four_times_four() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_slimed_berserker_move(
+            &mut cs,
+            0,
+            0,
+            SlimedBerserkerIntent::FuriousPummeling,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+    }
+
+    #[test]
+    fn slimed_berserker_leeching_hug_payload() {
+        let mut cs = ironclad_combat();
+        execute_slimed_berserker_move(
+            &mut cs,
+            0,
+            0,
+            SlimedBerserkerIntent::LeechingHug,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            3
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn slimed_berserker_smother_deals_thirty() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_slimed_berserker_move(
+            &mut cs,
+            0,
+            0,
+            SlimedBerserkerIntent::Smother,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 30);
     }
 
     // ---------- GlobeHead tests --------------------------------------------
