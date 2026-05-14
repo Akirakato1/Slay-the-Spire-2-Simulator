@@ -25,41 +25,21 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-# Monsters with a fully ported intent state machine in combat.rs.
-# Keep in sync with the MonsterIntent enums and execute_*_move fns.
-PORTED_INTENT_MACHINES = {
-    "Axebot",
-    "Myte",
-    "Nibbit",
-    "FlailKnight",
-    "BowlbugEgg",
-    "BowlbugNectar",
-    "BowlbugSilk",
-    "ScrollOfBiting",
-    "CorpseSlug",
-    "Seapunk",
-    "TwigSlimeS",
-    "LeafSlimeS",
-    "TwigSlimeM",
-    "LeafSlimeM",
-    "TurretOperator",
-    "Chomper",
-    "Byrdonis",
-    "ShrinkerBeetle",
-    "LivingShield",
-    "Entomancer",
-    "MechaKnight",
-    "BowlbugRock",
-    "SludgeSpinner",
-    "FuzzyWurmCrawler",
-    "CalcifiedCultist",
-    "OwlMagistrate",
-    "ThievingHopper",
-    "Toadpole",
-    "DevotedSculptor",
-    "Exoskeleton",
-    "SoulNexus",
-}
+# Source of truth for "is this monster ported?": the Rust-side
+# monster_dispatch registry. The PyO3 binding exposes
+# `monster_has_dispatch(model_id)` which returns true iff the dispatcher
+# has an arm for that id. Importing sts2_sim_py is optional — if it's
+# not built, fall back to an empty set and treat every monster as
+# unported (the coverage report will be conservative but still useful).
+try:
+    import sts2_sim_py as _sim
+
+    def is_monster_ported(model_id: str) -> bool:
+        return _sim.monster_has_dispatch(model_id)
+except (ImportError, AttributeError):
+
+    def is_monster_ported(_model_id: str) -> bool:
+        return False
 
 
 def load_known_ids() -> tuple[set[str], set[str]]:
@@ -167,7 +147,7 @@ def main() -> None:
         for m in sorted(mons):
             if m not in known_monsters:
                 reasons.append(f"missing-monster:{m}")
-            elif m not in PORTED_INTENT_MACHINES:
+            elif not is_monster_ported(m):
                 reasons.append(f"missing-intent:{m}")
         if not reasons:
             ready_encs += 1
@@ -191,7 +171,7 @@ def main() -> None:
     for mon, count in mon_counts.most_common():
         if mon not in known_monsters:
             tag = "missing-from-extracted-table"
-        elif mon not in PORTED_INTENT_MACHINES:
+        elif not is_monster_ported(mon):
             tag = "missing-intent-machine"
         else:
             tag = "READY"

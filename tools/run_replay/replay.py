@@ -63,6 +63,17 @@ def normalize_id(prefixed: str) -> str:
     return "".join(part[:1].upper() + part[1:].lower() for part in raw.split("_"))
 
 
+def all_monsters_dispatched(monster_ids: list[str]) -> bool:
+    """True iff every monster id in the encounter has a Rust-side
+    dispatcher arm. Encounters where at least one monster no-ops on
+    its turn give misleading victory counts — flag them separately."""
+    if not monster_ids:
+        return False
+    return all(
+        sts2_sim_py.monster_has_dispatch(normalize_id(m)) for m in monster_ids
+    )
+
+
 def normalize_character(prefixed: str) -> str:
     """Convert "CHARACTER.IRONCLAD" → "Ironclad"."""
     _, _, raw = prefixed.partition(".")
@@ -184,6 +195,8 @@ def walk_run(
                     aggregate[STATUS_UNKNOWN_ENCOUNTER] += 1
                     per_encounter[enc][STATUS_UNKNOWN_ENCOUNTER] += 1
                     continue
+                monster_ids = r.get("monster_ids") or []
+                fully_dispatched = all_monsters_dispatched(monster_ids)
                 # Per-combat seed: stable across runs so reruns reproduce.
                 combat_seed = (
                     (seed_salt * 1_000_003)
@@ -199,6 +212,16 @@ def walk_run(
                 )
                 aggregate[status] += 1
                 per_encounter[enc][status] += 1
+                # Side stat: separate fully-dispatched vs partially-
+                # dispatched combats so victory percentages can be
+                # interpreted properly.
+                key = (
+                    "fully-dispatched"
+                    if fully_dispatched
+                    else "partial-dispatched"
+                )
+                aggregate[key] += 1
+                per_encounter[enc][key] += 1
                 if status in (
                     STATUS_ENV_BUILD_FAILED,
                     STATUS_STEP_CRASHED,
@@ -271,7 +294,10 @@ def main() -> int:
             step_cap=args.step_cap,
         )
 
-    total = sum(aggregate.values())
+    # `total` counts combat rooms; the dispatch keys are a parallel
+    # bookkeeping pair, so they shouldn't be summed into the total.
+    dispatch_keys = {"fully-dispatched", "partial-dispatched"}
+    total = sum(v for k, v in aggregate.items() if k not in dispatch_keys)
     print()
     print(f"=== aggregate ({total} combat rooms) ===")
     for status in (
@@ -287,12 +313,21 @@ def main() -> int:
         if n:
             pct = 100.0 * n / max(total, 1)
             print(f"  {status:24} {n:4}  ({pct:5.1f}%)")
+    fd = aggregate.get("fully-dispatched", 0)
+    pd = aggregate.get("partial-dispatched", 0)
+    print(
+        f"  dispatch coverage:       fully-dispatched={fd} "
+        f"({100.0*fd/max(total,1):.1f}%)  "
+        f"partial-dispatched={pd}"
+    )
 
     print()
     print("=== per encounter (sorted by occurrences) ===")
     rows = []
     for enc, statuses in per_encounter.items():
-        n = sum(statuses.values())
+        n = sum(
+            v for k, v in statuses.items() if k not in dispatch_keys
+        )
         # Status priority: surface the worst outcome first.
         bad = (
             statuses.get(STATUS_STEP_CRASHED, 0)
@@ -302,10 +337,17 @@ def main() -> int:
         rows.append((n, bad, enc, statuses))
     rows.sort(key=lambda t: (-t[0], t[2]))
     for n, _bad, enc, statuses in rows:
+        # Compact dispatch hint as a leading flag instead of mixing
+        # it into the comma list.
+        fd = statuses.get("fully-dispatched", 0)
+        pd = statuses.get("partial-dispatched", 0)
+        dispatch_flag = "[D]" if pd == 0 and fd > 0 else "[~]"
         bits = ", ".join(
-            f"{k}={v}" for k, v in sorted(statuses.items()) if v > 0
+            f"{k}={v}"
+            for k, v in sorted(statuses.items())
+            if v > 0 and k not in {"fully-dispatched", "partial-dispatched"}
         )
-        print(f"  {n:3}x {enc:40} {bits}")
+        print(f"  {dispatch_flag} {n:3}x {enc:40} {bits}")
 
     if args.show_examples and examples:
         print()

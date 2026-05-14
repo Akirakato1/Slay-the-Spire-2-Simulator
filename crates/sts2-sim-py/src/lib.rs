@@ -44,8 +44,8 @@
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
 use sts2_sim::{
-    card, character, combat, encounter, env as sim_env, features, monster, power, relic,
-    run_log,
+    card, character, combat, encounter, env as sim_env, features, monster,
+    monster_dispatch, power, relic, run_log,
 };
 
 // ---------- Static data lookups -------------------------------------
@@ -91,6 +91,14 @@ fn power_count() -> usize {
 #[pyfunction]
 fn monster_count() -> usize {
     monster::ALL_MONSTERS.len()
+}
+
+/// True if the sim has a per-turn intent dispatcher for this monster
+/// id. Used by tools/run_replay/coverage.py to derive ported-monster
+/// coverage without manually mirroring a list.
+#[pyfunction]
+fn monster_has_dispatch(model_id: &str) -> bool {
+    monster_dispatch::monster_has_dispatch(model_id)
 }
 
 #[pyfunction]
@@ -288,6 +296,7 @@ fn sts2_sim_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(card_feature_dim, m)?)?;
     m.add_function(wrap_pyfunction!(relic_feature_dim, m)?)?;
     m.add_function(wrap_pyfunction!(creature_state_feature_dim, m)?)?;
+    m.add_function(wrap_pyfunction!(monster_has_dispatch, m)?)?;
     m.add_class::<PyCombatEnv>()?;
     Ok(())
 }
