@@ -3952,6 +3952,130 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: SoulFysh (boss) ----------------------------
+//
+// Reflects C# `SoulFysh.GenerateMoveStateMachine`:
+//   Init: Beckon.
+//   Chain: Beckon → DeGas → Gaze → Fade → Scream → Beckon (loop).
+//
+// A0 payloads:
+//   - Beckon: add 2 Beckon status cards to player's discard
+//   - DeGas:  16 damage (DeadlyEnemies: 17)
+//   - Gaze:   7 dmg + add 1 Beckon status card (DeadlyEnemies: 8)
+//   - Fade:   apply IntangiblePower(2) to self
+//   - Scream: 11 dmg + apply VulnerablePower(3) to player
+//             (DeadlyEnemies: 12)
+
+const SOUL_FYSH_BECKON_COUNT: i32 = 2;
+const SOUL_FYSH_DE_GAS_DAMAGE: i32 = 16;
+const SOUL_FYSH_GAZE_DAMAGE: i32 = 7;
+const SOUL_FYSH_GAZE_BECKON: i32 = 1;
+const SOUL_FYSH_FADE_INTANGIBLE: i32 = 2;
+const SOUL_FYSH_SCREAM_DAMAGE: i32 = 11;
+const SOUL_FYSH_SCREAM_VULN: i32 = 3;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SoulFyshIntent {
+    Beckon,
+    DeGas,
+    Gaze,
+    Fade,
+    Scream,
+}
+
+impl SoulFyshIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            SoulFyshIntent::Beckon => "BECKON_MOVE",
+            SoulFyshIntent::DeGas => "DE_GAS_MOVE",
+            SoulFyshIntent::Gaze => "GAZE_MOVE",
+            SoulFyshIntent::Fade => "FADE_MOVE",
+            SoulFyshIntent::Scream => "SCREAM_MOVE",
+        }
+    }
+}
+
+pub fn pick_soul_fysh_intent(
+    last_intent: Option<SoulFyshIntent>,
+) -> SoulFyshIntent {
+    match last_intent {
+        None => SoulFyshIntent::Beckon,
+        Some(SoulFyshIntent::Beckon) => SoulFyshIntent::DeGas,
+        Some(SoulFyshIntent::DeGas) => SoulFyshIntent::Gaze,
+        Some(SoulFyshIntent::Gaze) => SoulFyshIntent::Fade,
+        Some(SoulFyshIntent::Fade) => SoulFyshIntent::Scream,
+        Some(SoulFyshIntent::Scream) => SoulFyshIntent::Beckon,
+    }
+}
+
+pub fn execute_soul_fysh_move(
+    cs: &mut CombatState,
+    fysh_idx: usize,
+    target_player_idx: usize,
+    intent: SoulFyshIntent,
+) {
+    let attacker = (CombatSide::Enemy, fysh_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        SoulFyshIntent::Beckon => {
+            for _ in 0..SOUL_FYSH_BECKON_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Beckon",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+        SoulFyshIntent::DeGas => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SOUL_FYSH_DE_GAS_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        SoulFyshIntent::Gaze => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SOUL_FYSH_GAZE_DAMAGE,
+                ValueProp::MOVE,
+            );
+            for _ in 0..SOUL_FYSH_GAZE_BECKON {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Beckon",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+        SoulFyshIntent::Fade => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                fysh_idx,
+                "IntangiblePower",
+                SOUL_FYSH_FADE_INTANGIBLE,
+            );
+        }
+        SoulFyshIntent::Scream => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SOUL_FYSH_SCREAM_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "VulnerablePower",
+                SOUL_FYSH_SCREAM_VULN,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: PhrogParasite ------------------------------
 //
 // Reflects C# `PhrogParasite.GenerateMoveStateMachine`. Although the
@@ -12299,6 +12423,101 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- SoulFysh tests ---------------------------------------------
+
+    #[test]
+    fn soul_fysh_walks_five_state_chain() {
+        assert_eq!(pick_soul_fysh_intent(None), SoulFyshIntent::Beckon);
+        assert_eq!(
+            pick_soul_fysh_intent(Some(SoulFyshIntent::Beckon)),
+            SoulFyshIntent::DeGas
+        );
+        assert_eq!(
+            pick_soul_fysh_intent(Some(SoulFyshIntent::DeGas)),
+            SoulFyshIntent::Gaze
+        );
+        assert_eq!(
+            pick_soul_fysh_intent(Some(SoulFyshIntent::Gaze)),
+            SoulFyshIntent::Fade
+        );
+        assert_eq!(
+            pick_soul_fysh_intent(Some(SoulFyshIntent::Fade)),
+            SoulFyshIntent::Scream
+        );
+        assert_eq!(
+            pick_soul_fysh_intent(Some(SoulFyshIntent::Scream)),
+            SoulFyshIntent::Beckon
+        );
+    }
+
+    #[test]
+    fn soul_fysh_beckon_adds_two_beckons() {
+        let mut cs = ironclad_combat();
+        execute_soul_fysh_move(&mut cs, 0, 0, SoulFyshIntent::Beckon);
+        let beckons = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| {
+                p.discard
+                    .cards
+                    .iter()
+                    .filter(|c| c.id == "Beckon")
+                    .count()
+            })
+            .unwrap_or(0);
+        assert_eq!(beckons, 2);
+    }
+
+    #[test]
+    fn soul_fysh_de_gas_deals_sixteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_soul_fysh_move(&mut cs, 0, 0, SoulFyshIntent::DeGas);
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+    }
+
+    #[test]
+    fn soul_fysh_gaze_seven_damage_plus_beckon() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_soul_fysh_move(&mut cs, 0, 0, SoulFyshIntent::Gaze);
+        assert_eq!(cs.allies[0].current_hp, hp - 7);
+        let beckons = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| {
+                p.discard
+                    .cards
+                    .iter()
+                    .filter(|c| c.id == "Beckon")
+                    .count()
+            })
+            .unwrap_or(0);
+        assert_eq!(beckons, 1);
+    }
+
+    #[test]
+    fn soul_fysh_fade_applies_intangible_two() {
+        let mut cs = ironclad_combat();
+        execute_soul_fysh_move(&mut cs, 0, 0, SoulFyshIntent::Fade);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "IntangiblePower"),
+            2
+        );
+    }
+
+    #[test]
+    fn soul_fysh_scream_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_soul_fysh_move(&mut cs, 0, 0, SoulFyshIntent::Scream);
+        assert_eq!(cs.allies[0].current_hp, hp - 11);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "VulnerablePower"),
+            3
+        );
     }
 
     // ---------- PhrogParasite tests ----------------------------------------

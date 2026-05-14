@@ -110,6 +110,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "PhantasmalGardener"
             | "InfestedPrism"
             | "PhrogParasite"
+            | "SoulFysh"
     )
 }
 
@@ -693,6 +694,19 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_phrog_parasite_intent(last);
             execute_phrog_parasite_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "SoulFysh" => {
+            let last = last_ref.and_then(|s| match s {
+                "BECKON_MOVE" => Some(SoulFyshIntent::Beckon),
+                "DE_GAS_MOVE" => Some(SoulFyshIntent::DeGas),
+                "GAZE_MOVE" => Some(SoulFyshIntent::Gaze),
+                "FADE_MOVE" => Some(SoulFyshIntent::Fade),
+                "SCREAM_MOVE" => Some(SoulFyshIntent::Scream),
+                _ => None,
+            });
+            let intent = pick_soul_fysh_intent(last);
+            execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {
