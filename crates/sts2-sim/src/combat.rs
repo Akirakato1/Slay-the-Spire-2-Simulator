@@ -108,6 +108,37 @@ pub struct MonsterState {
     /// Computed intent values if known (attack damage × hit count, block,
     /// etc.). Empty until the intent pipeline runs.
     pub intent_values: Vec<IntentValue>,
+    /// Per-monster boolean flags that drive state-machine branches but
+    /// don't fit cleanly into the Power model. Keyed by short id.
+    /// Current users:
+    ///   - "is_off_balance": BowlbugRock — flipped on by
+    ///     ImbalancedPower's AfterDamageGiven when this monster's
+    ///     attack is fully blocked; cleared by its Dizzy move.
+    pub flags: std::collections::HashMap<String, bool>,
+}
+
+impl MonsterState {
+    pub fn new() -> Self {
+        Self {
+            intent_move: None,
+            intent_values: Vec::new(),
+            flags: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn flag(&self, key: &str) -> bool {
+        self.flags.get(key).copied().unwrap_or(false)
+    }
+
+    pub fn set_flag(&mut self, key: &str, value: bool) {
+        self.flags.insert(key.to_string(), value);
+    }
+}
+
+impl Default for MonsterState {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -1315,13 +1346,12 @@ impl CombatState {
         outcome: &DamageOutcome,
         props: ValueProp,
     ) {
-        if !props.is_powered_attack() || outcome.hp_lost <= 0 {
-            return;
-        }
+        let is_powered = props.is_powered_attack();
+        let hp_landed = outcome.hp_lost > 0;
+        let fully_blocked = outcome.blocked > 0 && outcome.hp_lost == 0;
         let target_is_player = target.0 == CombatSide::Player;
         // Snapshot (power_id, amount) pairs from dealer-side powers so
-        // subsequent mutations (max_hp changes etc.) don't disrupt
-        // iteration.
+        // subsequent mutations don't disrupt iteration.
         let dealer_powers: Vec<(String, i32)> = creature_powers(self, dealer)
             .iter()
             .map(|p| (p.id.clone(), p.amount))
@@ -1331,8 +1361,23 @@ impl CombatState {
                 continue;
             }
             match power_id.as_str() {
-                "PaperCutsPower" if target_is_player => {
+                "PaperCutsPower" if is_powered && hp_landed && target_is_player => {
                     self.change_max_hp(target.0, target.1, -amount);
+                }
+                // ImbalancedPower.AfterDamageGiven: when owner's attack
+                // is fully blocked by the target, flag the dealer as
+                // off-balance. C# BowlbugRock reads this in its next
+                // intent branch. Other monsters with ImbalancedPower
+                // would get Stunned in C#; we just set the flag
+                // (Stun mechanic not yet ported).
+                "ImbalancedPower" if fully_blocked => {
+                    if let Some(creature) =
+                        creature_mut(self, dealer.0, dealer.1)
+                    {
+                        if let Some(ms) = creature.monster.as_mut() {
+                            ms.set_flag("is_off_balance", true);
+                        }
+                    }
                 }
                 _ => {}
             }
@@ -3351,6 +3396,99 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: BowlbugRock --------------------------------
+//
+// Reflects C# `BowlbugRock.GenerateMoveStateMachine`:
+//   Init: HEADBUTT_MOVE.
+//   After Headbutt: ConditionalBranch(IsOffBalance → Dizzy; else →
+//     Headbutt). Dizzy clears IsOffBalance and chains back to Headbutt.
+//
+// On spawn: ImbalancedPower(1). ImbalancedPower's AfterDamageGiven
+// hook (wired in fire_after_damage_given_hooks) flips
+// monster.flags["is_off_balance"] = true when this rock's attack is
+// fully blocked. The Dizzy move clears the flag.
+//
+// A0 payloads:
+//   - Headbutt: 15 damage (DeadlyEnemies: 16)
+//   - Dizzy:    no payload — recovers (clears off-balance flag)
+
+const BOWLBUG_ROCK_HEADBUTT_DAMAGE: i32 = 15;
+const BOWLBUG_ROCK_IMBALANCED_AMOUNT: i32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BowlbugRockIntent {
+    Headbutt,
+    Dizzy,
+}
+
+impl BowlbugRockIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            BowlbugRockIntent::Headbutt => "HEADBUTT_MOVE",
+            BowlbugRockIntent::Dizzy => "DIZZY_MOVE",
+        }
+    }
+}
+
+pub fn bowlbug_rock_spawn(cs: &mut CombatState, rock_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        rock_idx,
+        "ImbalancedPower",
+        BOWLBUG_ROCK_IMBALANCED_AMOUNT,
+    );
+}
+
+/// Pick BowlbugRock's next intent. `is_off_balance` comes from
+/// `monster.flags["is_off_balance"]` (set by ImbalancedPower when this
+/// rock's last attack was fully blocked).
+pub fn pick_bowlbug_rock_intent(
+    last_intent: Option<BowlbugRockIntent>,
+    is_off_balance: bool,
+) -> BowlbugRockIntent {
+    match last_intent {
+        None => BowlbugRockIntent::Headbutt,
+        Some(BowlbugRockIntent::Headbutt) => {
+            if is_off_balance {
+                BowlbugRockIntent::Dizzy
+            } else {
+                BowlbugRockIntent::Headbutt
+            }
+        }
+        Some(BowlbugRockIntent::Dizzy) => BowlbugRockIntent::Headbutt,
+    }
+}
+
+pub fn execute_bowlbug_rock_move(
+    cs: &mut CombatState,
+    rock_idx: usize,
+    target_player_idx: usize,
+    intent: BowlbugRockIntent,
+) {
+    let attacker = (CombatSide::Enemy, rock_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        BowlbugRockIntent::Headbutt => {
+            cs.deal_damage(
+                attacker,
+                player,
+                BOWLBUG_ROCK_HEADBUTT_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        BowlbugRockIntent::Dizzy => {
+            // No damage payload — clear off-balance to recover.
+            if let Some(creature) =
+                creature_mut(cs, CombatSide::Enemy, rock_idx)
+            {
+                if let Some(ms) = creature.monster.as_mut() {
+                    ms.set_flag("is_off_balance", false);
+                }
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: MechaKnight --------------------------------
 //
 // Reflects C# `MechaKnight.GenerateMoveStateMachine`:
@@ -5047,10 +5185,7 @@ impl Creature {
             powers: Vec::new(),
             afflictions: Vec::new(),
             player: None,
-            monster: Some(MonsterState {
-                intent_move: None,
-                intent_values: Vec::new(),
-            }),
+            monster: Some(MonsterState::new()),
         }
     }
 }
@@ -9189,6 +9324,104 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- BowlbugRock + ImbalancedPower tests -----------------------
+
+    #[test]
+    fn bowlbug_rock_first_turn_is_headbutt() {
+        assert_eq!(
+            pick_bowlbug_rock_intent(None, false),
+            BowlbugRockIntent::Headbutt
+        );
+    }
+
+    #[test]
+    fn bowlbug_rock_balanced_keeps_headbutting() {
+        assert_eq!(
+            pick_bowlbug_rock_intent(Some(BowlbugRockIntent::Headbutt), false),
+            BowlbugRockIntent::Headbutt
+        );
+    }
+
+    #[test]
+    fn bowlbug_rock_off_balance_dizzies() {
+        assert_eq!(
+            pick_bowlbug_rock_intent(Some(BowlbugRockIntent::Headbutt), true),
+            BowlbugRockIntent::Dizzy
+        );
+        // Dizzy → Headbutt always.
+        assert_eq!(
+            pick_bowlbug_rock_intent(Some(BowlbugRockIntent::Dizzy), true),
+            BowlbugRockIntent::Headbutt
+        );
+    }
+
+    #[test]
+    fn bowlbug_rock_headbutt_deals_fifteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_bowlbug_rock_move(&mut cs, 0, 0, BowlbugRockIntent::Headbutt);
+        assert_eq!(cs.allies[0].current_hp, hp - 15);
+    }
+
+    #[test]
+    fn bowlbug_rock_dizzy_clears_off_balance_flag() {
+        let mut cs = ironclad_combat();
+        // Pre-set the flag.
+        cs.enemies[0]
+            .monster
+            .as_mut()
+            .unwrap()
+            .set_flag("is_off_balance", true);
+        execute_bowlbug_rock_move(&mut cs, 0, 0, BowlbugRockIntent::Dizzy);
+        assert!(!cs.enemies[0].monster.as_ref().unwrap().flag("is_off_balance"));
+    }
+
+    #[test]
+    fn bowlbug_rock_spawn_applies_imbalanced() {
+        let mut cs = ironclad_combat();
+        bowlbug_rock_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ImbalancedPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn imbalanced_sets_off_balance_when_fully_blocked() {
+        // Set up: rock attacks player who has full block coverage.
+        let mut cs = ironclad_combat();
+        bowlbug_rock_spawn(&mut cs, 0);
+        cs.allies[0].block = 100;
+        cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            15,
+            ValueProp::MOVE,
+        );
+        // Damage fully absorbed → off_balance flipped on.
+        assert!(
+            cs.enemies[0].monster.as_ref().unwrap().flag("is_off_balance"),
+            "expected off_balance after fully-blocked attack"
+        );
+    }
+
+    #[test]
+    fn imbalanced_does_not_trigger_when_damage_lands() {
+        let mut cs = ironclad_combat();
+        bowlbug_rock_spawn(&mut cs, 0);
+        // No block — damage lands.
+        cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            15,
+            ValueProp::MOVE,
+        );
+        assert!(
+            !cs.enemies[0].monster.as_ref().unwrap().flag("is_off_balance"),
+            "off_balance should not be set when damage gets through"
         );
     }
 

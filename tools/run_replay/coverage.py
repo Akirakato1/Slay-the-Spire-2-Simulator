@@ -49,6 +49,7 @@ PORTED_INTENT_MACHINES = {
     "LivingShield",
     "Entomancer",
     "MechaKnight",
+    "BowlbugRock",
 }
 
 
