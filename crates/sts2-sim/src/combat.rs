@@ -4129,6 +4129,208 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: TheObscura ---------------------------------
+//
+// Reflects C# `TheObscura.GenerateMoveStateMachine`. Init: Illusion
+// (summon — no-op here, summon system deferred). Thereafter
+// RandomBranch over {PiercingGaze, Wail, HardeningStrike} with
+// CannotRepeat.
+//
+// A0 payloads:
+//   - Illusion:        no-op (would summon Illusion creature in C#)
+//   - PiercingGaze:    10 damage (DeadlyEnemies: 11)
+//   - Wail:            +3 Strength to teammates. Solo TheObscura
+//                      encounter has no teammates → no-op.
+//   - HardeningStrike: 6 damage + 6 block (DeadlyEnemies: 7 / 7)
+
+const OBSCURA_PIERCING_GAZE_DAMAGE: i32 = 10;
+const OBSCURA_WAIL_STRENGTH: i32 = 3;
+const OBSCURA_HARDENING_STRIKE_DAMAGE: i32 = 6;
+const OBSCURA_HARDENING_STRIKE_BLOCK: i32 = 6;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TheObscuraIntent {
+    Illusion,
+    PiercingGaze,
+    Wail,
+    HardeningStrike,
+}
+
+impl TheObscuraIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            TheObscuraIntent::Illusion => "ILLUSION_MOVE",
+            TheObscuraIntent::PiercingGaze => "PIERCING_GAZE_MOVE",
+            TheObscuraIntent::Wail => "SAIL_MOVE",
+            TheObscuraIntent::HardeningStrike => "HARDENING_STRIKE_MOVE",
+        }
+    }
+}
+
+pub fn pick_the_obscura_intent(
+    rng: &mut Rng,
+    last_intent: Option<TheObscuraIntent>,
+) -> TheObscuraIntent {
+    if last_intent.is_none() {
+        return TheObscuraIntent::Illusion;
+    }
+    let allowed: Vec<TheObscuraIntent> = [
+        TheObscuraIntent::PiercingGaze,
+        TheObscuraIntent::Wail,
+        TheObscuraIntent::HardeningStrike,
+    ]
+    .into_iter()
+    .filter(|i| Some(*i) != last_intent)
+    .collect();
+    let pick = rng.next_int_range(0, allowed.len() as i32) as usize;
+    allowed[pick]
+}
+
+pub fn execute_the_obscura_move(
+    cs: &mut CombatState,
+    ob_idx: usize,
+    target_player_idx: usize,
+    intent: TheObscuraIntent,
+) {
+    let attacker = (CombatSide::Enemy, ob_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        TheObscuraIntent::Illusion => {
+            // No-op — summon system deferred.
+        }
+        TheObscuraIntent::PiercingGaze => {
+            cs.deal_damage(
+                attacker,
+                player,
+                OBSCURA_PIERCING_GAZE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        TheObscuraIntent::Wail => {
+            // Apply Strength to every other living enemy
+            // (teammates). Solo Obscura encounters have none; the
+            // C# call evaluates to empty target set.
+            let n = cs.enemies.len();
+            for i in 0..n {
+                if i == ob_idx {
+                    continue;
+                }
+                if cs.enemies[i].current_hp > 0 {
+                    cs.apply_power(
+                        CombatSide::Enemy,
+                        i,
+                        "StrengthPower",
+                        OBSCURA_WAIL_STRENGTH,
+                    );
+                }
+            }
+        }
+        TheObscuraIntent::HardeningStrike => {
+            cs.deal_damage(
+                attacker,
+                player,
+                OBSCURA_HARDENING_STRIKE_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.gain_block(
+                CombatSide::Enemy,
+                ob_idx,
+                OBSCURA_HARDENING_STRIKE_BLOCK,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: LivingFog ----------------------------------
+//
+// Reflects C# `LivingFog.GenerateMoveStateMachine`. Init: AdvancedGas.
+// Chain AdvancedGas → Bloat → SuperGas → Bloat → SuperGas → … (2-state
+// loop after init).
+//
+// A0 payloads:
+//   - AdvancedGas: 8 dmg + apply SmoggyPower(1) on player [marker —
+//                  C# behavior afflicts cards / draws extras;
+//                  deferred]
+//   - Bloat:       5 dmg + summon LivingFog minion (summon deferred,
+//                  damage portion ported)
+//   - SuperGas:    8 damage
+
+const LIVING_FOG_ADVANCED_GAS_DAMAGE: i32 = 8;
+const LIVING_FOG_SMOGGY_AMOUNT: i32 = 1;
+const LIVING_FOG_BLOAT_DAMAGE: i32 = 5;
+const LIVING_FOG_SUPER_GAS_DAMAGE: i32 = 8;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum LivingFogIntent {
+    AdvancedGas,
+    Bloat,
+    SuperGas,
+}
+
+impl LivingFogIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            LivingFogIntent::AdvancedGas => "ADVANCED_GAS_MOVE",
+            LivingFogIntent::Bloat => "BLOAT_MOVE",
+            LivingFogIntent::SuperGas => "SUPER_GAS_BLAST_MOVE",
+        }
+    }
+}
+
+pub fn pick_living_fog_intent(
+    last_intent: Option<LivingFogIntent>,
+) -> LivingFogIntent {
+    match last_intent {
+        None => LivingFogIntent::AdvancedGas,
+        Some(LivingFogIntent::AdvancedGas) => LivingFogIntent::Bloat,
+        Some(LivingFogIntent::Bloat) => LivingFogIntent::SuperGas,
+        Some(LivingFogIntent::SuperGas) => LivingFogIntent::Bloat,
+    }
+}
+
+pub fn execute_living_fog_move(
+    cs: &mut CombatState,
+    fog_idx: usize,
+    target_player_idx: usize,
+    intent: LivingFogIntent,
+) {
+    let attacker = (CombatSide::Enemy, fog_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        LivingFogIntent::AdvancedGas => {
+            cs.deal_damage(
+                attacker,
+                player,
+                LIVING_FOG_ADVANCED_GAS_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "SmoggyPower",
+                LIVING_FOG_SMOGGY_AMOUNT,
+            );
+        }
+        LivingFogIntent::Bloat => {
+            cs.deal_damage(
+                attacker,
+                player,
+                LIVING_FOG_BLOAT_DAMAGE,
+                ValueProp::MOVE,
+            );
+            // Summon LivingFog minion — deferred.
+        }
+        LivingFogIntent::SuperGas => {
+            cs.deal_damage(
+                attacker,
+                player,
+                LIVING_FOG_SUPER_GAS_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: Fabricator ---------------------------------
 //
 // Reflects C# `Fabricator.GenerateMoveStateMachine`:
@@ -14322,6 +14524,111 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- TheObscura tests -------------------------------------------
+
+    #[test]
+    fn obscura_init_is_illusion() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_the_obscura_intent(&mut rng, None),
+            TheObscuraIntent::Illusion
+        );
+    }
+
+    #[test]
+    fn obscura_post_illusion_no_repeat() {
+        let mut rng = Rng::new(42, 0);
+        for _ in 0..30 {
+            for &start in &[
+                TheObscuraIntent::Illusion,
+                TheObscuraIntent::PiercingGaze,
+                TheObscuraIntent::Wail,
+                TheObscuraIntent::HardeningStrike,
+            ] {
+                let next = pick_the_obscura_intent(&mut rng, Some(start));
+                assert_ne!(next, start);
+                assert_ne!(next, TheObscuraIntent::Illusion);
+            }
+        }
+    }
+
+    #[test]
+    fn obscura_piercing_gaze_deals_ten() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_the_obscura_move(
+            &mut cs,
+            0,
+            0,
+            TheObscuraIntent::PiercingGaze,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 10);
+    }
+
+    #[test]
+    fn obscura_hardening_strike_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_the_obscura_move(
+            &mut cs,
+            0,
+            0,
+            TheObscuraIntent::HardeningStrike,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 6);
+        assert_eq!(cs.enemies[0].block, 6);
+    }
+
+    // ---------- LivingFog tests --------------------------------------------
+
+    #[test]
+    fn living_fog_walks_chain() {
+        assert_eq!(
+            pick_living_fog_intent(None),
+            LivingFogIntent::AdvancedGas
+        );
+        assert_eq!(
+            pick_living_fog_intent(Some(LivingFogIntent::AdvancedGas)),
+            LivingFogIntent::Bloat
+        );
+        assert_eq!(
+            pick_living_fog_intent(Some(LivingFogIntent::Bloat)),
+            LivingFogIntent::SuperGas
+        );
+        assert_eq!(
+            pick_living_fog_intent(Some(LivingFogIntent::SuperGas)),
+            LivingFogIntent::Bloat
+        );
+    }
+
+    #[test]
+    fn living_fog_advanced_gas_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_living_fog_move(&mut cs, 0, 0, LivingFogIntent::AdvancedGas);
+        assert_eq!(cs.allies[0].current_hp, hp - 8);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "SmoggyPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn living_fog_bloat_deals_five() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_living_fog_move(&mut cs, 0, 0, LivingFogIntent::Bloat);
+        assert_eq!(cs.allies[0].current_hp, hp - 5);
+    }
+
+    #[test]
+    fn living_fog_super_gas_deals_eight() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_living_fog_move(&mut cs, 0, 0, LivingFogIntent::SuperGas);
+        assert_eq!(cs.allies[0].current_hp, hp - 8);
     }
 
     // ---------- Fabricator tests -------------------------------------------

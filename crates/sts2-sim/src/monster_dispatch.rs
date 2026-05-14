@@ -158,6 +158,8 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "LagavulinMatriarch"
             | "Doormaker"
             | "Fabricator"
+            | "TheObscura"
+            | "LivingFog"
     )
 }
 
@@ -772,6 +774,31 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "TheObscura" => {
+            let last = last_ref.and_then(|s| match s {
+                "ILLUSION_MOVE" => Some(TheObscuraIntent::Illusion),
+                "PIERCING_GAZE_MOVE" => Some(TheObscuraIntent::PiercingGaze),
+                "SAIL_MOVE" => Some(TheObscuraIntent::Wail),
+                "HARDENING_STRIKE_MOVE" => Some(TheObscuraIntent::HardeningStrike),
+                _ => None,
+            });
+            let mut rng = take_rng(cs);
+            let intent = pick_the_obscura_intent(&mut rng, last);
+            put_rng(cs, rng);
+            execute_the_obscura_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "LivingFog" => {
+            let last = last_ref.and_then(|s| match s {
+                "ADVANCED_GAS_MOVE" => Some(LivingFogIntent::AdvancedGas),
+                "BLOAT_MOVE" => Some(LivingFogIntent::Bloat),
+                "SUPER_GAS_BLAST_MOVE" => Some(LivingFogIntent::SuperGas),
+                _ => None,
+            });
+            let intent = pick_living_fog_intent(last);
+            execute_living_fog_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "Fabricator" => {
