@@ -2909,6 +2909,102 @@ pub fn pick_axebot_intent(rng: &mut Rng, last_intent: Option<AxebotIntent>) -> A
     AxebotIntent::HammerUppercut
 }
 
+// ---------- Monster intent: Myte ---------------------------------------
+//
+// Reflects C# `Myte.GenerateMoveStateMachine`:
+//   INIT: ConditionalBranchState
+//     - if slot == "first":  start at TOXIC_MOVE
+//     - if slot == "second": start at SUCK_MOVE
+//   Cycle (FollowUpState chain): Toxic → Bite → Suck → Toxic → …
+//
+// Deterministic (unlike Axebot's weighted random) — no RNG needed for
+// intent selection, only for damage modifiers.
+//
+// A0 values per C# `GetValueIfAscension(level, ascended, fallback)`:
+//   - Bite damage: 13 (A0) / 15 (DeadlyEnemies)
+//   - Suck damage: 4 (A0) / 6 (DeadlyEnemies)
+//   - Suck strength self-gain: 2 (A0) / 3 (DeadlyEnemies)
+//   - Toxic count: const 2
+
+const MYTE_BITE_DAMAGE: i32 = 13;
+const MYTE_SUCK_DAMAGE: i32 = 4;
+const MYTE_SUCK_STRENGTH_GAIN: i32 = 2;
+const MYTE_TOXIC_COUNT: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MyteIntent {
+    Toxic,
+    Bite,
+    Suck,
+}
+
+impl MyteIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            MyteIntent::Toxic => "TOXIC_MOVE",
+            MyteIntent::Bite => "BITE_MOVE",
+            MyteIntent::Suck => "SUCK_MOVE",
+        }
+    }
+}
+
+/// Pick the next Myte intent.
+///   - First turn (no `last_intent`): conditional on `slot`. The C#
+///     INIT state branches on `Creature.SlotName == "first"` →
+///     Toxic, `"second"` → Suck. Any other slot defaults to Toxic
+///     (the more common starting branch — C# wouldn't hit this in
+///     practice since MytesNormal only uses "first"/"second").
+///   - Subsequent turns: FollowUpState chain Toxic → Bite → Suck →
+///     Toxic → … (cycle).
+pub fn pick_myte_intent(
+    last_intent: Option<MyteIntent>,
+    slot: &str,
+) -> MyteIntent {
+    match last_intent {
+        None => match slot {
+            "second" => MyteIntent::Suck,
+            _ => MyteIntent::Toxic,
+        },
+        Some(MyteIntent::Toxic) => MyteIntent::Bite,
+        Some(MyteIntent::Bite) => MyteIntent::Suck,
+        Some(MyteIntent::Suck) => MyteIntent::Toxic,
+    }
+}
+
+/// Execute one Myte move's payload. Mirrors C# Myte's per-move handlers
+/// (ToxicMove / BiteMove / SuckMove), minus audio/animation.
+pub fn execute_myte_move(
+    cs: &mut CombatState,
+    myte_idx: usize,
+    target_player_idx: usize,
+    intent: MyteIntent,
+) {
+    let attacker = (CombatSide::Enemy, myte_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        MyteIntent::Toxic => {
+            // C# uses CardPileCmd.AddToCombatAndPreview<Toxic>(targets,
+            // PileType.Hand, 2, …). Each Toxic is a Status card that
+            // self-damages 5 at end-of-turn-in-hand (deferred).
+            for _ in 0..MYTE_TOXIC_COUNT {
+                cs.add_card_to_pile(target_player_idx, "Toxic", 0, PileType::Hand);
+            }
+        }
+        MyteIntent::Bite => {
+            cs.deal_damage(attacker, player, MYTE_BITE_DAMAGE, ValueProp::MOVE);
+        }
+        MyteIntent::Suck => {
+            cs.deal_damage(attacker, player, MYTE_SUCK_DAMAGE, ValueProp::MOVE);
+            cs.apply_power(
+                CombatSide::Enemy,
+                myte_idx,
+                "StrengthPower",
+                MYTE_SUCK_STRENGTH_GAIN,
+            );
+        }
+    }
+}
+
 /// Result of a resolved combat. Reported by [`CombatState::is_combat_over`]
 /// when the combat ends.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -7238,6 +7334,65 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- Myte intent + move payload tests --------------------------
+
+    #[test]
+    fn myte_first_turn_first_slot_is_toxic() {
+        assert_eq!(pick_myte_intent(None, "first"), MyteIntent::Toxic);
+    }
+
+    #[test]
+    fn myte_first_turn_second_slot_is_suck() {
+        assert_eq!(pick_myte_intent(None, "second"), MyteIntent::Suck);
+    }
+
+    #[test]
+    fn myte_cycle_toxic_bite_suck_toxic() {
+        assert_eq!(
+            pick_myte_intent(Some(MyteIntent::Toxic), "first"),
+            MyteIntent::Bite
+        );
+        assert_eq!(
+            pick_myte_intent(Some(MyteIntent::Bite), "first"),
+            MyteIntent::Suck
+        );
+        assert_eq!(
+            pick_myte_intent(Some(MyteIntent::Suck), "first"),
+            MyteIntent::Toxic
+        );
+    }
+
+    #[test]
+    fn myte_toxic_adds_two_toxic_cards_to_player_hand() {
+        let mut cs = ironclad_combat();
+        let hand_before = cs.allies[0].player.as_ref().unwrap().hand.len();
+        execute_myte_move(&mut cs, 0, 0, MyteIntent::Toxic);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.hand.len(), hand_before + 2);
+        let toxics = ps.hand.cards.iter().filter(|c| c.id == "Toxic").count();
+        assert_eq!(toxics, 2);
+    }
+
+    #[test]
+    fn myte_bite_deals_thirteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_myte_move(&mut cs, 0, 0, MyteIntent::Bite);
+        assert_eq!(cs.allies[0].current_hp, hp - 13);
+    }
+
+    #[test]
+    fn myte_suck_deals_four_and_gains_two_strength() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_myte_move(&mut cs, 0, 0, MyteIntent::Suck);
+        assert_eq!(cs.allies[0].current_hp, hp - 4);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
         );
     }
 
