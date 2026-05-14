@@ -286,6 +286,13 @@ pub enum Condition {
     RoundEquals { n: i32 },
     /// combatState.RoundNumber >= n. PaelsFlesh / StoneCalendar.
     RoundGe { n: i32 },
+    /// `PlayerState.relic_counters[key] >= value`. Used by Kunai-style
+    /// relics to gate the body on a counter threshold. Counter slot
+    /// stored on the relic's owner (player_idx).
+    RelicCounterGe { key: String, value: i32 },
+    /// `PlayerState.relic_counters[key] % modulus == remainder`. Drives
+    /// HappyFlower / Pendulum "every Nth turn" relics.
+    RelicCounterModEq { key: String, modulus: i32, remainder: i32 },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -505,6 +512,15 @@ pub enum Effect {
     /// Discard the top N cards of the draw pile straight into discard.
     /// Cycle-family.
     MillFromDraw { n: AmountSpec },
+    /// Add `delta` to `PlayerState.relic_counters[key]`. Used by stateful
+    /// relics (Kunai/Shuriken/HappyFlower/Pendulum/Pocketwatch/etc.) to
+    /// implement "every Nth attack" / "after N turns" gating. `key`
+    /// scopes the counter; relics typically use their id but bodies can
+    /// share counters via a common key.
+    ModifyRelicCounter { key: String, delta: AmountSpec },
+    /// Set `PlayerState.relic_counters[key]` to a specific value
+    /// (typically 0 to reset).
+    SetRelicCounter { key: String, value: AmountSpec },
     /// Damage attributed to Osty companion (Protector-family).
     /// STUB — falls back to regular DealDamage for now.
     DamageFromOsty {
@@ -3045,6 +3061,19 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 }
             }
         }
+        Effect::ModifyRelicCounter { key, delta } => {
+            let d = delta.resolve(ctx, cs);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                let entry = ps.relic_counters.entry(key.clone()).or_insert(0);
+                *entry += d;
+            }
+        }
+        Effect::SetRelicCounter { key, value } => {
+            let v = value.resolve(ctx, cs);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                ps.relic_counters.insert(key.clone(), v);
+            }
+        }
         Effect::DamageFromOsty { amount, target } => {
             // Mirrors C# `DamageCmd.Attack(...).FromOsty(Osty, this)`.
             // If Osty exists, route damage as Osty-attributed (we just
@@ -3340,6 +3369,30 @@ pub fn evaluate_condition(
         }
         Condition::RoundEquals { n } => cs.round_number == *n,
         Condition::RoundGe { n } => cs.round_number >= *n,
+        Condition::RelicCounterGe { key, value } => {
+            cs.allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.relic_counters.get(key).copied().unwrap_or(0) >= *value)
+                .unwrap_or(false)
+        }
+        Condition::RelicCounterModEq {
+            key,
+            modulus,
+            remainder,
+        } => {
+            if *modulus <= 0 {
+                return false;
+            }
+            cs.allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| {
+                    let v = ps.relic_counters.get(key).copied().unwrap_or(0);
+                    v.rem_euclid(*modulus) == *remainder
+                })
+                .unwrap_or(false)
+        }
     }
 }
 
