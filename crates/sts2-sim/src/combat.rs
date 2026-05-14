@@ -475,6 +475,10 @@ impl CombatState {
     ///   - Energy refresh for players happens at the *next* `begin_turn`
     ///     after the behavior port wires in modifiers; we leave energy alone
     ///     here so the test surface stays predictable.
+    ///   - Hook.AfterTurnEnd dispatch: at end of enemy turn, tick down
+    ///     duration debuffs (Frail / Weak / Vulnerable). All three C#
+    ///     powers gate on `side == CombatSide.Enemy` regardless of
+    ///     owner, so they all tick together on the enemy-turn boundary.
     pub fn end_turn(&mut self) {
         if self.current_side == CombatSide::Player {
             for ally in self.allies.iter_mut() {
@@ -486,10 +490,40 @@ impl CombatState {
                 ps.discard.cards.append(&mut ps.hand.cards);
             }
         }
+        if self.current_side == CombatSide::Enemy {
+            self.tick_duration_debuffs();
+        }
         if self.log_enabled {
             let round = self.round_number;
             let side = self.current_side;
             self.combat_log.push(CombatEvent::TurnEnded { round, side });
+        }
+    }
+
+    /// Decrement every duration-debuff stack on every creature by 1,
+    /// removing the stack on transition to 0. C# `AfterTurnEnd` on
+    /// FrailPower / WeakPower / VulnerablePower each call
+    /// `PowerCmd.TickDownDuration(this)` when `side == CombatSide.Enemy`,
+    /// regardless of who owns the power, so all three tick on the same
+    /// boundary.
+    fn tick_duration_debuffs(&mut self) {
+        const TICKING: &[&str] =
+            &["FrailPower", "WeakPower", "VulnerablePower"];
+        let n_allies = self.allies.len();
+        let n_enemies = self.enemies.len();
+        for i in 0..n_allies {
+            for power_id in TICKING {
+                if self.get_power_amount(CombatSide::Player, i, power_id) > 0 {
+                    self.decrement_power(CombatSide::Player, i, power_id, 1);
+                }
+            }
+        }
+        for i in 0..n_enemies {
+            for power_id in TICKING {
+                if self.get_power_amount(CombatSide::Enemy, i, power_id) > 0 {
+                    self.decrement_power(CombatSide::Enemy, i, power_id, 1);
+                }
+            }
         }
     }
 
@@ -2231,6 +2265,128 @@ mod tests {
         let ps = cs.allies[0].player.as_ref().unwrap();
         assert!(ps.hand.is_empty());
         assert_eq!(ps.discard.len(), 5);
+    }
+
+    // ---------- Duration debuff tick-down tests --------------------------
+
+    #[test]
+    fn vulnerable_on_enemy_ticks_at_end_of_enemy_turn() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 2);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            1
+        );
+    }
+
+    #[test]
+    fn vulnerable_does_not_tick_at_end_of_player_turn() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 2);
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            2
+        );
+    }
+
+    #[test]
+    fn frail_on_player_ticks_at_end_of_enemy_turn() {
+        // C# FrailPower.AfterTurnEnd fires on `side == Enemy` regardless
+        // of owner — even player-owned Frail ticks on the enemy boundary.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 2);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "FrailPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn weak_on_enemy_ticks_at_end_of_enemy_turn() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "WeakPower", 3);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "WeakPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn duration_debuff_at_one_tick_removes_stack() {
+        // Frail/Weak/Vulnerable have allow_negative=false so transition
+        // to 0 should drop the PowerInstance entirely (handled by
+        // apply_power), not linger at 0.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 1);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "FrailPower"),
+            0
+        );
+        assert!(cs.allies[0]
+            .powers
+            .iter()
+            .all(|p| p.id != "FrailPower"));
+    }
+
+    #[test]
+    fn tick_handles_all_three_debuffs_at_once() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 2);
+        cs.apply_power(CombatSide::Player, 0, "WeakPower", 2);
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 2);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "FrailPower"),
+            1
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            1
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            1
+        );
+    }
+
+    #[test]
+    fn non_duration_powers_dont_tick() {
+        // Strength/Poison/Intangible/Dexterity are not in the ticking
+        // set — they should be untouched at end-of-turn.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 3);
+        cs.apply_power(CombatSide::Player, 0, "DexterityPower", 2);
+        cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 5);
+        cs.apply_power(CombatSide::Enemy, 0, "IntangiblePower", 1);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            3
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DexterityPower"),
+            2
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
+            5
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "IntangiblePower"),
+            1
+        );
     }
 
     // ---------- Damage primitive tests -----------------------------------
