@@ -3641,6 +3641,95 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: SpinyToad ----------------------------------
+//
+// Reflects C# `SpinyToad.GenerateMoveStateMachine`:
+//   Init: Spikes (apply ThornsPower(5) to self, IsSpiny=true).
+//   Chain: Spikes → Explosion → Lash → Spikes (loop).
+//
+// A0 payloads:
+//   - Spikes:    apply ThornsPower(+5) to self
+//   - Explosion: 23 damage (DeadlyEnemies: 25) + remove 5 Thorns
+//   - Lash:      17 damage (DeadlyEnemies: 19)
+//
+// IsSpiny flag (true while Thorns is up) is animation-only; gameplay
+// is captured by the ThornsPower stack. Skipped here.
+
+const SPINY_TOAD_SPIKES_THORNS: i32 = 5;
+const SPINY_TOAD_EXPLOSION_DAMAGE: i32 = 23;
+const SPINY_TOAD_LASH_DAMAGE: i32 = 17;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SpinyToadIntent {
+    Spikes,
+    Explosion,
+    Lash,
+}
+
+impl SpinyToadIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            SpinyToadIntent::Spikes => "PROTRUDING_SPIKES_MOVE",
+            SpinyToadIntent::Explosion => "SPIKE_EXPLOSION_MOVE",
+            SpinyToadIntent::Lash => "TONGUE_LASH_MOVE",
+        }
+    }
+}
+
+pub fn pick_spiny_toad_intent(
+    last_intent: Option<SpinyToadIntent>,
+) -> SpinyToadIntent {
+    match last_intent {
+        None => SpinyToadIntent::Spikes,
+        Some(SpinyToadIntent::Spikes) => SpinyToadIntent::Explosion,
+        Some(SpinyToadIntent::Explosion) => SpinyToadIntent::Lash,
+        Some(SpinyToadIntent::Lash) => SpinyToadIntent::Spikes,
+    }
+}
+
+pub fn execute_spiny_toad_move(
+    cs: &mut CombatState,
+    toad_idx: usize,
+    target_player_idx: usize,
+    intent: SpinyToadIntent,
+) {
+    let attacker = (CombatSide::Enemy, toad_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        SpinyToadIntent::Spikes => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                toad_idx,
+                "ThornsPower",
+                SPINY_TOAD_SPIKES_THORNS,
+            );
+        }
+        SpinyToadIntent::Explosion => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SPINY_TOAD_EXPLOSION_DAMAGE,
+                ValueProp::MOVE,
+            );
+            // Strip the 5 Thorns the Spikes move applied.
+            cs.apply_power(
+                CombatSide::Enemy,
+                toad_idx,
+                "ThornsPower",
+                -SPINY_TOAD_SPIKES_THORNS,
+            );
+        }
+        SpinyToadIntent::Lash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SPINY_TOAD_LASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: Vantom (boss) ------------------------------
 //
 // Reflects C# `Vantom.GenerateMoveStateMachine`:
@@ -10913,6 +11002,56 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- SpinyToad tests --------------------------------------------
+
+    #[test]
+    fn spiny_toad_walks_three_state_chain() {
+        assert_eq!(pick_spiny_toad_intent(None), SpinyToadIntent::Spikes);
+        assert_eq!(
+            pick_spiny_toad_intent(Some(SpinyToadIntent::Spikes)),
+            SpinyToadIntent::Explosion
+        );
+        assert_eq!(
+            pick_spiny_toad_intent(Some(SpinyToadIntent::Explosion)),
+            SpinyToadIntent::Lash
+        );
+        assert_eq!(
+            pick_spiny_toad_intent(Some(SpinyToadIntent::Lash)),
+            SpinyToadIntent::Spikes
+        );
+    }
+
+    #[test]
+    fn spiny_toad_spikes_applies_five_thorns() {
+        let mut cs = ironclad_combat();
+        execute_spiny_toad_move(&mut cs, 0, 0, SpinyToadIntent::Spikes);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ThornsPower"),
+            5
+        );
+    }
+
+    #[test]
+    fn spiny_toad_explosion_deals_23_and_strips_thorns() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "ThornsPower", 5);
+        let hp = cs.allies[0].current_hp;
+        execute_spiny_toad_move(&mut cs, 0, 0, SpinyToadIntent::Explosion);
+        assert_eq!(cs.allies[0].current_hp, hp - 23);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ThornsPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn spiny_toad_lash_deals_seventeen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_spiny_toad_move(&mut cs, 0, 0, SpinyToadIntent::Lash);
+        assert_eq!(cs.allies[0].current_hp, hp - 17);
     }
 
     // ---------- Vantom tests -----------------------------------------------

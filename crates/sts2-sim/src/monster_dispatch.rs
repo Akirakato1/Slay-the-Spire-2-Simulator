@@ -95,6 +95,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "BowlbugNectar"
             | "BowlbugEgg"
             | "Vantom"
+            | "SpinyToad"
     )
 }
 
@@ -555,6 +556,17 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_vantom_intent(last);
             execute_vantom_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "SpinyToad" => {
+            let last = last_ref.and_then(|s| match s {
+                "PROTRUDING_SPIKES_MOVE" => Some(SpinyToadIntent::Spikes),
+                "SPIKE_EXPLOSION_MOVE" => Some(SpinyToadIntent::Explosion),
+                "TONGUE_LASH_MOVE" => Some(SpinyToadIntent::Lash),
+                _ => None,
+            });
+            let intent = pick_spiny_toad_intent(last);
+            execute_spiny_toad_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {
