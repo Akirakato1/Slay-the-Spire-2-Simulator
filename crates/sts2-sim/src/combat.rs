@@ -638,6 +638,12 @@ impl CombatState {
         // StrengthPower(Amount) to owner — permanent ramp. Only known
         // user is Byrdonis on spawn (TerritorialPower(1)).
         self.tick_territorial_powers(side);
+        // EscapeArtistPower.AfterTurnEnd: decrement on owner side (held
+        // at 1 — the C# "now pulsing" warning state). ThievingHopper
+        // spawns with EscapeArtistPower(5) — purely a timing signal in
+        // C#; gameplay-side this just counts down to align with the
+        // intent state machine's Escape step.
+        self.tick_escape_artist_powers(side);
         if self.log_enabled {
             let round = self.round_number;
             let side = self.current_side;
@@ -685,6 +691,38 @@ impl CombatState {
         }
         for (idx, amount) in grants {
             self.apply_power(side, idx, "StrengthPower", amount);
+        }
+    }
+
+    /// EscapeArtistPower.AfterTurnEnd: on owner side, decrement only
+    /// while Amount > 1 — so it holds at 1 forever once it lands there.
+    /// In C# the "pulse at 1" is a UI cue indicating the monster is
+    /// about to escape; gameplay-side it's a no-op past that point,
+    /// but the decrement-to-1 timing must still fire so the value the
+    /// observation exposes lines up with the real game.
+    fn tick_escape_artist_powers(&mut self, side: CombatSide) {
+        let list = match side {
+            CombatSide::Player => &self.allies,
+            CombatSide::Enemy => &self.enemies,
+            CombatSide::None => return,
+        };
+        let mut to_dec: Vec<usize> = Vec::new();
+        for (idx, creature) in list.iter().enumerate() {
+            if creature.current_hp == 0 {
+                continue;
+            }
+            if let Some(p) = creature
+                .powers
+                .iter()
+                .find(|p| p.id == "EscapeArtistPower")
+            {
+                if p.amount > 1 {
+                    to_dec.push(idx);
+                }
+            }
+        }
+        for idx in to_dec {
+            self.decrement_power(side, idx, "EscapeArtistPower", 1);
         }
     }
 
@@ -2897,6 +2935,12 @@ fn power_multiplicative_target(power: &PowerInstance, props: ValueProp) -> f64 {
         // attacks landing on the owner. OwlMagistrate's flight buff —
         // present while flying, removed on Verdict.
         "SoarPower" if power.amount > 0 => 0.50,
+        // FlutterPower: same ×0.50 reduction on owner-incoming powered
+        // damage. C# also decrements Flutter on each unblocked hit
+        // and Stuns the owner when Amount hits 0 — neither is
+        // modeled here (Stun mechanic deferred). Presence-only
+        // damage reduction is the playable approximation.
+        "FlutterPower" if power.amount > 0 => 0.50,
         _ => 1.0,
     }
 }
@@ -3536,6 +3580,133 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: ThievingHopper -----------------------------
+//
+// Reflects C# `ThievingHopper.GenerateMoveStateMachine`:
+//   Init: THIEVERY_MOVE.
+//   Chain: Thievery → Flutter → HatTrick → Nab → Escape → Escape (loop).
+// Deterministic, no RNG.
+//
+// Spawn (AfterAddedToRoom): apply EscapeArtistPower(5) to self.
+//
+// A0 payloads:
+//   - Thievery (17 dmg / 19 DeadlyEnemies) + steal a card from each
+//     target (lifts it out of combat, applies SwipePower(1) per stolen
+//     card on the hopper). Card-steal/Swipe deferred — we deal damage
+//     only, matching the SingleAttackIntent piece of the C# move.
+//   - Flutter:  apply FlutterPower(5) to self.
+//   - HatTrick: 21 dmg (DeadlyEnemies: 23).
+//   - Nab:      14 dmg (DeadlyEnemies: 16).
+//   - Escape:   leave combat. Modeled as a no-op here — the Escape
+//     mechanic (CreatureCmd.Escape) is deferred; the hopper just keeps
+//     idling in this state forever, which is enough for replay /
+//     readiness scoring.
+//
+// FlutterPower wires into power_multiplicative_target (×0.50 incoming
+// powered damage on owner). C# also decrements Flutter per powered
+// hit and stuns the owner when it reaches 0 — both deferred (no Stun
+// mechanic yet). Presence-only reduction is the playable approximation.
+
+const THIEVING_HOPPER_THEFT_DAMAGE: i32 = 17;
+const THIEVING_HOPPER_HAT_TRICK_DAMAGE: i32 = 21;
+const THIEVING_HOPPER_NAB_DAMAGE: i32 = 14;
+const THIEVING_HOPPER_FLUTTER_AMOUNT: i32 = 5;
+const THIEVING_HOPPER_ESCAPE_ARTIST_AMOUNT: i32 = 5;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ThievingHopperIntent {
+    Thievery,
+    Flutter,
+    HatTrick,
+    Nab,
+    Escape,
+}
+
+impl ThievingHopperIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            ThievingHopperIntent::Thievery => "THIEVERY_MOVE",
+            ThievingHopperIntent::Flutter => "FLUTTER_MOVE",
+            ThievingHopperIntent::HatTrick => "HAT_TRICK_MOVE",
+            ThievingHopperIntent::Nab => "NAB_MOVE",
+            ThievingHopperIntent::Escape => "ESCAPE_MOVE",
+        }
+    }
+}
+
+/// Spawn payload — caller invokes once when the hopper is added to
+/// combat. Mirrors C# `AfterAddedToRoom`.
+pub fn thieving_hopper_spawn(cs: &mut CombatState, hopper_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        hopper_idx,
+        "EscapeArtistPower",
+        THIEVING_HOPPER_ESCAPE_ARTIST_AMOUNT,
+    );
+}
+
+pub fn pick_thieving_hopper_intent(
+    last_intent: Option<ThievingHopperIntent>,
+) -> ThievingHopperIntent {
+    match last_intent {
+        None => ThievingHopperIntent::Thievery,
+        Some(ThievingHopperIntent::Thievery) => ThievingHopperIntent::Flutter,
+        Some(ThievingHopperIntent::Flutter) => ThievingHopperIntent::HatTrick,
+        Some(ThievingHopperIntent::HatTrick) => ThievingHopperIntent::Nab,
+        Some(ThievingHopperIntent::Nab) => ThievingHopperIntent::Escape,
+        Some(ThievingHopperIntent::Escape) => ThievingHopperIntent::Escape,
+    }
+}
+
+pub fn execute_thieving_hopper_move(
+    cs: &mut CombatState,
+    hopper_idx: usize,
+    target_player_idx: usize,
+    intent: ThievingHopperIntent,
+) {
+    let attacker = (CombatSide::Enemy, hopper_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        ThievingHopperIntent::Thievery => {
+            cs.deal_damage(
+                attacker,
+                player,
+                THIEVING_HOPPER_THEFT_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        ThievingHopperIntent::Flutter => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                hopper_idx,
+                "FlutterPower",
+                THIEVING_HOPPER_FLUTTER_AMOUNT,
+            );
+        }
+        ThievingHopperIntent::HatTrick => {
+            cs.deal_damage(
+                attacker,
+                player,
+                THIEVING_HOPPER_HAT_TRICK_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        ThievingHopperIntent::Nab => {
+            cs.deal_damage(
+                attacker,
+                player,
+                THIEVING_HOPPER_NAB_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        ThievingHopperIntent::Escape => {
+            // No-op — Escape mechanic (CreatureCmd.Escape removes the
+            // monster from combat) is deferred. The hopper sits in
+            // this state until end-of-combat by player kill.
         }
     }
 }
@@ -9888,6 +10059,185 @@ mod tests {
         assert_eq!(
             cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
             2
+        );
+    }
+
+    // ---------- ThievingHopper + FlutterPower tests -----------------------
+
+    #[test]
+    fn thieving_hopper_chain_thievery_flutter_hattrick_nab_escape() {
+        assert_eq!(
+            pick_thieving_hopper_intent(None),
+            ThievingHopperIntent::Thievery
+        );
+        assert_eq!(
+            pick_thieving_hopper_intent(Some(ThievingHopperIntent::Thievery)),
+            ThievingHopperIntent::Flutter
+        );
+        assert_eq!(
+            pick_thieving_hopper_intent(Some(ThievingHopperIntent::Flutter)),
+            ThievingHopperIntent::HatTrick
+        );
+        assert_eq!(
+            pick_thieving_hopper_intent(Some(ThievingHopperIntent::HatTrick)),
+            ThievingHopperIntent::Nab
+        );
+        assert_eq!(
+            pick_thieving_hopper_intent(Some(ThievingHopperIntent::Nab)),
+            ThievingHopperIntent::Escape
+        );
+        // Escape self-loops.
+        for _ in 0..5 {
+            assert_eq!(
+                pick_thieving_hopper_intent(Some(ThievingHopperIntent::Escape)),
+                ThievingHopperIntent::Escape
+            );
+        }
+    }
+
+    #[test]
+    fn thieving_hopper_spawn_applies_escape_artist_five() {
+        let mut cs = ironclad_combat();
+        thieving_hopper_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "EscapeArtistPower"),
+            5
+        );
+    }
+
+    #[test]
+    fn thieving_hopper_thievery_deals_seventeen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_thieving_hopper_move(
+            &mut cs,
+            0,
+            0,
+            ThievingHopperIntent::Thievery,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 17);
+    }
+
+    #[test]
+    fn thieving_hopper_flutter_applies_flutter_five() {
+        let mut cs = ironclad_combat();
+        execute_thieving_hopper_move(
+            &mut cs,
+            0,
+            0,
+            ThievingHopperIntent::Flutter,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "FlutterPower"),
+            5
+        );
+    }
+
+    #[test]
+    fn thieving_hopper_hat_trick_deals_twentyone() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_thieving_hopper_move(
+            &mut cs,
+            0,
+            0,
+            ThievingHopperIntent::HatTrick,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 21);
+    }
+
+    #[test]
+    fn thieving_hopper_nab_deals_fourteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_thieving_hopper_move(
+            &mut cs,
+            0,
+            0,
+            ThievingHopperIntent::Nab,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 14);
+    }
+
+    #[test]
+    fn thieving_hopper_escape_is_noop() {
+        // Escape is a placeholder until the Escape mechanic ports.
+        // Until then it must not damage the player or modify state.
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_thieving_hopper_move(
+            &mut cs,
+            0,
+            0,
+            ThievingHopperIntent::Escape,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp);
+    }
+
+    #[test]
+    fn flutter_halves_incoming_powered_damage_on_owner() {
+        // Flutter on enemy halves damage targeting enemy. Apply via
+        // spawn pattern: 5 stacks.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "FlutterPower", 5);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 5);
+    }
+
+    #[test]
+    fn flutter_does_not_affect_unpowered_damage() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "FlutterPower", 5);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::UNPOWERED.with(ValueProp::MOVE),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 10);
+    }
+
+    #[test]
+    fn escape_artist_decrements_on_owner_turn_end_holds_at_one() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "EscapeArtistPower", 3);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "EscapeArtistPower"),
+            2
+        );
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "EscapeArtistPower"),
+            1
+        );
+        // Now holds at 1 — won't decrement further.
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "EscapeArtistPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn escape_artist_does_not_tick_on_other_side_turn_end() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "EscapeArtistPower", 3);
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "EscapeArtistPower"),
+            3
         );
     }
 
