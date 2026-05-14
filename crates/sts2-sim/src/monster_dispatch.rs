@@ -112,6 +112,9 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "PhrogParasite"
             | "SoulFysh"
             | "TorchHeadAmalgam"
+            | "DecimillipedeSegmentFront"
+            | "DecimillipedeSegmentMiddle"
+            | "DecimillipedeSegmentBack"
     )
 }
 
@@ -708,6 +711,19 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "DecimillipedeSegmentFront"
+        | "DecimillipedeSegmentMiddle"
+        | "DecimillipedeSegmentBack" => {
+            let last = last_ref.and_then(|s| match s {
+                "CONSTRICT_MOVE" => Some(DecimillipedeSegmentIntent::Constrict),
+                "BULK_MOVE" => Some(DecimillipedeSegmentIntent::Bulk),
+                "WRITHE_MOVE" => Some(DecimillipedeSegmentIntent::Writhe),
+                _ => None,
+            });
+            let intent = pick_decimillipede_segment_intent(last);
+            execute_decimillipede_segment_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "TorchHeadAmalgam" => {

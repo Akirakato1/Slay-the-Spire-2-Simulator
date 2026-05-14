@@ -40,8 +40,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn count_is_one_hundred_seventeen() {
-        assert_eq!(ALL_MONSTERS.len(), 117);
+    fn count_matches_extracted() {
+        // 121 = 117 direct MonsterModel subclasses + 4 indirect
+        // subclasses now picked up by the inheritance-walking
+        // extractor (DecimillipedeSegmentFront/Middle/Back +
+        // MysteriousKnight). HP inherited from intermediate
+        // abstract bases (DecimillipedeSegment, FlailKnight).
+        assert_eq!(ALL_MONSTERS.len(), 121);
     }
 
     #[test]

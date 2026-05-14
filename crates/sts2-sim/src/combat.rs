@@ -3952,6 +3952,115 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: DecimillipedeSegment -----------------------
+//
+// Reflects C# `DecimillipedeSegment.GenerateMoveStateMachine` —
+// shared by Front, Middle, Back subclasses (the only diff is
+// animation hooks). Init: Constrict.
+//   Constrict → Bulk → Writhe → Constrict (loop)
+//
+// C# also constructs a DeadState + ReattachMove path: when a segment
+// dies, its DeadState ticks and ReattachMove revives at max_hp + 2.
+// Reattach is wired through `ReattachPower(25)` applied at spawn.
+// Both deferred — the port has segments die normally without
+// reviving. ReattachPower itself isn't extracted/wired.
+//
+// A0 payloads:
+//   - Constrict: 8 damage + 1 Weak on player (DeadlyEnemies: 9)
+//   - Bulk:      6 damage + 2 self-Strength (DeadlyEnemies: 7)
+//   - Writhe:    5 damage × 2 hits (DeadlyEnemies: 6)
+
+const DECIMILLIPEDE_CONSTRICT_DAMAGE: i32 = 8;
+const DECIMILLIPEDE_CONSTRICT_WEAK: i32 = 1;
+const DECIMILLIPEDE_BULK_DAMAGE: i32 = 6;
+const DECIMILLIPEDE_BULK_STRENGTH: i32 = 2;
+const DECIMILLIPEDE_WRITHE_DAMAGE: i32 = 5;
+const DECIMILLIPEDE_WRITHE_HITS: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum DecimillipedeSegmentIntent {
+    Constrict,
+    Bulk,
+    Writhe,
+}
+
+impl DecimillipedeSegmentIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            DecimillipedeSegmentIntent::Constrict => "CONSTRICT_MOVE",
+            DecimillipedeSegmentIntent::Bulk => "BULK_MOVE",
+            DecimillipedeSegmentIntent::Writhe => "WRITHE_MOVE",
+        }
+    }
+}
+
+pub fn pick_decimillipede_segment_intent(
+    last_intent: Option<DecimillipedeSegmentIntent>,
+) -> DecimillipedeSegmentIntent {
+    match last_intent {
+        None => DecimillipedeSegmentIntent::Constrict,
+        Some(DecimillipedeSegmentIntent::Constrict) => {
+            DecimillipedeSegmentIntent::Bulk
+        }
+        Some(DecimillipedeSegmentIntent::Bulk) => {
+            DecimillipedeSegmentIntent::Writhe
+        }
+        Some(DecimillipedeSegmentIntent::Writhe) => {
+            DecimillipedeSegmentIntent::Constrict
+        }
+    }
+}
+
+pub fn execute_decimillipede_segment_move(
+    cs: &mut CombatState,
+    seg_idx: usize,
+    target_player_idx: usize,
+    intent: DecimillipedeSegmentIntent,
+) {
+    let attacker = (CombatSide::Enemy, seg_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        DecimillipedeSegmentIntent::Constrict => {
+            cs.deal_damage(
+                attacker,
+                player,
+                DECIMILLIPEDE_CONSTRICT_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                DECIMILLIPEDE_CONSTRICT_WEAK,
+            );
+        }
+        DecimillipedeSegmentIntent::Bulk => {
+            cs.deal_damage(
+                attacker,
+                player,
+                DECIMILLIPEDE_BULK_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                seg_idx,
+                "StrengthPower",
+                DECIMILLIPEDE_BULK_STRENGTH,
+            );
+        }
+        DecimillipedeSegmentIntent::Writhe => {
+            for _ in 0..DECIMILLIPEDE_WRITHE_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    DECIMILLIPEDE_WRITHE_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: TorchHeadAmalgam ---------------------------
 //
 // Reflects C# `TorchHeadAmalgam.GenerateMoveStateMachine`:
@@ -12515,6 +12624,81 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- DecimillipedeSegment tests ---------------------------------
+
+    #[test]
+    fn decimillipede_segment_walks_three_state_chain() {
+        assert_eq!(
+            pick_decimillipede_segment_intent(None),
+            DecimillipedeSegmentIntent::Constrict
+        );
+        assert_eq!(
+            pick_decimillipede_segment_intent(Some(
+                DecimillipedeSegmentIntent::Constrict
+            )),
+            DecimillipedeSegmentIntent::Bulk
+        );
+        assert_eq!(
+            pick_decimillipede_segment_intent(Some(
+                DecimillipedeSegmentIntent::Bulk
+            )),
+            DecimillipedeSegmentIntent::Writhe
+        );
+        assert_eq!(
+            pick_decimillipede_segment_intent(Some(
+                DecimillipedeSegmentIntent::Writhe
+            )),
+            DecimillipedeSegmentIntent::Constrict
+        );
+    }
+
+    #[test]
+    fn decimillipede_segment_constrict_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_decimillipede_segment_move(
+            &mut cs,
+            0,
+            0,
+            DecimillipedeSegmentIntent::Constrict,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 8);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn decimillipede_segment_bulk_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_decimillipede_segment_move(
+            &mut cs,
+            0,
+            0,
+            DecimillipedeSegmentIntent::Bulk,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 6);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn decimillipede_segment_writhe_five_times_two() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_decimillipede_segment_move(
+            &mut cs,
+            0,
+            0,
+            DecimillipedeSegmentIntent::Writhe,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 10);
     }
 
     // ---------- TorchHeadAmalgam tests -------------------------------------

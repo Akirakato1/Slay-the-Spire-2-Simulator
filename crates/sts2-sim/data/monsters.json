@@ -163,6 +163,27 @@
     "max_hp_ascended": 52
   },
   {
+    "id": "DecimillipedeSegmentBack",
+    "min_hp_base": 40,
+    "max_hp_base": 46,
+    "min_hp_ascended": 46,
+    "max_hp_ascended": 52
+  },
+  {
+    "id": "DecimillipedeSegmentFront",
+    "min_hp_base": 40,
+    "max_hp_base": 46,
+    "min_hp_ascended": 46,
+    "max_hp_ascended": 52
+  },
+  {
+    "id": "DecimillipedeSegmentMiddle",
+    "min_hp_base": 40,
+    "max_hp_base": 46,
+    "min_hp_ascended": 46,
+    "max_hp_ascended": 52
+  },
+  {
     "id": "DeprecatedMonster",
     "min_hp_base": 0,
     "max_hp_base": 0
@@ -407,6 +428,13 @@
     "id": "MultiAttackMoveMonster",
     "min_hp_base": 999,
     "max_hp_base": 999
+  },
+  {
+    "id": "MysteriousKnight",
+    "min_hp_base": 101,
+    "max_hp_base": 101,
+    "min_hp_ascended": 108,
+    "max_hp_ascended": 108
   },
   {
     "id": "Myte",
