@@ -4081,6 +4081,228 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: MagiKnight ---------------------------------
+//
+// Reflects C# `MagiKnight.GenerateMoveStateMachine`:
+//   Init: FirstPowerShield.
+//   Chain: PowerShield → Dampen → Spear → Prep → MagicBomb →
+//          Spear → Prep → MagicBomb → … (3-state loop).
+//
+// A0 payloads:
+//   - PowerShield: 6 dmg + 5 block (ToughEnemies: 9 block)
+//   - Dampen:      apply DampenPower(1) to player (per-card-state
+//                  downgrade hook deferred — applied as marker
+//                  stack only)
+//   - Spear:       10 damage (DeadlyEnemies: 11)
+//   - Prep:        5 block (no attack)
+//   - MagicBomb:   35 damage (DeadlyEnemies: 40)
+
+const MAGI_KNIGHT_POWER_SHIELD_DAMAGE: i32 = 6;
+const MAGI_KNIGHT_POWER_SHIELD_BLOCK: i32 = 5;
+const MAGI_KNIGHT_SPEAR_DAMAGE: i32 = 10;
+const MAGI_KNIGHT_PREP_BLOCK: i32 = 5;
+const MAGI_KNIGHT_BOMB_DAMAGE: i32 = 35;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum MagiKnightIntent {
+    PowerShield,
+    Dampen,
+    Spear,
+    Prep,
+    MagicBomb,
+}
+
+impl MagiKnightIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            MagiKnightIntent::PowerShield => "FIRST_POWER_SHIELD_MOVE",
+            MagiKnightIntent::Dampen => "DAMPEN_MOVE",
+            MagiKnightIntent::Spear => "RAM_MOVE",
+            MagiKnightIntent::Prep => "PREP_MOVE",
+            MagiKnightIntent::MagicBomb => "MAGIC_BOMB",
+        }
+    }
+}
+
+pub fn pick_magi_knight_intent(
+    last_intent: Option<MagiKnightIntent>,
+) -> MagiKnightIntent {
+    match last_intent {
+        None => MagiKnightIntent::PowerShield,
+        Some(MagiKnightIntent::PowerShield) => MagiKnightIntent::Dampen,
+        Some(MagiKnightIntent::Dampen) => MagiKnightIntent::Spear,
+        Some(MagiKnightIntent::Spear) => MagiKnightIntent::Prep,
+        Some(MagiKnightIntent::Prep) => MagiKnightIntent::MagicBomb,
+        Some(MagiKnightIntent::MagicBomb) => MagiKnightIntent::Spear,
+    }
+}
+
+pub fn execute_magi_knight_move(
+    cs: &mut CombatState,
+    knight_idx: usize,
+    target_player_idx: usize,
+    intent: MagiKnightIntent,
+) {
+    let attacker = (CombatSide::Enemy, knight_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        MagiKnightIntent::PowerShield => {
+            cs.deal_damage(
+                attacker,
+                player,
+                MAGI_KNIGHT_POWER_SHIELD_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.gain_block(
+                CombatSide::Enemy,
+                knight_idx,
+                MAGI_KNIGHT_POWER_SHIELD_BLOCK,
+            );
+        }
+        MagiKnightIntent::Dampen => {
+            // C# Dampen downgrades all upgraded player cards and
+            // ethereal-keywords them if HexPower is present. We apply
+            // DampenPower as a marker stack and skip the card-level
+            // mutation (per-card affliction state not modeled).
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "DampenPower",
+                1,
+            );
+        }
+        MagiKnightIntent::Spear => {
+            cs.deal_damage(
+                attacker,
+                player,
+                MAGI_KNIGHT_SPEAR_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        MagiKnightIntent::Prep => {
+            cs.gain_block(CombatSide::Enemy, knight_idx, MAGI_KNIGHT_PREP_BLOCK);
+        }
+        MagiKnightIntent::MagicBomb => {
+            cs.deal_damage(
+                attacker,
+                player,
+                MAGI_KNIGHT_BOMB_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: SpectralKnight -----------------------------
+//
+// Reflects C# `SpectralKnight.GenerateMoveStateMachine`:
+//   Init: Hex.
+//   Chain: Hex → SoulSlash → RandomBranch(SoulSlash w/2 + SoulFlame
+//          CannotRepeat). SoulFlame.FollowUp = RandomBranch.
+//
+// A0 payloads:
+//   - Hex:       apply HexPower(2) to player (afflict-all-cards
+//                hook deferred — marker stack only)
+//   - SoulSlash: 15 damage (DeadlyEnemies: 17)
+//   - SoulFlame: 3 damage × 3 hits (DeadlyEnemies: 4)
+
+const SPECTRAL_KNIGHT_HEX_AMOUNT: i32 = 2;
+const SPECTRAL_KNIGHT_SOUL_SLASH_DAMAGE: i32 = 15;
+const SPECTRAL_KNIGHT_SOUL_FLAME_DAMAGE: i32 = 3;
+const SPECTRAL_KNIGHT_SOUL_FLAME_HITS: i32 = 3;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SpectralKnightIntent {
+    Hex,
+    SoulSlash,
+    SoulFlame,
+}
+
+impl SpectralKnightIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            SpectralKnightIntent::Hex => "HEX",
+            SpectralKnightIntent::SoulSlash => "SOUL_SLASH",
+            SpectralKnightIntent::SoulFlame => "SOUL_FLAME",
+        }
+    }
+}
+
+pub fn pick_spectral_knight_intent(
+    rng: &mut Rng,
+    last_intent: Option<SpectralKnightIntent>,
+) -> SpectralKnightIntent {
+    match last_intent {
+        None => SpectralKnightIntent::Hex,
+        // Hex → SoulSlash always (per the C# chain — Hex's
+        // FollowUpState is SoulSlash).
+        Some(SpectralKnightIntent::Hex) => SpectralKnightIntent::SoulSlash,
+        // SoulSlash and SoulFlame both → RandomBranch.
+        // Branch: SoulSlash weight 2, SoulFlame weight 1 with
+        // CannotRepeat. If last was SoulFlame, only SoulSlash is
+        // eligible. If last was SoulSlash, both branches are eligible
+        // weighted 2/1.
+        Some(SpectralKnightIntent::SoulSlash) => {
+            // 2:1 weighted pick.
+            let w_slash: f32 = 2.0;
+            let w_flame: f32 = 1.0;
+            let total = w_slash + w_flame;
+            let roll = rng.next_float(total);
+            if roll < w_slash {
+                SpectralKnightIntent::SoulSlash
+            } else {
+                SpectralKnightIntent::SoulFlame
+            }
+        }
+        Some(SpectralKnightIntent::SoulFlame) => {
+            // CannotRepeat means SoulFlame is excluded, leaving only
+            // SoulSlash.
+            SpectralKnightIntent::SoulSlash
+        }
+    }
+}
+
+pub fn execute_spectral_knight_move(
+    cs: &mut CombatState,
+    knight_idx: usize,
+    target_player_idx: usize,
+    intent: SpectralKnightIntent,
+) {
+    let attacker = (CombatSide::Enemy, knight_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        SpectralKnightIntent::Hex => {
+            // C# Hex afflicts every card with Hexed (Ethereal). We
+            // apply HexPower(2) as a marker stack and skip the
+            // card-level mutation.
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "HexPower",
+                SPECTRAL_KNIGHT_HEX_AMOUNT,
+            );
+        }
+        SpectralKnightIntent::SoulSlash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SPECTRAL_KNIGHT_SOUL_SLASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        SpectralKnightIntent::SoulFlame => {
+            for _ in 0..SPECTRAL_KNIGHT_SOUL_FLAME_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    SPECTRAL_KNIGHT_SOUL_FLAME_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: Tunneler -----------------------------------
 //
 // Reflects C# `Tunneler.GenerateMoveStateMachine`:
@@ -13050,6 +13272,164 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- MagiKnight + SpectralKnight tests --------------------------
+
+    #[test]
+    fn magi_knight_walks_chain() {
+        assert_eq!(
+            pick_magi_knight_intent(None),
+            MagiKnightIntent::PowerShield
+        );
+        assert_eq!(
+            pick_magi_knight_intent(Some(MagiKnightIntent::PowerShield)),
+            MagiKnightIntent::Dampen
+        );
+        assert_eq!(
+            pick_magi_knight_intent(Some(MagiKnightIntent::Dampen)),
+            MagiKnightIntent::Spear
+        );
+        assert_eq!(
+            pick_magi_knight_intent(Some(MagiKnightIntent::Spear)),
+            MagiKnightIntent::Prep
+        );
+        assert_eq!(
+            pick_magi_knight_intent(Some(MagiKnightIntent::Prep)),
+            MagiKnightIntent::MagicBomb
+        );
+        assert_eq!(
+            pick_magi_knight_intent(Some(MagiKnightIntent::MagicBomb)),
+            MagiKnightIntent::Spear
+        );
+    }
+
+    #[test]
+    fn magi_knight_power_shield_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_magi_knight_move(&mut cs, 0, 0, MagiKnightIntent::PowerShield);
+        assert_eq!(cs.allies[0].current_hp, hp - 6);
+        assert_eq!(cs.enemies[0].block, 5);
+    }
+
+    #[test]
+    fn magi_knight_spear_deals_ten() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_magi_knight_move(&mut cs, 0, 0, MagiKnightIntent::Spear);
+        assert_eq!(cs.allies[0].current_hp, hp - 10);
+    }
+
+    #[test]
+    fn magi_knight_magic_bomb_deals_thirty_five() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_magi_knight_move(&mut cs, 0, 0, MagiKnightIntent::MagicBomb);
+        assert_eq!(cs.allies[0].current_hp, hp - 35);
+    }
+
+    #[test]
+    fn magi_knight_dampen_applies_marker_stack() {
+        let mut cs = ironclad_combat();
+        execute_magi_knight_move(&mut cs, 0, 0, MagiKnightIntent::Dampen);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DampenPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn spectral_knight_init_is_hex() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_spectral_knight_intent(&mut rng, None),
+            SpectralKnightIntent::Hex
+        );
+    }
+
+    #[test]
+    fn spectral_knight_after_hex_is_soul_slash() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_spectral_knight_intent(&mut rng, Some(SpectralKnightIntent::Hex)),
+            SpectralKnightIntent::SoulSlash
+        );
+    }
+
+    #[test]
+    fn spectral_knight_after_flame_must_slash() {
+        let mut rng = Rng::new(1, 0);
+        for _ in 0..20 {
+            assert_eq!(
+                pick_spectral_knight_intent(
+                    &mut rng,
+                    Some(SpectralKnightIntent::SoulFlame)
+                ),
+                SpectralKnightIntent::SoulSlash
+            );
+        }
+    }
+
+    #[test]
+    fn spectral_knight_after_slash_weighted_pick() {
+        // 2:1 weighting — over many trials, SoulSlash should
+        // dominate but SoulFlame appears too.
+        let mut rng = Rng::new(123, 0);
+        let mut slash = 0;
+        let mut flame = 0;
+        for _ in 0..3000 {
+            match pick_spectral_knight_intent(
+                &mut rng,
+                Some(SpectralKnightIntent::SoulSlash),
+            ) {
+                SpectralKnightIntent::SoulSlash => slash += 1,
+                SpectralKnightIntent::SoulFlame => flame += 1,
+                _ => panic!("unexpected"),
+            }
+        }
+        // expect roughly 2000/1000 split.
+        assert!((slash - 2000_i32).abs() < 200, "slash={slash}");
+        assert!((flame - 1000_i32).abs() < 200, "flame={flame}");
+    }
+
+    #[test]
+    fn spectral_knight_hex_applies_marker_stack() {
+        // HexPower is Single stack in C# (and our table) — the C#
+        // Apply<HexPower>(2) sets it present; our Single handling
+        // clamps to 1, which is the same "presence" semantic.
+        let mut cs = ironclad_combat();
+        execute_spectral_knight_move(&mut cs, 0, 0, SpectralKnightIntent::Hex);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "HexPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn spectral_knight_soul_slash_deals_fifteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_spectral_knight_move(
+            &mut cs,
+            0,
+            0,
+            SpectralKnightIntent::SoulSlash,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 15);
+    }
+
+    #[test]
+    fn spectral_knight_soul_flame_three_times_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_spectral_knight_move(
+            &mut cs,
+            0,
+            0,
+            SpectralKnightIntent::SoulFlame,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 9);
     }
 
     // ---------- Tunneler + BurrowedPower tests -----------------------------

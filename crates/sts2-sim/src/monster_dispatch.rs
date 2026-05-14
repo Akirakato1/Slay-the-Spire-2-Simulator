@@ -124,6 +124,8 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "SlumberingBeetle"
             | "TheInsatiable"
             | "Tunneler"
+            | "MagiKnight"
+            | "SpectralKnight"
     )
 }
 
@@ -738,6 +740,32 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "MagiKnight" => {
+            let last = last_ref.and_then(|s| match s {
+                "FIRST_POWER_SHIELD_MOVE" => Some(MagiKnightIntent::PowerShield),
+                "DAMPEN_MOVE" => Some(MagiKnightIntent::Dampen),
+                "RAM_MOVE" => Some(MagiKnightIntent::Spear),
+                "PREP_MOVE" => Some(MagiKnightIntent::Prep),
+                "MAGIC_BOMB" => Some(MagiKnightIntent::MagicBomb),
+                _ => None,
+            });
+            let intent = pick_magi_knight_intent(last);
+            execute_magi_knight_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "SpectralKnight" => {
+            let last = last_ref.and_then(|s| match s {
+                "HEX" => Some(SpectralKnightIntent::Hex),
+                "SOUL_SLASH" => Some(SpectralKnightIntent::SoulSlash),
+                "SOUL_FLAME" => Some(SpectralKnightIntent::SoulFlame),
+                _ => None,
+            });
+            let mut rng = take_rng(cs);
+            let intent = pick_spectral_knight_intent(&mut rng, last);
+            put_rng(cs, rng);
+            execute_spectral_knight_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "Tunneler" => {
