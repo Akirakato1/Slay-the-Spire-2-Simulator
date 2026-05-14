@@ -1511,6 +1511,39 @@ fn dispatch_on_play(
             );
             true
         }
+        // FiendFire (Ironclad rare Exhaust Attack, 2 cost, AnyEnemy):
+        // exhaust the entire remaining hand; deal 7 damage (10
+        // upgraded) per exhausted card. Each hit threads through the
+        // modifier pipeline independently (Strength composes per hit,
+        // matching C# WithHitCount). FiendFire itself is already
+        // removed from hand at dispatch time and routes to exhaust via
+        // the Exhaust keyword.
+        "FiendFire" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            // Drain hand → exhaust, count along the way.
+            let count = {
+                let ps = cs.allies[player_idx].player.as_mut().unwrap();
+                let n = ps.hand.cards.len();
+                let drained: Vec<_> = ps.hand.cards.drain(..).collect();
+                ps.exhaust.cards.extend(drained);
+                n as i32
+            };
+            for _ in 0..count {
+                if cs.enemies[target.1].current_hp == 0 {
+                    break;
+                }
+                cs.deal_damage_enchanted(
+                    (CombatSide::Player, player_idx),
+                    target,
+                    damage,
+                    ValueProp::MOVE,
+                    enchantment,
+                );
+            }
+            true
+        }
         // Mangle (Ironclad rare Attack, 3 cost, AnyEnemy): 15 damage
         // (20 upgraded) + apply ManglePower equal to StrengthLoss (10,
         // 15 upgraded). ManglePower extends TemporaryStrengthPower with
@@ -4115,6 +4148,94 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- FiendFire tests ------------------------------------------
+
+    #[test]
+    fn fiend_fire_exhausts_hand_and_hits_per_card() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let strike = card_by_id("StrikeIronclad").unwrap();
+        let defend = card_by_id("DefendIronclad").unwrap();
+        let ff = card_by_id("FiendFire").unwrap();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.hand.cards.clear();
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            ps.hand.cards.push(CardInstance::from_card(defend, 0));
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            ps.hand.cards.push(CardInstance::from_card(ff, 0));
+        }
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, 3, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 3 cards remaining in hand → 3 hits × 7 = 21 damage.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 21);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        // Hand empty; all 4 cards (including FiendFire) in exhaust.
+        assert_eq!(ps.hand.len(), 0);
+        assert_eq!(ps.exhaust.len(), 4);
+    }
+
+    #[test]
+    fn fiend_fire_with_only_self_in_hand_does_zero_damage() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let ff = card_by_id("FiendFire").unwrap();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.hand.cards.clear();
+            ps.hand.cards.push(CardInstance::from_card(ff, 0));
+        }
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // No other cards → 0 hits.
+        assert_eq!(cs.enemies[0].current_hp, hp_before);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.exhaust.len(), 1);
+    }
+
+    #[test]
+    fn upgraded_fiend_fire_does_ten_per_hit() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let strike = card_by_id("StrikeIronclad").unwrap();
+        let ff = card_by_id("FiendFire").unwrap();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.hand.cards.clear();
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            ps.hand.cards.push(CardInstance::from_card(ff, 1));
+        }
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, 2, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 2 cards × 10 = 20 damage.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 20);
+    }
+
+    #[test]
+    fn fiend_fire_strength_composes_per_hit() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 3);
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let strike = card_by_id("StrikeIronclad").unwrap();
+        let ff = card_by_id("FiendFire").unwrap();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.hand.cards.clear();
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            ps.hand.cards.push(CardInstance::from_card(ff, 0));
+        }
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, 2, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 2 hits × (7 + 3 Strength) = 20.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 20);
     }
 
     // ---------- Impervious tests -----------------------------------------
