@@ -3265,6 +3265,160 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: TwigSlimeM ---------------------------------
+//
+// Reflects C# `TwigSlimeM.GenerateMoveStateMachine`:
+//   Init: STICKY_SHOT_MOVE.
+//   After Sticky: RandomBranch (Clump weight 2, Sticky CannotRepeat
+//     → blocked when last was Sticky). So after Sticky always Clump.
+//   After Clump: RandomBranch (Clump weight 2, Sticky weight 1 default
+//     → 67/33).
+//
+// A0 payloads:
+//   - ClumpShot: 11 damage (DeadlyEnemies: 12)
+//   - StickyShot: add 1 Slimed to discard (const)
+
+const TWIG_SLIME_M_CLUMP_DAMAGE: i32 = 11;
+const TWIG_SLIME_M_STICKY_COUNT: i32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TwigSlimeMIntent {
+    Clump,
+    Sticky,
+}
+
+impl TwigSlimeMIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            TwigSlimeMIntent::Clump => "CLUMP_SHOT_MOVE",
+            TwigSlimeMIntent::Sticky => "STICKY_SHOT_MOVE",
+        }
+    }
+}
+
+pub fn pick_twig_slime_m_intent(
+    rng: &mut Rng,
+    last_intent: Option<TwigSlimeMIntent>,
+) -> TwigSlimeMIntent {
+    match last_intent {
+        None => TwigSlimeMIntent::Sticky,
+        Some(TwigSlimeMIntent::Sticky) => {
+            // Sticky CannotRepeat → Clump wins always.
+            TwigSlimeMIntent::Clump
+        }
+        Some(TwigSlimeMIntent::Clump) => {
+            let w_clump: f32 = 2.0;
+            let w_sticky: f32 = 1.0;
+            let total = w_clump + w_sticky;
+            let mut roll = rng.next_float(total);
+            roll -= w_clump;
+            if roll <= 0.0 {
+                return TwigSlimeMIntent::Clump;
+            }
+            TwigSlimeMIntent::Sticky
+        }
+    }
+}
+
+pub fn execute_twig_slime_m_move(
+    cs: &mut CombatState,
+    slime_idx: usize,
+    target_player_idx: usize,
+    intent: TwigSlimeMIntent,
+) {
+    let attacker = (CombatSide::Enemy, slime_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        TwigSlimeMIntent::Clump => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TWIG_SLIME_M_CLUMP_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        TwigSlimeMIntent::Sticky => {
+            for _ in 0..TWIG_SLIME_M_STICKY_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Slimed",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+    }
+}
+
+// ---------- Monster intent: LeafSlimeM ---------------------------------
+//
+// Reflects C# `LeafSlimeM.GenerateMoveStateMachine`. Deterministic
+// alternation:
+//   Init: STICKY_SHOT.
+//   Cycle: Sticky → Clump → Sticky → … (strict alternation).
+//
+// A0 payloads:
+//   - ClumpShot: 8 damage (DeadlyEnemies: 9)
+//   - StickyShot: add 2 Slimed to discard (const)
+
+const LEAF_SLIME_M_CLUMP_DAMAGE: i32 = 8;
+const LEAF_SLIME_M_STICKY_COUNT: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum LeafSlimeMIntent {
+    Clump,
+    Sticky,
+}
+
+impl LeafSlimeMIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            LeafSlimeMIntent::Clump => "CLUMP_SHOT",
+            LeafSlimeMIntent::Sticky => "STICKY_SHOT",
+        }
+    }
+}
+
+pub fn pick_leaf_slime_m_intent(
+    last_intent: Option<LeafSlimeMIntent>,
+) -> LeafSlimeMIntent {
+    match last_intent {
+        None => LeafSlimeMIntent::Sticky,
+        Some(LeafSlimeMIntent::Sticky) => LeafSlimeMIntent::Clump,
+        Some(LeafSlimeMIntent::Clump) => LeafSlimeMIntent::Sticky,
+    }
+}
+
+pub fn execute_leaf_slime_m_move(
+    cs: &mut CombatState,
+    slime_idx: usize,
+    target_player_idx: usize,
+    intent: LeafSlimeMIntent,
+) {
+    let attacker = (CombatSide::Enemy, slime_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        LeafSlimeMIntent::Clump => {
+            cs.deal_damage(
+                attacker,
+                player,
+                LEAF_SLIME_M_CLUMP_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        LeafSlimeMIntent::Sticky => {
+            for _ in 0..LEAF_SLIME_M_STICKY_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Slimed",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: TwigSlimeS ---------------------------------
 //
 // Reflects C# `TwigSlimeS.GenerateMoveStateMachine`. Trivial: single
@@ -8269,6 +8423,92 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- TwigSlimeM + LeafSlimeM tests -----------------------------
+
+    #[test]
+    fn twig_slime_m_first_turn_is_sticky() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_twig_slime_m_intent(&mut rng, None),
+            TwigSlimeMIntent::Sticky
+        );
+    }
+
+    #[test]
+    fn twig_slime_m_after_sticky_always_clumps() {
+        let mut rng = Rng::new(99, 0);
+        for _ in 0..50 {
+            assert_eq!(
+                pick_twig_slime_m_intent(&mut rng, Some(TwigSlimeMIntent::Sticky)),
+                TwigSlimeMIntent::Clump
+            );
+        }
+    }
+
+    #[test]
+    fn twig_slime_m_after_clump_67_33_distribution() {
+        // Clump weight 2, Sticky weight 1 (default) → 2/3, 1/3.
+        let mut rng = Rng::new(1234, 0);
+        let mut clump = 0;
+        let mut sticky = 0;
+        for _ in 0..10_000 {
+            match pick_twig_slime_m_intent(&mut rng, Some(TwigSlimeMIntent::Clump)) {
+                TwigSlimeMIntent::Clump => clump += 1,
+                TwigSlimeMIntent::Sticky => sticky += 1,
+            }
+        }
+        let tol = 200;
+        assert!((clump - 6667_i32).abs() < tol, "Clump: {clump}");
+        assert!((sticky - 3333_i32).abs() < tol, "Sticky: {sticky}");
+    }
+
+    #[test]
+    fn twig_slime_m_clump_deals_eleven() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_twig_slime_m_move(&mut cs, 0, 0, TwigSlimeMIntent::Clump);
+        assert_eq!(cs.allies[0].current_hp, hp - 11);
+    }
+
+    #[test]
+    fn twig_slime_m_sticky_adds_one_slimed() {
+        let mut cs = ironclad_combat();
+        execute_twig_slime_m_move(&mut cs, 0, 0, TwigSlimeMIntent::Sticky);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        let count = ps.discard.cards.iter().filter(|c| c.id == "Slimed").count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn leaf_slime_m_alternates_starting_with_sticky() {
+        assert_eq!(pick_leaf_slime_m_intent(None), LeafSlimeMIntent::Sticky);
+        assert_eq!(
+            pick_leaf_slime_m_intent(Some(LeafSlimeMIntent::Sticky)),
+            LeafSlimeMIntent::Clump
+        );
+        assert_eq!(
+            pick_leaf_slime_m_intent(Some(LeafSlimeMIntent::Clump)),
+            LeafSlimeMIntent::Sticky
+        );
+    }
+
+    #[test]
+    fn leaf_slime_m_clump_deals_eight() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_leaf_slime_m_move(&mut cs, 0, 0, LeafSlimeMIntent::Clump);
+        assert_eq!(cs.allies[0].current_hp, hp - 8);
+    }
+
+    #[test]
+    fn leaf_slime_m_sticky_adds_two_slimed() {
+        let mut cs = ironclad_combat();
+        execute_leaf_slime_m_move(&mut cs, 0, 0, LeafSlimeMIntent::Sticky);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        let count = ps.discard.cards.iter().filter(|c| c.id == "Slimed").count();
+        assert_eq!(count, 2);
     }
 
     // ---------- TwigSlimeS + LeafSlimeS tests -----------------------------

@@ -40,6 +40,8 @@ PORTED_INTENT_MACHINES = {
     "Seapunk",
     "TwigSlimeS",
     "LeafSlimeS",
+    "TwigSlimeM",
+    "LeafSlimeM",
 }
 
 
