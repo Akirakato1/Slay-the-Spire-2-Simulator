@@ -50,6 +50,7 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
             "LouseProgenitor" => louse_progenitor_spawn(cs, i),
             "TerrorEel" => terror_eel_spawn(cs, i),
             "PhantasmalGardener" => phantasmal_gardener_spawn(cs, i),
+            "InfestedPrism" => infested_prism_spawn(cs, i),
             _ => {}
         }
     }
@@ -107,6 +108,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "LouseProgenitor"
             | "TerrorEel"
             | "PhantasmalGardener"
+            | "InfestedPrism"
     )
 }
 
@@ -668,6 +670,18 @@ pub fn dispatch_enemy_turn(
                 slot_index_1based(&slot),
             );
             execute_phantasmal_gardener_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "InfestedPrism" => {
+            let last = last_ref.and_then(|s| match s {
+                "JAB_MOVE" => Some(InfestedPrismIntent::Jab),
+                "RADIATE_MOVE" => Some(InfestedPrismIntent::Radiate),
+                "WHIRLWIND_MOVE" => Some(InfestedPrismIntent::Whirlwind),
+                "PULSATE_MOVE" => Some(InfestedPrismIntent::Pulsate),
+                _ => None,
+            });
+            let intent = pick_infested_prism_intent(last);
+            execute_infested_prism_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {

@@ -437,6 +437,22 @@ impl CombatState {
         // ordering — adjust when #70 lands.
         self.tick_start_of_turn_powers(side);
         self.fire_after_side_turn_start_hooks(side);
+        // VitalSparkPower.BeforeSideTurnStart (Enemy side): clear
+        // vital_spark_used so the next Player turn re-arms the +1
+        // energy grant. Mirrors C# `playersTriggeredThisTurn.Clear()`.
+        if side == CombatSide::Enemy {
+            for enemy in self.enemies.iter_mut() {
+                let has_vs = enemy
+                    .powers
+                    .iter()
+                    .any(|p| p.id == "VitalSparkPower");
+                if has_vs {
+                    if let Some(ms) = enemy.monster.as_mut() {
+                        ms.set_flag("vital_spark_used", false);
+                    }
+                }
+            }
+        }
         // VigorPower snapshot: at start of enemy turn, freeze the
         // current Vigor.amount per enemy. This is the amount that
         // gets drained at the end of the turn (see tick_vigor_drain),
@@ -1605,6 +1621,36 @@ impl CombatState {
                     }
                 }
                 self.remove_power(target.0, target.1, "CurlUpPower");
+            } else if power_id == "VitalSparkPower" {
+                // VitalSparkPower.AfterDamageReceived: when owner takes
+                // unblocked Player-attack damage AND that player
+                // hasn't triggered VS this Enemy-turn-period, give
+                // the player +1 energy. Flag clears at begin_turn
+                // (Enemy) — i.e., once per Player turn-cycle.
+                // C# uses Amount as the energy gain via `EnergyVar(1)`
+                // (always 1 today), and tracks per-player; we
+                // simplify to a single flag since the harness is
+                // single-player.
+                let already = creature(self, target.0, target.1)
+                    .and_then(|c| c.monster.as_ref())
+                    .map(|m| m.flag("vital_spark_used"))
+                    .unwrap_or(false);
+                if !already {
+                    if let Some(creature) =
+                        creature_mut(self, target.0, target.1)
+                    {
+                        if let Some(ms) = creature.monster.as_mut() {
+                            ms.set_flag("vital_spark_used", true);
+                        }
+                    }
+                    if let Some(ps) = self
+                        .allies
+                        .get_mut(dealer.1)
+                        .and_then(|c| c.player.as_mut())
+                    {
+                        ps.energy += amount;
+                    }
+                }
             } else if power_id == "SkittishPower" {
                 // SkittishPower.AfterAttack: when owner takes unblocked
                 // Player-attack damage AND hasn't already gained block
@@ -3902,6 +3948,129 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: InfestedPrism (elite) ----------------------
+//
+// Reflects C# `InfestedPrism.GenerateMoveStateMachine`:
+//   Init: Jab. Chain Jab → Radiate → Whirlwind → Pulsate → Jab.
+//
+// Spawn (AfterAddedToRoom): apply VitalSparkPower(1) to self.
+//
+// A0 payloads:
+//   - Jab:       22 damage (DeadlyEnemies: 24)
+//   - Radiate:   16 damage + 16 block (DeadlyEnemies: 18)
+//   - Whirlwind: 9 damage × 3 hits (DeadlyEnemies: 10)
+//   - Pulsate:   20 block + 4 self-Strength (ToughEnemies: 22 block,
+//                DeadlyEnemies: 5 Strength)
+//
+// VitalSparkPower wires into fire_after_damage_received_hooks: first
+// unblocked Player-attack hit per cycle → player gains 1 energy,
+// vital_spark_used flag flips. Flag clears in begin_turn(Enemy).
+
+const INFESTED_PRISM_VITAL_SPARK_AMOUNT: i32 = 1;
+const INFESTED_PRISM_JAB_DAMAGE: i32 = 22;
+const INFESTED_PRISM_RADIATE_DAMAGE: i32 = 16;
+const INFESTED_PRISM_RADIATE_BLOCK: i32 = 16;
+const INFESTED_PRISM_WHIRLWIND_DAMAGE: i32 = 9;
+const INFESTED_PRISM_WHIRLWIND_HITS: i32 = 3;
+const INFESTED_PRISM_PULSATE_BLOCK: i32 = 20;
+const INFESTED_PRISM_PULSATE_STRENGTH: i32 = 4;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum InfestedPrismIntent {
+    Jab,
+    Radiate,
+    Whirlwind,
+    Pulsate,
+}
+
+impl InfestedPrismIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            InfestedPrismIntent::Jab => "JAB_MOVE",
+            InfestedPrismIntent::Radiate => "RADIATE_MOVE",
+            InfestedPrismIntent::Whirlwind => "WHIRLWIND_MOVE",
+            InfestedPrismIntent::Pulsate => "PULSATE_MOVE",
+        }
+    }
+}
+
+pub fn infested_prism_spawn(cs: &mut CombatState, prism_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        prism_idx,
+        "VitalSparkPower",
+        INFESTED_PRISM_VITAL_SPARK_AMOUNT,
+    );
+}
+
+pub fn pick_infested_prism_intent(
+    last_intent: Option<InfestedPrismIntent>,
+) -> InfestedPrismIntent {
+    match last_intent {
+        None => InfestedPrismIntent::Jab,
+        Some(InfestedPrismIntent::Jab) => InfestedPrismIntent::Radiate,
+        Some(InfestedPrismIntent::Radiate) => InfestedPrismIntent::Whirlwind,
+        Some(InfestedPrismIntent::Whirlwind) => InfestedPrismIntent::Pulsate,
+        Some(InfestedPrismIntent::Pulsate) => InfestedPrismIntent::Jab,
+    }
+}
+
+pub fn execute_infested_prism_move(
+    cs: &mut CombatState,
+    prism_idx: usize,
+    target_player_idx: usize,
+    intent: InfestedPrismIntent,
+) {
+    let attacker = (CombatSide::Enemy, prism_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        InfestedPrismIntent::Jab => {
+            cs.deal_damage(
+                attacker,
+                player,
+                INFESTED_PRISM_JAB_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        InfestedPrismIntent::Radiate => {
+            cs.deal_damage(
+                attacker,
+                player,
+                INFESTED_PRISM_RADIATE_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.gain_block(
+                CombatSide::Enemy,
+                prism_idx,
+                INFESTED_PRISM_RADIATE_BLOCK,
+            );
+        }
+        InfestedPrismIntent::Whirlwind => {
+            for _ in 0..INFESTED_PRISM_WHIRLWIND_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    INFESTED_PRISM_WHIRLWIND_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        InfestedPrismIntent::Pulsate => {
+            cs.gain_block(
+                CombatSide::Enemy,
+                prism_idx,
+                INFESTED_PRISM_PULSATE_BLOCK,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                prism_idx,
+                "StrengthPower",
+                INFESTED_PRISM_PULSATE_STRENGTH,
+            );
         }
     }
 }
@@ -12055,6 +12224,173 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- InfestedPrism + VitalSparkPower tests ----------------------
+
+    #[test]
+    fn infested_prism_walks_four_state_chain() {
+        assert_eq!(
+            pick_infested_prism_intent(None),
+            InfestedPrismIntent::Jab
+        );
+        assert_eq!(
+            pick_infested_prism_intent(Some(InfestedPrismIntent::Jab)),
+            InfestedPrismIntent::Radiate
+        );
+        assert_eq!(
+            pick_infested_prism_intent(Some(InfestedPrismIntent::Radiate)),
+            InfestedPrismIntent::Whirlwind
+        );
+        assert_eq!(
+            pick_infested_prism_intent(Some(InfestedPrismIntent::Whirlwind)),
+            InfestedPrismIntent::Pulsate
+        );
+        assert_eq!(
+            pick_infested_prism_intent(Some(InfestedPrismIntent::Pulsate)),
+            InfestedPrismIntent::Jab
+        );
+    }
+
+    #[test]
+    fn infested_prism_spawn_applies_vital_spark_one() {
+        let mut cs = ironclad_combat();
+        infested_prism_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VitalSparkPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn infested_prism_jab_deals_twenty_two() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_infested_prism_move(&mut cs, 0, 0, InfestedPrismIntent::Jab);
+        assert_eq!(cs.allies[0].current_hp, hp - 22);
+    }
+
+    #[test]
+    fn infested_prism_radiate_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_infested_prism_move(
+            &mut cs,
+            0,
+            0,
+            InfestedPrismIntent::Radiate,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+        assert_eq!(cs.enemies[0].block, 16);
+    }
+
+    #[test]
+    fn infested_prism_whirlwind_nine_times_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_infested_prism_move(
+            &mut cs,
+            0,
+            0,
+            InfestedPrismIntent::Whirlwind,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 27);
+    }
+
+    #[test]
+    fn infested_prism_pulsate_payload() {
+        let mut cs = ironclad_combat();
+        execute_infested_prism_move(
+            &mut cs,
+            0,
+            0,
+            InfestedPrismIntent::Pulsate,
+        );
+        assert_eq!(cs.enemies[0].block, 20);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            4
+        );
+    }
+
+    #[test]
+    fn vital_spark_grants_energy_on_first_unblocked_hit() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VitalSparkPower", 1);
+        let energy_before = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.energy)
+            .unwrap_or(0);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        let energy_after = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.energy)
+            .unwrap_or(0);
+        assert_eq!(energy_after, energy_before + 1);
+        // Second hit same turn — no extra energy.
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        let energy_after_2 = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.energy)
+            .unwrap_or(0);
+        assert_eq!(energy_after_2, energy_before + 1);
+    }
+
+    #[test]
+    fn vital_spark_does_not_grant_when_fully_blocked() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VitalSparkPower", 1);
+        cs.gain_block(CombatSide::Enemy, 0, 100);
+        let energy_before = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.energy)
+            .unwrap_or(0);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        let energy_after = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.energy)
+            .unwrap_or(0);
+        assert_eq!(energy_after, energy_before);
+    }
+
+    #[test]
+    fn vital_spark_re_arms_after_enemy_turn_start() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VitalSparkPower", 1);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        // begin_turn(Enemy) clears the flag.
+        cs.current_side = CombatSide::Player;
+        cs.begin_turn(CombatSide::Enemy);
+        assert!(!cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("vital_spark_used"))
+            .unwrap_or(true));
     }
 
     // ---------- PhantasmalGardener + SkittishPower tests -------------------
