@@ -2753,6 +2753,13 @@ fn power_multiplicative_dealer(power: &PowerInstance, props: ValueProp) -> f64 {
         // WeakPower: ×0.75 on powered attacks from the owner. (Paper
         // Krane / Debilitate further tweak the factor; not modeled here.)
         "WeakPower" => 0.75,
+        // ShrinkPower: ×0.70 (=(100-30)/100) on powered attacks from
+        // the owner. Amount.sign distinguishes finite (positive,
+        // ticks down each owner-side turn end) vs infinite
+        // (negative, applied by ShrinkerBeetle's Shrinker move).
+        // Either way the multiplier is the same constant when the
+        // power is present.
+        "ShrinkPower" if power.amount != 0 => 0.70,
         _ => 1.0,
     }
 }
@@ -3289,6 +3296,98 @@ pub fn execute_flail_knight_move(
                 attacker,
                 player,
                 FLAIL_KNIGHT_RAM_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: ShrinkerBeetle -----------------------------
+//
+// Reflects C# `ShrinkerBeetle.GenerateMoveStateMachine`:
+//   Init: SHRINKER_MOVE.
+//   Chain: Shrinker → Chomp → Stomp → Chomp → Stomp → … (Chomp↔Stomp
+//   forever after Shrinker fires once).
+//
+// Shrinker applies ShrinkPower(-1) to the player — the negative
+// Amount makes it "infinite" (never ticks down). ShrinkPower's
+// damage multiplier (×0.70 on owner-side powered attacks) flows
+// through power_multiplicative_dealer.
+//
+// A0 payloads:
+//   - Chomp: 7 damage (DeadlyEnemies: 8)
+//   - Stomp: 13 damage (DeadlyEnemies: 14)
+
+const SHRINKER_BEETLE_CHOMP_DAMAGE: i32 = 7;
+const SHRINKER_BEETLE_STOMP_DAMAGE: i32 = 13;
+const SHRINKER_BEETLE_SHRINK_AMOUNT: i32 = -1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ShrinkerBeetleIntent {
+    Shrinker,
+    Chomp,
+    Stomp,
+}
+
+impl ShrinkerBeetleIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            ShrinkerBeetleIntent::Shrinker => "SHRINKER_MOVE",
+            ShrinkerBeetleIntent::Chomp => "CHOMP_MOVE",
+            ShrinkerBeetleIntent::Stomp => "STOMP_MOVE",
+        }
+    }
+}
+
+pub fn pick_shrinker_beetle_intent(
+    last_intent: Option<ShrinkerBeetleIntent>,
+) -> ShrinkerBeetleIntent {
+    match last_intent {
+        None => ShrinkerBeetleIntent::Shrinker,
+        // After Shrinker the chain enters Chomp ↔ Stomp alternation
+        // forever (Shrinker FollowUpState = Chomp; Chomp ↔ Stomp).
+        Some(ShrinkerBeetleIntent::Shrinker) => ShrinkerBeetleIntent::Chomp,
+        Some(ShrinkerBeetleIntent::Chomp) => ShrinkerBeetleIntent::Stomp,
+        Some(ShrinkerBeetleIntent::Stomp) => ShrinkerBeetleIntent::Chomp,
+    }
+}
+
+pub fn execute_shrinker_beetle_move(
+    cs: &mut CombatState,
+    beetle_idx: usize,
+    target_player_idx: usize,
+    intent: ShrinkerBeetleIntent,
+) {
+    let attacker = (CombatSide::Enemy, beetle_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        ShrinkerBeetleIntent::Shrinker => {
+            // C# applies ShrinkPower(-1m). Our apply_power supports
+            // negative amounts on AllowNegative=true powers (Shrink
+            // is AllowNegative=true) — but we also need the power
+            // stack to be visible in observation. Use apply_power
+            // directly; the negative amount represents "infinite"
+            // per ShrinkPower.IsInfinite.
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "ShrinkPower",
+                SHRINKER_BEETLE_SHRINK_AMOUNT,
+            );
+        }
+        ShrinkerBeetleIntent::Chomp => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SHRINKER_BEETLE_CHOMP_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        ShrinkerBeetleIntent::Stomp => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SHRINKER_BEETLE_STOMP_DAMAGE,
                 ValueProp::MOVE,
             );
         }
@@ -8706,6 +8805,95 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- ShrinkerBeetle + ShrinkPower tests ------------------------
+
+    #[test]
+    fn shrinker_beetle_first_turn_is_shrinker() {
+        assert_eq!(
+            pick_shrinker_beetle_intent(None),
+            ShrinkerBeetleIntent::Shrinker
+        );
+    }
+
+    #[test]
+    fn shrinker_beetle_after_shrinker_alternates_chomp_stomp() {
+        assert_eq!(
+            pick_shrinker_beetle_intent(Some(ShrinkerBeetleIntent::Shrinker)),
+            ShrinkerBeetleIntent::Chomp
+        );
+        assert_eq!(
+            pick_shrinker_beetle_intent(Some(ShrinkerBeetleIntent::Chomp)),
+            ShrinkerBeetleIntent::Stomp
+        );
+        assert_eq!(
+            pick_shrinker_beetle_intent(Some(ShrinkerBeetleIntent::Stomp)),
+            ShrinkerBeetleIntent::Chomp
+        );
+    }
+
+    #[test]
+    fn shrinker_beetle_shrinker_applies_negative_shrink() {
+        let mut cs = ironclad_combat();
+        execute_shrinker_beetle_move(
+            &mut cs,
+            0,
+            0,
+            ShrinkerBeetleIntent::Shrinker,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "ShrinkPower"),
+            -1
+        );
+    }
+
+    #[test]
+    fn shrinker_beetle_chomp_deals_seven() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_shrinker_beetle_move(&mut cs, 0, 0, ShrinkerBeetleIntent::Chomp);
+        assert_eq!(cs.allies[0].current_hp, hp - 7);
+    }
+
+    #[test]
+    fn shrinker_beetle_stomp_deals_thirteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_shrinker_beetle_move(&mut cs, 0, 0, ShrinkerBeetleIntent::Stomp);
+        assert_eq!(cs.allies[0].current_hp, hp - 13);
+    }
+
+    #[test]
+    fn shrink_reduces_owner_powered_damage_by_thirty_percent() {
+        // Apply Shrink to player; player deals 10 damage to enemy →
+        // 10 * 0.70 = 7.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "ShrinkPower", -1);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 7);
+    }
+
+    #[test]
+    fn shrink_does_not_reduce_unpowered_damage() {
+        // Unpowered damage (e.g. Bloodletting self-damage) is
+        // unaffected by Shrink.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "ShrinkPower", -1);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::UNPOWERED.with(ValueProp::MOVE),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 10);
     }
 
     // ---------- Byrdonis + TerritorialPower tests -------------------------

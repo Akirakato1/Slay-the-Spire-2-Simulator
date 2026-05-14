@@ -45,6 +45,7 @@ PORTED_INTENT_MACHINES = {
     "TurretOperator",
     "Chomper",
     "Byrdonis",
+    "ShrinkerBeetle",
 }
 
 
