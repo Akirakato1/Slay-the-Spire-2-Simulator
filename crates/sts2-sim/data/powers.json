@@ -189,6 +189,11 @@
     "stack_type": "Counter"
   },
   {
+    "id": "CoordinatePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
     "id": "CorrosiveWavePower",
     "power_type": "Buff",
     "stack_type": "Counter"
@@ -254,6 +259,11 @@
     "stack_type": "Counter"
   },
   {
+    "id": "CrushUnderPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
     "id": "CuriousPower",
     "power_type": "Buff",
     "stack_type": "Counter"
@@ -282,6 +292,11 @@
   {
     "id": "DarkEmbracePower",
     "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "DarkShacklesPower",
+    "power_type": "Debuff",
     "stack_type": "Counter"
   },
   {
@@ -356,6 +371,11 @@
     "stack_type": "Counter"
   },
   {
+    "id": "DyingStarPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
     "id": "EchoFormPower",
     "power_type": "Buff",
     "stack_type": "Counter"
@@ -363,6 +383,11 @@
   {
     "id": "EnergyNextTurnPower",
     "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "EnfeeblingTouchPower",
+    "power_type": "Debuff",
     "stack_type": "Counter"
   },
   {
@@ -396,6 +421,11 @@
     "stack_type": "Counter"
   },
   {
+    "id": "FeedingFrenzyPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
     "id": "FeelNoPainPower",
     "power_type": "Buff",
     "stack_type": "Counter"
@@ -419,6 +449,11 @@
         "kind": "String"
       }
     ]
+  },
+  {
+    "id": "FlexPotionPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
   },
   {
     "id": "FlutterPower",
@@ -699,6 +734,11 @@
     "stack_type": "Counter"
   },
   {
+    "id": "ManglePower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
     "id": "MasterPlannerPower",
     "power_type": "Buff",
     "stack_type": "Single"
@@ -721,6 +761,11 @@
   {
     "id": "MonarchsGazePower",
     "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "MonarchsGazeStrengthDownPower",
+    "power_type": "Debuff",
     "stack_type": "Counter"
   },
   {
@@ -877,6 +922,11 @@
     "stack_type": "Counter"
   },
   {
+    "id": "PiercingWailPower",
+    "power_type": "Debuff",
+    "stack_type": "Counter"
+  },
+  {
     "id": "PillarOfCreationPower",
     "power_type": "Buff",
     "stack_type": "Counter"
@@ -975,6 +1025,11 @@
     "stack_type": "Counter"
   },
   {
+    "id": "ReptileTrinketPower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
     "id": "RetainHandPower",
     "power_type": "Buff",
     "stack_type": "Counter"
@@ -1039,6 +1094,16 @@
   {
     "id": "SerpentFormPower",
     "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SetupStrikePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "ShacklingPotionPower",
+    "power_type": "Debuff",
     "stack_type": "Counter"
   },
   {
@@ -1273,21 +1338,6 @@
     "id": "TankPower",
     "power_type": "Buff",
     "stack_type": "Single"
-  },
-  {
-    "id": "TemporaryDexterityPower",
-    "power_type": "Debuff",
-    "stack_type": "Counter"
-  },
-  {
-    "id": "TemporaryFocusPower",
-    "power_type": "Debuff",
-    "stack_type": "Counter"
-  },
-  {
-    "id": "TemporaryStrengthPower",
-    "power_type": "Debuff",
-    "stack_type": "Counter"
   },
   {
     "id": "TenderPower",

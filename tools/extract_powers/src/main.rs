@@ -92,11 +92,32 @@ fn main() -> Result<()> {
 
 fn parse_power(id: &str, source: &str) -> Result<PowerData> {
     // Type override is the only one that's *required* — every power must be
-    // Buff or Debuff. If missing we bail.
-    let power_type = parse_enum_property(source, "Type", "PowerType")
-        .ok_or_else(|| anyhow!("no PowerType override in {}", id))?;
-    let stack_type =
-        parse_enum_property(source, "StackType", "PowerStackType").unwrap_or_else(|| "None".to_string());
+    // Buff or Debuff. Most powers override it directly; TemporaryStrengthPower
+    // subclasses (SetupStrikePower etc.) inherit their Type from the abstract
+    // parent, which returns Buff (IsPositive=true default) or Debuff
+    // (IsPositive=false). We default to Buff and let an `IsPositive`
+    // override in the subclass flip to Debuff.
+    let inherits_temp_strength = source.contains(": TemporaryStrengthPower");
+    let power_type = match parse_enum_property(source, "Type", "PowerType") {
+        Some(t) => t,
+        None if inherits_temp_strength => {
+            if parse_bool_property(source, "IsPositive") == Some(false) {
+                "Debuff".to_string()
+            } else {
+                "Buff".to_string()
+            }
+        }
+        None => bail!("no PowerType override in {}", id),
+    };
+    let stack_type = parse_enum_property(source, "StackType", "PowerStackType")
+        .unwrap_or_else(|| {
+            if inherits_temp_strength {
+                // TemporaryStrengthPower hardcodes StackType.Counter.
+                "Counter".to_string()
+            } else {
+                "None".to_string()
+            }
+        });
     let allow_negative = parse_bool_property(source, "AllowNegative").unwrap_or(false);
     let canonical_vars = parse_canonical_vars(source);
     Ok(PowerData {
@@ -126,8 +147,15 @@ fn parse_bool_property(source: &str, name: &str) -> Option<bool> {
 }
 
 fn list_power_ids_on_disk(powers_dir: &Path) -> Result<Vec<String>> {
-    // Filter to files whose body actually derives from PowerModel — guards
-    // against helper/utility classes that may live in the same dir.
+    // Filter to files whose body actually derives from PowerModel, OR
+    // from a known abstract intermediate that derives from PowerModel.
+    // SetupStrikePower etc. extend TemporaryStrengthPower, which is the
+    // only such intermediate today. As more intermediates appear, add
+    // them here — keeping the list explicit (rather than transitively
+    // resolving) avoids accidentally pulling in helper classes.
+    const INTERMEDIATE_POWER_BASES: &[&str] = &[
+        "TemporaryStrengthPower",
+    ];
     let mut out: Vec<String> = Vec::new();
     for entry in fs::read_dir(powers_dir)? {
         let entry = entry?;
@@ -139,7 +167,21 @@ fn list_power_ids_on_disk(powers_dir: &Path) -> Result<Vec<String>> {
             continue;
         };
         let source = fs::read_to_string(&p)?;
-        if source.contains(": PowerModel") {
+        // Skip abstract base classes themselves — they're declared
+        // `public abstract class X`.
+        if source.contains(&format!("abstract class {}", stem)) {
+            continue;
+        }
+        let mut is_power = source.contains(": PowerModel");
+        if !is_power {
+            for base in INTERMEDIATE_POWER_BASES {
+                if source.contains(&format!(": {}", base)) {
+                    is_power = true;
+                    break;
+                }
+            }
+        }
+        if is_power {
             out.push(stem.to_string());
         }
     }

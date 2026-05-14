@@ -539,10 +539,64 @@ impl CombatState {
         if self.current_side == CombatSide::Enemy {
             self.tick_duration_debuffs();
         }
+        // TemporaryStrengthPower (SetupStrikePower extends this) removes
+        // its stack at end of owner's turn and subtracts the same amount
+        // of StrengthPower. Mirrors C#:
+        //   AfterTurnEnd(side): if side == Owner.Side, Remove(this) +
+        //   Apply<StrengthPower>(owner, -Sign*Amount).
+        // SetupStrikePower has Sign=+1 (IsPositive); negative variants
+        // (TemporaryStrengthDown) flip the sign — none ported yet.
+        let side = self.current_side;
+        self.tick_temporary_strength_powers(side);
         if self.log_enabled {
             let round = self.round_number;
             let side = self.current_side;
             self.combat_log.push(CombatEvent::TurnEnded { round, side });
+        }
+    }
+
+    /// Fire `AfterTurnEnd` for `TemporaryStrengthPower`-style powers
+    /// on the side whose turn just ended. Each known temporary-strength
+    /// power id, on creatures whose side matches: remove the stack, and
+    /// subtract `sign * amount` from StrengthPower (sign = +1 for
+    /// positive variants like SetupStrikePower; negative variants would
+    /// use -1, none ported yet).
+    fn tick_temporary_strength_powers(&mut self, side: CombatSide) {
+        const TEMP_STRENGTH_POWERS: &[(&str, i32)] = &[
+            ("SetupStrikePower", 1),
+        ];
+        let n_allies = self.allies.len();
+        let n_enemies = self.enemies.len();
+        let mut undo: Vec<(CombatSide, usize, &'static str, i32, i32)> =
+            Vec::new();
+        for i in 0..n_allies {
+            if side != CombatSide::Player {
+                continue;
+            }
+            for (id, sign) in TEMP_STRENGTH_POWERS {
+                let amount = self.get_power_amount(CombatSide::Player, i, id);
+                if amount != 0 {
+                    undo.push((CombatSide::Player, i, id, *sign, amount));
+                }
+            }
+        }
+        for i in 0..n_enemies {
+            if side != CombatSide::Enemy {
+                continue;
+            }
+            for (id, sign) in TEMP_STRENGTH_POWERS {
+                let amount = self.get_power_amount(CombatSide::Enemy, i, id);
+                if amount != 0 {
+                    undo.push((CombatSide::Enemy, i, id, *sign, amount));
+                }
+            }
+        }
+        for (s, idx, id, sign, amount) in undo {
+            // Remove the temp-strength stack entirely.
+            self.decrement_power(s, idx, id, amount);
+            // Subtract sign * amount of StrengthPower (undoing the
+            // BeforeApplied silent grant).
+            self.apply_power(s, idx, "StrengthPower", -(sign * amount));
         }
     }
 
@@ -1445,6 +1499,39 @@ fn dispatch_on_play(
         "Inflame" => {
             let Some(card) = card_by_id(card_id) else { return false; };
             let strength = canonical_int_value(card, "StrengthPower", upgrade_level);
+            cs.apply_power(
+                CombatSide::Player,
+                player_idx,
+                "StrengthPower",
+                strength,
+            );
+            true
+        }
+        // SetupStrike (Ironclad common Strike-tagged Attack, 1 cost):
+        // 7 damage + 2 SetupStrikePower. SetupStrikePower extends
+        // TemporaryStrengthPower → on apply, silently grants the same
+        // amount of StrengthPower; at end of owner's turn, removes
+        // itself and subtracts the same Strength. We replicate the
+        // BeforeApplied side-effect here (apply both stacks together);
+        // tick_temporary_strength_powers in end_turn handles the undo.
+        "SetupStrike" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let strength = canonical_int_value(card, "Strength", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                player_idx,
+                "SetupStrikePower",
+                strength,
+            );
             cs.apply_power(
                 CombatSide::Player,
                 player_idx,
@@ -3993,6 +4080,117 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- SetupStrike tests ----------------------------------------
+
+    #[test]
+    fn setup_strike_deals_damage_and_grants_temp_strength() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("SetupStrike").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 7);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "SetupStrikePower"),
+            2
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn temp_strength_clears_at_end_of_player_turn() {
+        // Play SetupStrike → temp Strength up by 2. End player turn →
+        // both SetupStrikePower and Strength bonus go away.
+        let mut cs = ironclad_combat();
+        let card = card_by_id("SetupStrike").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "SetupStrikePower"),
+            0
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn temp_strength_preserves_permanent_strength_from_inflame() {
+        // Inflame grants permanent Strength (2). Then SetupStrike adds
+        // 2 temp Strength → total 4. End of turn drops 2 (the temp),
+        // leaving permanent Strength = 2.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
+        let card = card_by_id("SetupStrike").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            4
+        );
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn upgraded_setup_strike_does_nine_damage_and_three_strength() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("SetupStrike").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // Base 7 damage + 2 strength (applied AFTER damage but before
+        // damage is consumed, since the C# applies are sequential and
+        // damage runs first). So damage is still 7, then +3 Strength.
+        // Actually wait — in our model the strength applies AFTER damage
+        // (apply_power is the second call), so damage is computed
+        // without the new strength. That matches C#: PowerCmd.Apply
+        // runs after DamageCmd.Attack.Execute.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 9);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
+            3
+        );
     }
 
     // ---------- Feed tests -----------------------------------------------
