@@ -47,6 +47,7 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
             "Chomper" => chomper_spawn(cs, i),
             "CorpseSlug" => corpse_slug_spawn(cs, i),
             "SkulkingColony" => skulking_colony_spawn(cs, i),
+            "LouseProgenitor" => louse_progenitor_spawn(cs, i),
             _ => {}
         }
     }
@@ -101,6 +102,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "SlimedBerserker"
             | "BygoneEffigy"
             | "SkulkingColony"
+            | "LouseProgenitor"
     )
 }
 
@@ -620,6 +622,17 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_skulking_colony_intent(last);
             execute_skulking_colony_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "LouseProgenitor" => {
+            let last = last_ref.and_then(|s| match s {
+                "CURL_AND_GROW_MOVE" => Some(LouseProgenitorIntent::CurlAndGrow),
+                "POUNCE_MOVE" => Some(LouseProgenitorIntent::Pounce),
+                "WEB_CANNON_MOVE" => Some(LouseProgenitorIntent::Web),
+                _ => None,
+            });
+            let intent = pick_louse_progenitor_intent(last);
+            execute_louse_progenitor_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {

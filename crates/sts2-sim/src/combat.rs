@@ -1452,6 +1452,7 @@ impl CombatState {
         let modified = self.modify_damage(dealer, target, raw, props);
         let outcome = self.apply_damage(target.0, target.1, modified);
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
+        self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
         self.fire_thorns_hook(dealer, target, props);
         outcome
     }
@@ -1471,8 +1472,64 @@ impl CombatState {
             self.modify_damage_with_enchantment(dealer, target, raw, props, enchantment);
         let outcome = self.apply_damage(target.0, target.1, modified);
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
+        self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
         self.fire_thorns_hook(dealer, target, props);
         outcome
+    }
+
+    /// Fire `AfterDamageReceived` hooks for target-side per-power
+    /// listeners. Currently models CurlUpPower: when owner takes any
+    /// HP-loss from a powered Player attack, owner gains Amount
+    /// unpowered block and CurlUpPower removes itself. C# delays the
+    /// block grant to AfterCardPlayed (so multi-hit cards land all
+    /// hits before block applies); we trigger eagerly on the first
+    /// hit. Net difference: one fewer absorbed hit on multi-hit
+    /// cards. Acceptable simplification.
+    fn fire_after_damage_received_hooks(
+        &mut self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        outcome: &DamageOutcome,
+        props: ValueProp,
+    ) {
+        if !props.is_powered_attack() {
+            return;
+        }
+        if outcome.hp_lost <= 0 {
+            return;
+        }
+        // CurlUp triggers only on player attacks (the C# check is
+        // cardSource != null). Enemy-on-player damage shouldn't
+        // trigger a player CurlUp (none today, but be safe).
+        if dealer.0 != CombatSide::Player {
+            return;
+        }
+        let target_powers: Vec<(String, i32)> = creature_powers(self, target)
+            .iter()
+            .map(|p| (p.id.clone(), p.amount))
+            .collect();
+        for (power_id, amount) in target_powers {
+            if amount <= 0 {
+                continue;
+            }
+            if power_id == "CurlUpPower" {
+                self.gain_block_with_props(
+                    target.0,
+                    target.1,
+                    amount,
+                    ValueProp::UNPOWERED,
+                );
+                // LouseProgenitor reads Curled in its state machine
+                // for animations only; we still set the flag so any
+                // future state-machine arm can branch on it.
+                if let Some(creature) = creature_mut(self, target.0, target.1) {
+                    if let Some(ms) = creature.monster.as_mut() {
+                        ms.set_flag("curled", true);
+                    }
+                }
+                self.remove_power(target.0, target.1, "CurlUpPower");
+            }
+        }
     }
 
     /// ThornsPower.BeforeDamageReceived: when target with ThornsPower is
@@ -3708,6 +3765,133 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: LouseProgenitor ----------------------------
+//
+// Reflects C# `LouseProgenitor.GenerateMoveStateMachine`:
+//   Init: CurlAndGrow.
+//   Chain: CurlAndGrow → Pounce → Web → CurlAndGrow (loop).
+//
+// Spawn (AfterAddedToRoom): apply CurlUpPower(14) to self.
+//
+// A0 payloads:
+//   - CurlAndGrow: 14 block + 5 Strength + set curled flag
+//                  (ToughEnemies: 18 block)
+//   - Pounce:      14 damage (uncurls); DeadlyEnemies: 16
+//   - Web:         9 damage + 2 Frail on player (uncurls);
+//                  DeadlyEnemies: 10
+//
+// CurlUpPower wires via fire_after_damage_received_hooks: when owner
+// takes powered Player-attack damage, gain Amount unpowered block
+// and remove power. Mirrors C# AfterDamageReceived → AfterCardPlayed
+// pipeline (we trigger eagerly — see hook doc for the simplification).
+
+const LOUSE_PROGENITOR_CURL_BLOCK: i32 = 14;
+const LOUSE_PROGENITOR_CURL_STRENGTH: i32 = 5;
+const LOUSE_PROGENITOR_POUNCE_DAMAGE: i32 = 14;
+const LOUSE_PROGENITOR_WEB_DAMAGE: i32 = 9;
+const LOUSE_PROGENITOR_WEB_FRAIL: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum LouseProgenitorIntent {
+    CurlAndGrow,
+    Pounce,
+    Web,
+}
+
+impl LouseProgenitorIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            LouseProgenitorIntent::CurlAndGrow => "CURL_AND_GROW_MOVE",
+            LouseProgenitorIntent::Pounce => "POUNCE_MOVE",
+            LouseProgenitorIntent::Web => "WEB_CANNON_MOVE",
+        }
+    }
+}
+
+pub fn louse_progenitor_spawn(cs: &mut CombatState, louse_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        louse_idx,
+        "CurlUpPower",
+        LOUSE_PROGENITOR_CURL_BLOCK,
+    );
+}
+
+pub fn pick_louse_progenitor_intent(
+    last_intent: Option<LouseProgenitorIntent>,
+) -> LouseProgenitorIntent {
+    match last_intent {
+        None => LouseProgenitorIntent::CurlAndGrow,
+        Some(LouseProgenitorIntent::CurlAndGrow) => LouseProgenitorIntent::Pounce,
+        Some(LouseProgenitorIntent::Pounce) => LouseProgenitorIntent::Web,
+        Some(LouseProgenitorIntent::Web) => LouseProgenitorIntent::CurlAndGrow,
+    }
+}
+
+pub fn execute_louse_progenitor_move(
+    cs: &mut CombatState,
+    louse_idx: usize,
+    target_player_idx: usize,
+    intent: LouseProgenitorIntent,
+) {
+    let attacker = (CombatSide::Enemy, louse_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        LouseProgenitorIntent::CurlAndGrow => {
+            cs.gain_block(
+                CombatSide::Enemy,
+                louse_idx,
+                LOUSE_PROGENITOR_CURL_BLOCK,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                louse_idx,
+                "StrengthPower",
+                LOUSE_PROGENITOR_CURL_STRENGTH,
+            );
+            if let Some(creature) = cs.enemies.get_mut(louse_idx) {
+                if let Some(ms) = creature.monster.as_mut() {
+                    ms.set_flag("curled", true);
+                }
+            }
+        }
+        LouseProgenitorIntent::Pounce => {
+            // Uncurl flag for any state-machine arm; gameplay-side
+            // it's animation only in C#.
+            if let Some(creature) = cs.enemies.get_mut(louse_idx) {
+                if let Some(ms) = creature.monster.as_mut() {
+                    ms.set_flag("curled", false);
+                }
+            }
+            cs.deal_damage(
+                attacker,
+                player,
+                LOUSE_PROGENITOR_POUNCE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        LouseProgenitorIntent::Web => {
+            if let Some(creature) = cs.enemies.get_mut(louse_idx) {
+                if let Some(ms) = creature.monster.as_mut() {
+                    ms.set_flag("curled", false);
+                }
+            }
+            cs.deal_damage(
+                attacker,
+                player,
+                LOUSE_PROGENITOR_WEB_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "FrailPower",
+                LOUSE_PROGENITOR_WEB_FRAIL,
+            );
         }
     }
 }
@@ -11486,6 +11670,152 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- LouseProgenitor + CurlUpPower tests ------------------------
+
+    #[test]
+    fn louse_progenitor_walks_three_state_chain() {
+        assert_eq!(
+            pick_louse_progenitor_intent(None),
+            LouseProgenitorIntent::CurlAndGrow
+        );
+        assert_eq!(
+            pick_louse_progenitor_intent(Some(LouseProgenitorIntent::CurlAndGrow)),
+            LouseProgenitorIntent::Pounce
+        );
+        assert_eq!(
+            pick_louse_progenitor_intent(Some(LouseProgenitorIntent::Pounce)),
+            LouseProgenitorIntent::Web
+        );
+        assert_eq!(
+            pick_louse_progenitor_intent(Some(LouseProgenitorIntent::Web)),
+            LouseProgenitorIntent::CurlAndGrow
+        );
+    }
+
+    #[test]
+    fn louse_progenitor_spawn_applies_curl_up_fourteen() {
+        let mut cs = ironclad_combat();
+        louse_progenitor_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "CurlUpPower"),
+            14
+        );
+    }
+
+    #[test]
+    fn louse_progenitor_curl_and_grow_payload() {
+        let mut cs = ironclad_combat();
+        execute_louse_progenitor_move(
+            &mut cs,
+            0,
+            0,
+            LouseProgenitorIntent::CurlAndGrow,
+        );
+        assert_eq!(cs.enemies[0].block, 14);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            5
+        );
+        assert!(cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("curled"))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn louse_progenitor_pounce_deals_fourteen_and_uncurls() {
+        let mut cs = ironclad_combat();
+        if let Some(ms) = cs.enemies[0].monster.as_mut() {
+            ms.set_flag("curled", true);
+        }
+        let hp = cs.allies[0].current_hp;
+        execute_louse_progenitor_move(
+            &mut cs,
+            0,
+            0,
+            LouseProgenitorIntent::Pounce,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 14);
+        assert!(!cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("curled"))
+            .unwrap_or(true));
+    }
+
+    #[test]
+    fn louse_progenitor_web_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_louse_progenitor_move(&mut cs, 0, 0, LouseProgenitorIntent::Web);
+        assert_eq!(cs.allies[0].current_hp, hp - 9);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "FrailPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn curl_up_triggers_on_first_player_powered_hp_hit() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "CurlUpPower", 14);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 10);
+        assert_eq!(cs.enemies[0].block, 14);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "CurlUpPower"),
+            0
+        );
+        assert!(cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("curled"))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn curl_up_does_not_trigger_when_fully_blocked() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "CurlUpPower", 14);
+        cs.gain_block(CombatSide::Enemy, 0, 100);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp);
+        // CurlUp NOT consumed; player attack hit only block.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "CurlUpPower"),
+            14
+        );
+    }
+
+    #[test]
+    fn curl_up_does_not_trigger_on_unpowered_damage() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "CurlUpPower", 14);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::UNPOWERED.with(ValueProp::MOVE),
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "CurlUpPower"),
+            14
+        );
     }
 
     // ---------- SkulkingColony + HardenedShellPower tests ------------------
