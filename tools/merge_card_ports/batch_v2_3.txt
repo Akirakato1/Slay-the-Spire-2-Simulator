@@ -1,0 +1,168 @@
+// batch_v2_3.txt — 55 cards HiddenDaggers..Rattle
+// One match arm per line; SKIP comments otherwise.
+// Conservative encodings only — bespoke / choice-based / unsupported amount-shapes -> SKIP.
+
+// HiddenDaggers: Discard-from-hand pick + Shiv.CreateInHand (bespoke card factory). Two interactive/bespoke effects.
+// SKIP HiddenDaggers: discard-pick choice + Shiv.CreateInHand (bespoke card-factory shape).
+
+// HiddenGem: scans draw pile and bumps a chosen card's BaseReplayCount. Bespoke per-card mutation.
+// SKIP HiddenGem: mutates a random draw-pile card's BaseReplayCount (no Replay-count primitive).
+
+// HighFive: Osty attack to all + Vulnerable to all, gated by Osty.CheckMissingWithAnim.
+// SKIP HighFive: entire body gated by Osty-missing check (no IsOstyMissing condition primitive).
+
+// Hologram: GainBlock + PlayerInteractive pick from Discard -> Hand bottom.
+// SKIP Hologram: interactive Discard-pick + move-to-hand (bespoke choice flow).
+
+// Hotfix: PowerCmd.Apply<HotfixPower>(self, FocusPower var, ...). Self target, single Power apply.
+        "Hotfix" => Some(vec![Effect::ApplyPower { power_id: "HotfixPower".to_string(), amount: AmountSpec::Canonical("FocusPower".to_string()), target: Target::SelfPlayer }]),
+
+// Hyperbeam: DamageVar(26) AllEnemies + Apply<FocusPower>(self, -FocusPower) -- negative via Mul.
+        "Hyperbeam" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }, Effect::ApplyPower { power_id: "FocusPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("FocusPower".to_string())), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::SelfPlayer }]),
+
+// IceLance: Damage chosen + Channel<FrostOrb> RepeatVar times.
+        "IceLance" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::ChannelOrb { orb_id: "Frost".to_string() }] }]),
+
+// Ignition: Channel<PlasmaOrb> on cardPlay.Target.Player (ally target -> self for single-player).
+        "Ignition" => Some(vec![Effect::ChannelOrb { orb_id: "Plasma".to_string() }]),
+
+// InfernalBlade: CardFactory.GetDistinctForCombat random Attack -> Hand free-this-turn. Bespoke factory.
+// SKIP InfernalBlade: random Attack card from pool + SetToFreeThisTurn (no card-pool factory primitive).
+
+// Invoke: Apply<SummonNextTurnPower>(self, Summon) + Apply<EnergyNextTurnPower>(self, Energy).
+        "Invoke" => Some(vec![Effect::ApplyPower { power_id: "SummonNextTurnPower".to_string(), amount: AmountSpec::Canonical("Summon".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
+
+// JackOfAllTrades: CardFactory generates Colorless cards into hand. Bespoke factory.
+// SKIP JackOfAllTrades: generates N random Colorless cards into hand (no card-pool factory primitive).
+
+// Jackpot: Damage chosen + generate N random 0-cost cards into hand (optionally upgraded). Bespoke factory.
+// SKIP Jackpot: damage + factory-generated 0-cost cards into hand (bespoke).
+
+// KnifeTrap: AutoPlay every Shiv in exhaust at the target, optionally upgraded. Bespoke auto-play loop.
+// SKIP KnifeTrap: auto-plays every Shiv in exhaust pile (no AutoPlayFromPile primitive).
+
+// LanternKey: Quest card, Unplayable keyword, modifies map / next event. No OnPlay.
+        "LanternKey" => Some(vec![]),
+
+// Largesse: CardFactory generates a Colorless card into ally's hand. Bespoke factory.
+// SKIP Largesse: factory-generated Colorless card into ally hand (bespoke).
+
+// LegionOfBone: Summons an Osty for every alive player creature. Multiplayer-only; single-player == one SummonOsty self.
+// SKIP LegionOfBone: per-ally Osty summon loop, multiplayer-only (no per-ally iteration primitive).
+
+// Malaise: X-cost. Apply -X-1?Strength + +X+1?Weak to target. Use Add(XEnergy, BranchedOnUpgrade) and Mul(-1).
+        "Malaise" => Some(vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Add { left: Box::new(AmountSpec::XEnergy), right: Box::new(AmountSpec::BranchedOnUpgrade { base: 0, upgraded: 1 }) }), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Add { left: Box::new(AmountSpec::XEnergy), right: Box::new(AmountSpec::BranchedOnUpgrade { base: 0, upgraded: 1 }) }, target: Target::ChosenEnemy }]),
+
+// Maul: Damage 2-hit + iterates all Maul cards in AllCards and buffs each. Bespoke self-mutation.
+// SKIP Maul: damage + per-card buff loop over every Maul instance (bespoke card mutation).
+
+// Melancholy: GainBlock self. AfterDeath hook adjusts energy cost out-of-band.
+        "Melancholy" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+
+// MementoMori: CalculatedDamage with multiplier = cards-discarded-this-turn count. No history-scan primitive.
+// SKIP MementoMori: calc damage multiplier reads CardDiscardedEntry history (unsupported).
+
+// Mimic: CalculatedBlock multiplier reads target.Block. We only have SelfBlock (actor), not TargetBlock.
+// SKIP Mimic: block scaled by target ally's Block (no TargetBlock amount-spec).
+
+// Mirage: CalculatedBlock multiplier sums all enemies' Poison stacks. No multi-enemy-sum primitive.
+// SKIP Mirage: block scales with sum of enemy PoisonPower stacks (unsupported).
+
+// Misery: Damage chosen + clones every Debuff power from target to all other enemies. Bespoke.
+// SKIP Misery: copies all of target's debuffs onto other enemies (bespoke power cloning).
+
+// Modded: AddOrbSlots(Repeat) + Draw(Cards) + adds +1 EnergyCost this combat. Cost mutation bespoke.
+// SKIP Modded: trailing EnergyCost.AddThisCombat(+1) has no card-cost-mutate primitive.
+
+// Monologue: Apply<MonologuePower>(1) and then mutates the freshly-applied power's Strength dynamic var.
+// SKIP Monologue: mutates the applied power's nested DynamicVars (bespoke power-state edit).
+
+// MultiCast: X-cost (X + upgraded?1) Evokes. Repeat over Add(XEnergy, BranchedOnUpgrade).
+        "MultiCast" => Some(vec![Effect::Repeat { count: AmountSpec::Add { left: Box::new(AmountSpec::XEnergy), right: Box::new(AmountSpec::BranchedOnUpgrade { base: 0, upgraded: 1 }) }, body: vec![Effect::EvokeNextOrb] }]),
+
+// Murder: CalculatedDamage multiplier = cards-drawn-this-turn-by-owner count. History scan.
+// SKIP Murder: calc damage reads CardDrawnEntry history (unsupported).
+
+// Neurosurge: GainEnergy + Draw + Apply<NeurosurgePower>(self).
+        "Neurosurge" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }, Effect::ApplyPower { power_id: "NeurosurgePower".to_string(), amount: AmountSpec::Canonical("NeurosurgePower".to_string()), target: Target::SelfPlayer }]),
+
+// Nightmare: PlayerInteractive Hand pick + Apply<NightmarePower>(3).SetSelectedCard. Bespoke power-state.
+// SKIP Nightmare: interactive hand-pick that mutates applied power's selected-card (bespoke).
+
+// NoEscape: Apply<DoomPower>(target, base+extra + floor(target_doom / threshold)). Division unsupported.
+// SKIP NoEscape: calc uses floor(target.DoomPower / threshold) (no floor-divide AmountSpec).
+
+// NotYet: Heal(self, Heal var, true).
+        "NotYet" => Some(vec![Effect::Heal { amount: AmountSpec::Canonical("Heal".to_string()), target: Target::SelfPlayer }]),
+
+// Offering: LoseHp(self, HpLoss, Unblockable|Unpowered) + GainEnergy + Draw.
+        "Offering" => Some(vec![Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer }, Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+
+// Omnislice: Damage chosen, then propagate (TotalDamage + Overkill) to teammates of receiver. Bespoke overkill.
+// SKIP Omnislice: overkill-propagation to teammates of damage receiver (bespoke).
+
+// OneTwoPunch: Apply<OneTwoPunchPower>(self, Attacks var).
+        "OneTwoPunch" => Some(vec![Effect::ApplyPower { power_id: "OneTwoPunchPower".to_string(), amount: AmountSpec::Canonical("Attacks".to_string()), target: Target::SelfPlayer }]),
+
+// Overclock: Draw(Cards) + add a Burn into discard pile (bottom).
+        "Overclock" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }, Effect::AddCardToPile { card_id: "Burn".to_string(), upgrade: 0, pile: Pile::Discard }]),
+
+// PanicButton: GainBlock self + Apply<NoBlockPower>(self, Turns).
+        "PanicButton" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "NoBlockPower".to_string(), amount: AmountSpec::Canonical("Turns".to_string()), target: Target::SelfPlayer }]),
+
+// Patter: GainBlock self + Apply<VigorPower>(self, VigorPower var).
+        "Patter" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "VigorPower".to_string(), amount: AmountSpec::Canonical("VigorPower".to_string()), target: Target::SelfPlayer }]),
+
+// PhotonCut: Damage chosen + Draw + interactive Hand-pick PutBack onto Draw top.
+// SKIP PhotonCut: trailing interactive hand-pick-and-move-to-draw-top (no move-back primitive).
+
+// PiercingWail: Apply<PiercingWailPower>(StrengthLoss) on every hittable enemy -> AllEnemies.
+        "PiercingWail" => Some(vec![Effect::ApplyPower { power_id: "PiercingWailPower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::AllEnemies }]),
+
+// Pillage: Damage chosen + draws cards until non-Attack drawn (or hand full). Bespoke draw-while loop.
+// SKIP Pillage: draws-until-non-Attack loop (bespoke conditional draw).
+
+// Poke: DamageFromOsty chosen, gated by Osty.CheckMissingWithAnim.
+// SKIP Poke: body gated by Osty-missing check (no IsOstyMissing condition primitive).
+
+// PreciseCut: CalculatedDamage multiplier = -handCount (excluding self). No HandCount amount or negative-CardCount.
+// SKIP PreciseCut: calc damage uses -HandCount excluding self (unsupported).
+
+// PrimalForce: Transforms all transformable hand Attacks into GiantRock. Bespoke TransformCards-style.
+// SKIP PrimalForce: transforms all hand Attacks into GiantRock (bespoke transform).
+
+// Prolong: Apply<BlockNextTurnPower>(self, self.Creature.Block). SelfBlock amount.
+        "Prolong" => Some(vec![Effect::ApplyPower { power_id: "BlockNextTurnPower".to_string(), amount: AmountSpec::SelfBlock, target: Target::SelfPlayer }]),
+
+// PullAggro: OstyCmd.Summon(self, SummonVar) + GainBlock self.
+        "PullAggro" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string() }, Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+
+// PullFromBelow: Damage with hit count = ethereal-cards-played-this-turn count. History scan.
+// SKIP PullFromBelow: hit count reads CardPlayFinishedEntry.WasEthereal history (unsupported).
+
+// Putrefy: Apply<WeakPower>(target, Power) + Apply<VulnerablePower>(target, Power).
+        "Putrefy" => Some(vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }]),
+
+// Quadcast: if orb queue non-empty, EvokeNext Repeat times. Guard is no-op-safe (evoke on empty does nothing).
+        "Quadcast" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::EvokeNextOrb] }]),
+
+// Quasar: FromChooseACardScreen of 3 generated Colorless cards. Choice-based.
+// SKIP Quasar: ChooseACard from 3 factory-generated Colorless cards (bespoke choice).
+
+// Radiate: Damage AllEnemies with hit count = sum of positive stars-gained-this-turn. History scan.
+// SKIP Radiate: hit count reads StarsModifiedEntry history (unsupported).
+
+// Rage: Apply<RagePower>(self, Power var).
+        "Rage" => Some(vec![Effect::ApplyPower { power_id: "RagePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::SelfPlayer }]),
+
+// Rainbow: Channel<LightningOrb> + Channel<FrostOrb> + Channel<DarkOrb>.
+        "Rainbow" => Some(vec![Effect::ChannelOrb { orb_id: "Lightning".to_string() }, Effect::ChannelOrb { orb_id: "Frost".to_string() }, Effect::ChannelOrb { orb_id: "Dark".to_string() }]),
+
+// Rally: GainBlock for every alive player teammate. Single-player == self only.
+        "Rally" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+
+// Rampage: Damage chosen + mutates own DamageVar BaseValue by Increase. Bespoke self-mutation.
+// SKIP Rampage: damage + permanent self-buff to its own Damage var (bespoke).
+
+// Rattle: DamageFromOsty chosen with hit count = osty-attacks-this-turn+1, gated by Osty-missing. History scan + guard.
+// SKIP Rattle: hit count reads CreatureAttackedEntry history + Osty-missing guard (unsupported).

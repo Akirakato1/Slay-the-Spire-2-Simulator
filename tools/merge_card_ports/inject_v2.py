@@ -1,0 +1,137 @@
+"""Inject batch_v2_1/2/3 into crates/sts2-sim/src/effects.rs::card_effects.
+
+Each batch file contains lines like:
+        "CardName" => Some(vec![ ... ]),
+
+with optional leading-space indentation and inline `// comment` evidence
+trails or `// SKIP CardName: reason` lines.
+
+We extract all match arms (one per line by convention), re-indent to 8
+spaces, and emit a block injected before the trailing `_ => None,` of
+`card_effects`.
+
+If a CardName is already present in effects.rs::card_effects, we DROP the
+batch entry (existing wins). This protects the smaller hand-ported set
+that lives above the autogen block.
+"""
+
+import os
+import re
+import sys
+
+here = os.path.dirname(__file__)
+repo = os.path.dirname(os.path.dirname(here))
+
+ARM_RE = re.compile(
+    r'^\s*"(?P<name>[A-Za-z_0-9]+)"\s*=>\s*Some\(vec!\[.*\]\)\s*,?\s*$'
+)
+ARM_NAME_ONLY_RE = re.compile(r'"(?P<name>[A-Za-z_0-9]+)"')
+
+
+def extract_arms(text):
+    """Return ordered list of (name, full_arm_line)."""
+    out = []
+    seen = set()
+    for line in text.splitlines():
+        m = ARM_RE.match(line)
+        if not m:
+            continue
+        name = m.group('name')
+        if name in seen:
+            continue
+        seen.add(name)
+        # Re-indent to 8 spaces (strip then prepend) and ensure trailing comma.
+        body = line.strip()
+        if not body.endswith(','):
+            body += ','
+        out.append((name, '        ' + body))
+    return out
+
+
+def collect_existing(effects_src):
+    """Cards already present as match arms in card_effects()."""
+    names = set()
+    # Limit to within fn card_effects ... .
+    start = effects_src.find('pub fn card_effects(')
+    end = effects_src.find('\n}\n', start)
+    region = effects_src[start:end] if start >= 0 and end >= 0 else effects_src
+    for m in ARM_NAME_ONLY_RE.finditer(region):
+        names.add(m.group('name'))
+    return names
+
+
+def main():
+    batch_files = ['batch_v2_1.txt', 'batch_v2_2.txt', 'batch_v2_3.txt']
+    all_arms = []
+    for fname in batch_files:
+        p = os.path.join(here, fname)
+        with open(p, 'r', encoding='utf-8') as f:
+            text = f.read()
+        all_arms.extend(extract_arms(text))
+
+    # Dedup across batches (first-seen wins).
+    seen = set()
+    deduped = []
+    for name, arm in all_arms:
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append((name, arm))
+
+    effects_path = os.path.join(repo, 'crates', 'sts2-sim', 'src', 'effects.rs')
+    with open(effects_path, 'r', encoding='utf-8') as f:
+        src = f.read()
+
+    existing = collect_existing(src)
+    # Drop batch entries that already exist in card_effects().
+    fresh = [(n, a) for (n, a) in deduped if n not in existing]
+    dropped = [(n, a) for (n, a) in deduped if n in existing]
+
+    # Strip any previously-injected v2 block so re-running is idempotent.
+    prev_pattern = re.compile(
+        r'\n\s*// ===== Manual v2 card ports.*?(?=        _ => None,\s*\n\s*\}\s*\n\}\s*\n)',
+        re.S,
+    )
+    src = prev_pattern.sub('', src)
+
+    # Find the LAST `_ => None,` followed by `}\n}\n` (end of card_effects fn).
+    # card_effects function ends with `_ => None,\n    }\n}` — find the
+    # right occurrence.
+    fn_start = src.find('pub fn card_effects(')
+    if fn_start < 0:
+        print('ERROR: card_effects not found', file=sys.stderr)
+        sys.exit(1)
+    fn_end = src.find('\n}\n', fn_start)
+    if fn_end < 0:
+        print('ERROR: card_effects end not found', file=sys.stderr)
+        sys.exit(1)
+
+    # Within fn body, find the trailing `_ => None,`.
+    fn_body = src[fn_start:fn_end]
+    none_marker = '        _ => None,'
+    rel = fn_body.rfind(none_marker)
+    if rel < 0:
+        print('ERROR: trailing `_ => None,` not found', file=sys.stderr)
+        sys.exit(1)
+    abs_idx = fn_start + rel
+
+    prelude = (
+        '\n        // ===== Manual v2 card ports (batches v2_1..v2_3) =====\n'
+        f'        // {len(fresh)} hand-curated arms covering Acrobatics..Rattle.\n'
+        '        // Source: tools/merge_card_ports/batch_v2_*.txt.\n'
+        '        // SKIPs documented in those files.\n\n'
+    )
+    block = prelude + '\n'.join(arm for _, arm in fresh) + '\n\n'
+    new_src = src[:abs_idx] + block + src[abs_idx:]
+
+    with open(effects_path, 'w', encoding='utf-8') as f:
+        f.write(new_src)
+
+    print(f'OK: injected {len(fresh)} new card arms ({len(dropped)} dropped as duplicates)')
+    if dropped:
+        for n, _ in dropped[:10]:
+            print(f'  - dropped duplicate: {n}')
+
+
+if __name__ == '__main__':
+    main()

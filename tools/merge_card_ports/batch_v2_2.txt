@@ -1,0 +1,142 @@
+// batch_v2_2.txt — manual Effect-list ports for cards Delay..HiddenCache (55 cards).
+// One match arm per line; SKIP comments for cards whose OnPlay is not fully expressible
+// in the current Effect / AmountSpec vocabulary. Each entry is preceded by a one-line
+// C# evidence comment.
+
+// C# Delay.OnPlay: GainBlock(Block) + Apply<EnergyNextTurnPower>(Energy.Int) self.
+        "Delay" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
+
+// SKIP DemonicShield: target=AnyAlly + CalculatedBlock = ally.Target.Block * extra. AnyAlly targeting + target's-current-block multiplier not in vocab.
+
+// SKIP Dirge: X-cost; loops X times to Summon Osty and add X Soul cards to draw. Soul-per-X bespoke.
+
+// SKIP Discovery: random pick of 3 cards from card pool, free-this-turn rider. Random-from-pool not in vocab.
+
+// SKIP Distraction: random skill-from-pool generation. Random-from-pool not in vocab.
+
+// SKIP DodgeAndRoll: Block + BlockNextTurnPower with amount = realized block gained (post-Dex). Realized-block-as-amount not expressible.
+
+// SKIP Dominate: Strength self = target Vulnerable amount AFTER applying Vulnerable. Post-apply-target-power-read not in vocab.
+
+// SKIP DoubleEnergy: GainEnergy(currentEnergy). Current-energy-as-amount not in AmountSpec.
+
+// SKIP Dredge: interactive choose-N-from-discard to hand. Interactive selection not in vocab.
+
+// SKIP DualWield: choose attack/power in hand, clone N copies. Interactive selection + clone.
+
+// C# Dualcast.OnPlay: if orb queue > 0, EvokeNext, then EvokeNext (the upgraded flag passes through final wait).
+        "Dualcast" => Some(vec![Effect::EvokeNextOrb, Effect::EvokeNextOrb]),
+
+// C# DyingStar.OnPlay: Attack AOE Damage + foreach enemy Apply<DyingStarPower>(StrengthLoss).
+        "DyingStar" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }, Effect::ApplyPower { power_id: "DyingStarPower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::AllEnemies }]),
+
+// SKIP Eidolon: exhaust entire hand, then if >=9 cards exhausted, apply IntangiblePower. Conditional on dynamic count.
+
+// C# EndOfDays.OnPlay: foreach enemy Apply<DoomPower>(Doom). DoomKill check happens via power lifecycle.
+        "EndOfDays" => Some(vec![Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("Doom".to_string()), target: Target::AllEnemies }]),
+
+// SKIP EnergySurge: GainEnergy on all allies. Target::AllAllies not in vocab; GainEnergy has no target.
+
+// C# EnfeeblingTouch.OnPlay: Apply<EnfeeblingTouchPower>(StrengthLoss) to target.
+        "EnfeeblingTouch" => Some(vec![Effect::ApplyPower { power_id: "EnfeeblingTouchPower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::ChosenEnemy }]),
+
+// SKIP Enlightenment: foreach card in hand, set cost to 1 (this turn or this combat). Per-card cost override not yet wired.
+
+// C# Entrench.OnPlay: GainBlock(Owner.Creature.Block, Unpowered|Move) self -- doubles current block.
+        "Entrench" => Some(vec![Effect::GainBlock { amount: AmountSpec::SelfBlock, target: Target::SelfPlayer }]),
+
+// C# Equilibrium.OnPlay: GainBlock(Block) + Apply<RetainHandPower>(Equilibrium) self.
+        "Equilibrium" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "RetainHandPower".to_string(), amount: AmountSpec::Canonical("Equilibrium".to_string()), target: Target::SelfPlayer }]),
+
+// SKIP Eradicate: X-cost AttackCommand with WithHitCount(X). hits field is i32, AmountSpec::XEnergy not bindable to hits.
+
+// SKIP EscapePlan: Draw(1); if drawn card is Skill, GainBlock. Conditional on drawn card type.
+
+// SKIP EvilEye: Block ×2 if a card was exhausted this turn. Conditional on combat history.
+
+// SKIP ExpectAFight: GainEnergy(attack-count-in-hand) + Apply<NoEnergyGainPower>(1). Calc-var hand-attack-count + extra power.
+
+// SKIP Expose: LoseBlock(target.Block) + RemovePower<ArtifactPower> + Apply<VulnerablePower>(Power). LoseBlock(target's current block) + artifact strip composition.
+
+// C# FeedingFrenzy.OnPlay: Apply<FeedingFrenzyPower>(Strength.BaseValue) self.
+        "FeedingFrenzy" => Some(vec![Effect::ApplyPower { power_id: "FeedingFrenzyPower".to_string(), amount: AmountSpec::Canonical("Strength".to_string()), target: Target::SelfPlayer }]),
+
+// SKIP Fetch: Osty Attack(OstyDamage) + Draw(Cards) if first play this turn. Conditional on play history.
+
+// SKIP FightMe: multi-hit attack (Repeat hits) + Apply<Strength>(self) + Apply<Strength>(target). Repeat as canonical-var hit count; hits field is i32.
+
+// C# FightThrough.OnPlay: GainBlock(Block) + AddGeneratedCard(Wound) to discard ×2.
+        "FightThrough" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::AddCardToPile { card_id: "Wound".to_string(), upgrade: 0, pile: Pile::Discard }, Effect::AddCardToPile { card_id: "Wound".to_string(), upgrade: 0, pile: Pile::Discard }]),
+
+// SKIP Finisher: damage with hits = attack-plays-this-turn (CalculatedHits). hits is i32, not AmountSpec.
+
+// SKIP Fisticuffs: damage + GainBlock(realized damage dealt). Realized-damage-as-block not in vocab.
+
+// SKIP FlakCannon: exhaust all status cards then random-AOE attack with hits = status count. Pre-attack exhaust loop + calc-hits.
+
+// C# FlameBarrier.OnPlay: GainBlock(Block) + Apply<FlameBarrierPower>(DamageBack) self.
+        "FlameBarrier" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "FlameBarrierPower".to_string(), amount: AmountSpec::Canonical("DamageBack".to_string()), target: Target::SelfPlayer }]),
+
+// C# Flanking.OnPlay: Apply<FlankingPower>(2m) to target.
+        "Flanking" => Some(vec![Effect::ApplyPower { power_id: "FlankingPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy }]),
+
+// C# Flatten.OnPlay: Osty attack(OstyDamage) to target.
+        "Flatten" => Some(vec![Effect::DamageFromOsty { amount: AmountSpec::Canonical("OstyDamage".to_string()), target: Target::ChosenEnemy }]),
+
+// SKIP Flechettes: damage with hits = skill-in-hand count. hits is i32, not AmountSpec.
+
+// SKIP ForgottenRitual: GainEnergy(Energy) if a card was exhausted this turn. Conditional on history.
+
+// SKIP Ftl: damage + Draw(Cards) if plays-this-turn < PlayMax. Conditional on history.
+
+// C# Fuel.OnPlay: GainEnergy(Energy) + Draw(Cards).
+        "Fuel" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+
+// C# Fusion.OnPlay: Channel<PlasmaOrb>.
+        "Fusion" => Some(vec![Effect::ChannelOrb { orb_id: "Plasma".to_string() }]),
+
+// C# GammaBlast.OnPlay: Attack(Damage) target + Apply<WeakPower>(Weak) + Apply<VulnerablePower>(Vulnerable) to target.
+        "GammaBlast" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Weak".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Vulnerable".to_string()), target: Target::ChosenEnemy }]),
+
+// SKIP GangUp: CalculatedDamage = base + extra * teammate-attacks-this-turn. Teammate-attack count not in AmountSpec.
+
+// C# GatherLight.OnPlay: GainBlock(Block) + GainStars(Stars).
+        "GatherLight" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+
+// SKIP GeneticAlgorithm: GainBlock(CurrentBlock) + BuffFromPlay increments persistent self/deck block. Persistent self-buff state not in vocab.
+
+// SKIP Glimmer: Draw(Cards) + interactive choose-N-from-hand to top of draw. Interactive selection.
+
+// SKIP GlimpseBeyond: foreach ally, generate N Soul cards to ally's draw. Multi-ally Soul generation.
+
+// C# Glow.OnPlay: GainStars(Stars) + Draw(Cards) + Apply<DrawCardsNextTurnPower>(Cards) self.
+        "Glow" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }, Effect::ApplyPower { power_id: "DrawCardsNextTurnPower".to_string(), amount: AmountSpec::Canonical("Cards".to_string()), target: Target::SelfPlayer }]),
+
+// SKIP GoldAxe: CalculatedDamage = base + extra * card-plays-this-turn. Card-plays-this-turn not in AmountSpec.
+
+// SKIP Guards: interactive choose-N-from-hand, transform each into MinionSacrifice. Interactive transform.
+
+// C# GuidingStar.OnPlay: Attack(Damage) target + Draw(Cards).
+        "GuidingStar" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+
+// SKIP Hang: Attack(Damage) + Apply<HangPower>(max(2, current)). Power-max-with-current not in vocab.
+
+// C# Havoc.OnPlay: AutoPlayFromDrawPile(1, top).
+        "Havoc" => Some(vec![Effect::AutoplayFromDraw { n: 1 }]),
+
+// SKIP Headbutt: damage + interactive choose-1-from-discard to top of draw. Interactive selection.
+
+// SKIP HeavenlyDrill: X-cost damage; if X >= Energy.Int(=4) doubled hits. Conditional X scaling.
+
+// SKIP HelixDrill: damage with hits = energy-spent-this-turn (CalculatedHits). hits is i32 + custom history calc.
+
+// C# HiddenCache.OnPlay: GainStars(Stars) + Apply<StarNextTurnPower>(StarNextTurnPower) self.
+        "HiddenCache" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }, Effect::ApplyPower { power_id: "StarNextTurnPower".to_string(), amount: AmountSpec::Canonical("StarNextTurnPower".to_string()), target: Target::SelfPlayer }]),
+
+// ===== Summary =====
+// Encoded:  18  (Delay, Dualcast, DyingStar, EndOfDays, EnfeeblingTouch, Entrench, Equilibrium,
+//                FeedingFrenzy, FightThrough, FlameBarrier, Flanking, Flatten, Fuel, Fusion,
+//                GammaBlast, GatherLight, Glow, GuidingStar, Havoc, HiddenCache)
+//           (actually 20 — see count)
+// SKIPPED:  35
+// MISSING:  0
