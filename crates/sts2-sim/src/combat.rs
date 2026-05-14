@@ -2714,9 +2714,15 @@ impl CombatState {
         //    auto-exhaust on play; non-status cards check their
         //    CanonicalKeywords for "Exhaust" (Cinder, MoltenFist,
         //    TrueGrit, ...). Everything else discards.
-        let dest = if matches!(card_data.card_type, CardType::Status | CardType::Curse)
-            || card_data.keywords.iter().any(|k| k == "Exhaust")
-        {
+        // Post-play routing: ONLY the `Exhaust` keyword routes the card
+        // to the exhaust pile. CardType::Status / Curse do NOT auto-
+        // exhaust -- per the keyword clarification, an Unplayable status
+        // is a dead card in hand that interacts like any other card and
+        // routes through the normal flush. Cards that should always
+        // exhaust have the explicit Exhaust keyword (Debris, AdaptiveStrike,
+        // Cinder, MoltenFist, TrueGrit-upgraded, etc.). Ethereal cards
+        // routed via end-of-turn flush (handled in end_turn).
+        let dest = if card_data.keywords.iter().any(|k| k == "Exhaust") {
             PileType::Exhaust
         } else {
             PileType::Discard
