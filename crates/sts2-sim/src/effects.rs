@@ -234,6 +234,12 @@ pub enum Target {
     /// move bodies authored as data, this resolves to the moving
     /// monster (via `EffectContext.actor`).
     SelfActor,
+    /// A single ally chosen by the player action. Multiplayer-only in
+    /// C#; single-player collapses to `SelfPlayer`. Mimic / DemonicShield.
+    ChosenAlly,
+    /// Every alive ally in the party. Multi-player; collapses to the
+    /// single player. GlimpseBeyond / Coordinate / Largesse / EnergySurge.
+    AllAllies,
 }
 
 /// Closed condition vocabulary, derived from the C# survey
@@ -4313,6 +4319,27 @@ fn for_each_target_idx<F>(
                 f(cs, CombatSide::Enemy, idx);
             }
         }
+        Target::ChosenAlly => {
+            // For multiplayer-only AnyAlly cards, the player action
+            // carries an ally target. Single-player collapses to self.
+            let (side, idx) = ctx
+                .target
+                .unwrap_or((CombatSide::Player, ctx.player_idx));
+            if matches!(side, CombatSide::Player) {
+                f(cs, side, idx);
+            } else {
+                f(cs, CombatSide::Player, ctx.player_idx);
+            }
+        }
+        Target::AllAllies => {
+            let n = cs.allies.len();
+            for i in 0..n {
+                if cs.allies[i].current_hp == 0 {
+                    continue;
+                }
+                f(cs, CombatSide::Player, i);
+            }
+        }
     }
 }
 
@@ -4556,6 +4583,12 @@ fn deal_damage_to(cs: &mut CombatState, ctx: &EffectContext, target: Target, amo
             // Attack-pipeline damage from actor to self is not a real
             // card / monster-move pattern; if a monster wants to lose
             // HP, use LoseHp. No-op.
+        }
+        Target::ChosenAlly | Target::AllAllies => {
+            // Attack-pipeline damage targeting allies is not a real
+            // card pattern (StS2 has no friendly-fire attack cards).
+            // No-op so AnyAlly cards encoded as DealDamage{ChosenAlly}
+            // stay safe.
         }
     }
 }
