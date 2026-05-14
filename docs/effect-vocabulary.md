@@ -32,13 +32,13 @@ underlying primitive vocabulary is small.
 |---|---|---:|---|
 | `DealDamage { amount, target=SingleEnemy }` | ✅ | 193 | `combat.rs::deal_damage`. The dominant attack form. |
 | `DealDamage { amount, target=AllEnemies }` | ✅ | 28 | Loop existing primitive over `hittable_enemies`. |
-| `DealDamage { amount, target=RandomEnemy, reroll_dead }` | ❌ | 7 | SwordBoomerang. Need RNG-keyed per-hit target selection. |
+| `DealDamage { amount, target=RandomEnemy, reroll_dead }` | ✅ | 7 | `effects.rs Target::RandomEnemy`. Re-rolls per hit via combat RNG. |
 | `DealDamage { amount, hits: int }` (multi-hit, same target) | ✅ | 36 | Implemented via loop; needs primitive-level expression for VM. |
 | `DealDamage { amount = f(state), multiplier_fn }` | 🟡 | 43 | PerfectedStrike + Conflagration done as bespoke arms; need generic `AmountSpec::Scaled`. |
 | `DealDamage` with `BeforeDamage(asyncDelegate)` (per-hit callback) | ❌ | 6 | FiendFire's exhaust-then-damage idiom; Hyperbeam; Flatten. |
-| `CreatureCmd.Damage(target, amount, props=Unblockable\|Unpowered)` (non-attack direct dmg) | 🟡 | 18 | Bloodletting works; need general `DirectDamage { props }`. |
+| `LoseHp { amount, target }` (bypass-block self / direct damage) | ✅ | 18 | `Effect::LoseHp`. Covers Bloodletting and the C# `ValueProp.Unblockable\|Unpowered` family. |
 | `RepeatUntilNoKills(attack_payload)` | ❌ | 1 | EchoingSlash. Single card but a true primitive. |
-| `Kill { target }` | ❌ | 2 | Sacrifice. Direct kill bypassing damage. |
+| `Kill { target }` | ✅ | 2 | `Effect::Kill`. Sacrifice. Sets HP to 0; death detection runs on next state check. |
 
 ### 1.2 Block / HP primitives
 

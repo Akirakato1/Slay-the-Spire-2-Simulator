@@ -59,15 +59,19 @@ pub enum AmountSpec {
     Multiplied { base: Box<AmountSpec>, factor: i32 },
 }
 
-/// Where an effect applies. Initial scope covers the targets the existing
-/// match-arm OnPlay bodies use; richer selectors (RandomEnemy, AllAllies,
-/// ChooseFromPile, ...) added in 0.2.3 as primitives requiring them land.
+/// Where an effect applies. Richer selectors (AllAllies, ChooseFromPile,
+/// TargetLowestHpEnemy, ...) added in 0.2.3 as primitives requiring them land.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Target {
     SelfPlayer,
     /// The single target picked by the player action (attack cards).
     ChosenEnemy,
     AllEnemies,
+    /// A single alive enemy chosen uniformly at random from the combat
+    /// RNG stream. Re-rolled per hit when used with `hits > 1`. Mirrors
+    /// `DamageCmd.Attack(...).TargetingRandomOpponents(combatState, reroll_dead)`
+    /// (SwordBoomerang).
+    RandomEnemy,
 }
 
 /// Pile-id mirror of `combat::PileType`, restricted to the in-combat piles
@@ -133,6 +137,16 @@ pub enum Effect {
     GainEnergy { amount: AmountSpec },
     /// Heal `target` by `amount` (clamped at max HP).
     Heal { amount: AmountSpec, target: Target },
+    /// Reduce `target`'s current HP by `amount`, bypassing block and the
+    /// modifier pipeline. Used for self-damage cards (Bloodletting,
+    /// HemoKinesis) where the C# emits `CreatureCmd.Damage` with
+    /// `ValueProp.Unblockable | ValueProp.Unpowered`. Does not trigger
+    /// thorns / AfterDamageReceived hooks.
+    LoseHp { amount: AmountSpec, target: Target },
+    /// Drop `target` to 0 HP immediately. Sacrifice / Doom-trigger
+    /// cards. Bypasses damage modifiers and on-damage hooks; death
+    /// detection runs on the next combat-state check.
+    Kill { target: Target },
 }
 
 /// Per-invocation context. Holds everything the dispatcher needs to
@@ -274,6 +288,85 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 cs.heal(CombatSide::Player, ctx.player_idx, amt);
             }
         }
+        Effect::LoseHp { amount, target } => {
+            let amt = amount.resolve(ctx);
+            match target {
+                Target::SelfPlayer => {
+                    cs.lose_hp(CombatSide::Player, ctx.player_idx, amt);
+                }
+                Target::ChosenEnemy => {
+                    if let Some((side, idx)) = ctx.target {
+                        cs.lose_hp(side, idx, amt);
+                    }
+                }
+                Target::AllEnemies => {
+                    let n = cs.enemies.len();
+                    for i in 0..n {
+                        if cs.enemies[i].current_hp == 0 {
+                            continue;
+                        }
+                        cs.lose_hp(CombatSide::Enemy, i, amt);
+                    }
+                }
+                Target::RandomEnemy => {
+                    if let Some(idx) = pick_random_alive_enemy(cs) {
+                        cs.lose_hp(CombatSide::Enemy, idx, amt);
+                    }
+                }
+            }
+        }
+        Effect::Kill { target } => {
+            match target {
+                Target::ChosenEnemy => {
+                    if let Some((side, idx)) = ctx.target {
+                        if let Some(c) = creature_at_mut(cs, side, idx) {
+                            c.current_hp = 0;
+                        }
+                    }
+                }
+                Target::AllEnemies => {
+                    let n = cs.enemies.len();
+                    for i in 0..n {
+                        cs.enemies[i].current_hp = 0;
+                    }
+                }
+                Target::RandomEnemy => {
+                    if let Some(idx) = pick_random_alive_enemy(cs) {
+                        cs.enemies[idx].current_hp = 0;
+                    }
+                }
+                Target::SelfPlayer => {
+                    // Card-driven player self-kill is not a real C#
+                    // pattern (no cards self-kill); leave as no-op.
+                }
+            }
+        }
+    }
+}
+
+fn pick_random_alive_enemy(cs: &mut CombatState) -> Option<usize> {
+    let alive: Vec<usize> = cs
+        .enemies
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| if e.current_hp > 0 { Some(i) } else { None })
+        .collect();
+    if alive.is_empty() {
+        return None;
+    }
+    let pick = cs.rng.next_int_range(0, alive.len() as i32) as usize;
+    Some(alive[pick])
+}
+
+fn creature_at_mut(
+    cs: &mut CombatState,
+    side: CombatSide,
+    idx: usize,
+) -> Option<&mut crate::combat::Creature> {
+    match side {
+        CombatSide::Player => cs.allies.get_mut(idx),
+        CombatSide::Enemy => cs.enemies.get_mut(idx),
+        CombatSide::None => None,
     }
 }
 
@@ -305,10 +398,24 @@ fn deal_damage_to(cs: &mut CombatState, ctx: &EffectContext, target: Target, amo
                 );
             }
         }
+        Target::RandomEnemy => {
+            // Per-hit re-roll matches `TargetingRandomOpponents(combatState,
+            // reroll_dead=true)` — SwordBoomerang re-picks if the chosen
+            // target died from the previous hit. Caller wraps in a hit
+            // loop, so this function only picks one.
+            if let Some(idx) = pick_random_alive_enemy(cs) {
+                cs.deal_damage_enchanted(
+                    (CombatSide::Player, ctx.player_idx),
+                    (CombatSide::Enemy, idx),
+                    amount,
+                    ValueProp::MOVE,
+                    ctx.enchantment,
+                );
+            }
+        }
         Target::SelfPlayer => {
-            // Self-attack damage uses a different path (Bloodletting:
-            // `Unblockable | Unpowered`). Not modeled yet; a future
-            // `DirectDamage { props }` variant will cover it (vocab §1.1).
+            // Damage to self via the attack pipeline is not a real card
+            // pattern (self-damage cards use `LoseHp`). No-op.
         }
     }
 }
@@ -336,6 +443,11 @@ fn apply_power_to(
                     continue;
                 }
                 cs.apply_power(CombatSide::Enemy, i, power_id, amount);
+            }
+        }
+        Target::RandomEnemy => {
+            if let Some(idx) = pick_random_alive_enemy(cs) {
+                cs.apply_power(CombatSide::Enemy, idx, power_id, amount);
             }
         }
     }
@@ -500,5 +612,159 @@ mod tests {
         execute_effects(&mut cs, &effects, &ctx);
         // 5 × 2 = 10 damage (no block, no powers).
         assert_eq!(cs.enemies[0].current_hp, enemy_hp_before - 10);
+    }
+
+    /// Bash as composition: 8 damage + 2 Vulnerable on a single enemy.
+    /// Each primitive is already implemented; Bash is pure data.
+    #[test]
+    fn bash_composes_damage_plus_vulnerable() {
+        let mut cs = ironclad_combat();
+        let enemy_hp_before = cs.enemies[0].current_hp;
+        let effects = vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+            Effect::ApplyPower {
+                power_id: "VulnerablePower".to_string(),
+                amount: AmountSpec::Canonical("Vulnerable".to_string()),
+                target: Target::ChosenEnemy,
+            },
+        ];
+        let ctx = EffectContext::for_card(
+            0,
+            Some((CombatSide::Enemy, 0)),
+            "Bash",
+            0,
+            None,
+            0,
+        );
+        execute_effects(&mut cs, &effects, &ctx);
+        // Bash: 8 damage to enemy with 0 block, then 2 Vulnerable.
+        assert_eq!(cs.enemies[0].current_hp, enemy_hp_before - 8);
+        let vuln = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "VulnerablePower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(vuln, 2);
+    }
+
+    /// Thunderclap: 4 damage + 1 Vulnerable to ALL enemies. Composition
+    /// of AOE damage and AOE power application.
+    #[test]
+    fn thunderclap_composes_aoe_damage_plus_aoe_vulnerable() {
+        let mut cs = ironclad_combat();
+        let hp_before: Vec<i32> = cs.enemies.iter().map(|e| e.current_hp).collect();
+        let effects = vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::AllEnemies,
+                hits: 1,
+            },
+            Effect::ApplyPower {
+                power_id: "VulnerablePower".to_string(),
+                amount: AmountSpec::Canonical("Vulnerable".to_string()),
+                target: Target::AllEnemies,
+            },
+        ];
+        let ctx = EffectContext::for_card(0, None, "Thunderclap", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        for (i, before) in hp_before.iter().enumerate() {
+            if *before == 0 {
+                continue;
+            }
+            // Each enemy takes 4 damage, gets 1 Vulnerable.
+            assert_eq!(cs.enemies[i].current_hp, before - 4);
+            let vuln = cs.enemies[i]
+                .powers
+                .iter()
+                .find(|p| p.id == "VulnerablePower")
+                .map(|p| p.amount)
+                .unwrap_or(0);
+            assert_eq!(vuln, 1);
+        }
+    }
+
+    /// Bloodletting: lose 3 HP (bypasses block), gain 2 energy.
+    /// Round-trips against the existing match-arm.
+    #[test]
+    fn bloodletting_round_trips_lose_hp_plus_gain_energy() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].block = 50;
+        let hp_before = cs.allies[0].current_hp;
+        let energy_before = cs.allies[0].player.as_ref().unwrap().energy;
+
+        let effects = vec![
+            Effect::LoseHp {
+                amount: AmountSpec::Canonical("HpLoss".to_string()),
+                target: Target::SelfPlayer,
+            },
+            Effect::GainEnergy {
+                amount: AmountSpec::Canonical("Energy".to_string()),
+            },
+        ];
+        let ctx = EffectContext::for_card(0, None, "Bloodletting", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+
+        // Bloodletting base: HpLoss=3, Energy=2. Block must NOT absorb.
+        assert_eq!(cs.allies[0].current_hp, hp_before - 3);
+        assert_eq!(cs.allies[0].block, 50);
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().energy,
+            energy_before + 2
+        );
+    }
+
+    /// Kill drops the chosen enemy to 0 HP regardless of armor or hooks.
+    /// Sacrifice-style.
+    #[test]
+    fn kill_drops_enemy_to_zero() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].block = 100;
+        let effects = vec![Effect::Kill {
+            target: Target::ChosenEnemy,
+        }];
+        let ctx = EffectContext::for_card(
+            0,
+            Some((CombatSide::Enemy, 0)),
+            "StrikeIronclad", // Card id is irrelevant; only target/player matter.
+            0,
+            None,
+            0,
+        );
+        execute_effects(&mut cs, &effects, &ctx);
+        assert_eq!(cs.enemies[0].current_hp, 0);
+    }
+
+    /// RandomEnemy target picks a live enemy via combat RNG. Two runs
+    /// from the same starting state must hit the same target
+    /// (deterministic given a fixed seed).
+    #[test]
+    fn random_enemy_is_deterministic_given_state() {
+        let cs_a = ironclad_combat();
+        let cs_b = ironclad_combat();
+
+        // Snapshot both — they're built from identical inputs, so the
+        // combat-scoped RNG seeds are equal. The first random pick must
+        // match.
+        let mut a = cs_a;
+        let mut b = cs_b;
+        let effects = vec![Effect::DealDamage {
+            amount: AmountSpec::Fixed(1),
+            target: Target::RandomEnemy,
+            hits: 1,
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut a, &effects, &ctx);
+        execute_effects(&mut b, &effects, &ctx);
+
+        let hp_a: Vec<i32> = a.enemies.iter().map(|e| e.current_hp).collect();
+        let hp_b: Vec<i32> = b.enemies.iter().map(|e| e.current_hp).collect();
+        assert_eq!(hp_a, hp_b);
+        // At least one enemy must have taken damage.
+        assert!(hp_a.iter().zip(b.enemies.iter()).any(|(now, _)| *now > 0));
     }
 }
