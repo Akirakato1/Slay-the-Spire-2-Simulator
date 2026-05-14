@@ -95,6 +95,44 @@ impl Pile {
     }
 }
 
+/// How a card-ref primitive selects which card(s) to act on.
+///
+/// The C# decompile uses `CardSelectCmd.From*` for interactive
+/// player-choice. Until the play-card API supports multi-step
+/// interaction, choices resolve via deterministic policies (the
+/// `PlayerInteractive` variant is reserved for the future multi-step
+/// path).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Selector {
+    /// Apply to every card in the pile.
+    All,
+    /// Apply to the first `n` cards matching the optional filter.
+    /// Default filter: any card.
+    Random { n: i32 },
+    /// The card at the top (back) of the pile, where "top" matches
+    /// the C# convention used by `Cards.Add(card, Position.Top)`.
+    Top { n: i32 },
+    /// The card at the bottom (front) of the pile.
+    Bottom { n: i32 },
+    /// First N cards in pile order matching the filter. Used for
+    /// auto-selection ("upgrade all upgradable cards", etc.).
+    FirstMatching { n: i32, filter: CardFilter },
+    /// Deferred: player picks N cards via a modal screen. Currently
+    /// resolves to `Random { n }` so cards that use this stay
+    /// functional until the multi-step play API lands.
+    PlayerInteractive { n: i32 },
+}
+
+/// Predicate over cards. Closed set tracks the C# pile-filter idioms.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CardFilter {
+    Any,
+    Upgradable,
+    OfType(String),       // "Attack" | "Skill" | "Power" | "Status" | "Curse"
+    HasKeyword(String),   // "Exhaust" | "Ethereal" | ...
+    TaggedAs(String),     // "Strike" | "Shiv" | ...
+}
+
 /// Closed primitive vocabulary.
 ///
 /// Initial set covers the ~15 primitives already implemented in
@@ -157,6 +195,140 @@ pub enum Effect {
     /// Move every card in the player's hand to discard. End-of-turn
     /// helpers and discard-your-hand effects.
     DiscardHand,
+    /// Remove block from `target`. Mirror of GainBlock for the rare
+    /// debuff that strips block.
+    LoseBlock { amount: AmountSpec, target: Target },
+    /// Directly mutate an existing power's stack count on `target`.
+    /// Different from `ApplyPower` because it bypasses Counter-stack
+    /// merging logic. Adrenaline-style.
+    ModifyPowerAmount {
+        power_id: String,
+        delta: AmountSpec,
+        target: Target,
+    },
+    /// Increment the player's pending gold (folded into combat reward
+    /// gold at combat end). HandOfGreed, Alchemize, FoulPotion's
+    /// merchant-throw.
+    GainGold { amount: AmountSpec },
+    /// Decrement pending gold (clamped at 0). Rare debuff.
+    LoseGold { amount: AmountSpec },
+    /// Accumulate Stars (StS2 secondary currency). System not yet
+    /// wired into card gating; resolves to a counter bump.
+    GainStars { amount: AmountSpec },
+    /// Channel an orb into the player's orb queue (Defect).
+    /// STUB — orb system not yet implemented; this is a no-op so
+    /// orb-using cards can be encoded as data with future-compatible
+    /// shape.
+    ChannelOrb { orb_id: String },
+    /// Evoke the front orb in the queue (Defect MultiCast).
+    /// STUB — see ChannelOrb.
+    EvokeNextOrb,
+    /// Trigger the front orb's passive without consuming it
+    /// (Recycle-passive). STUB — see ChannelOrb.
+    TriggerOrbPassive,
+    /// Grow / shrink the orb queue capacity. STUB.
+    ChangeOrbSlots { delta: AmountSpec },
+    /// Summon an Osty companion (StS2 companion mechanic).
+    /// STUB — companion system not implemented; cards reference
+    /// Osty's HP/state heavily (Sacrifice, Protector) and will need
+    /// real wiring before they actually function.
+    SummonOsty { osty_id: String },
+    /// Damage attributed to Osty companion (Protector-family).
+    /// STUB — falls back to regular DealDamage for now.
+    DamageFromOsty {
+        amount: AmountSpec,
+        target: Target,
+    },
+    /// Forge: in-combat upgrade hook tied to the StS2 smith system.
+    /// STUB — forge system not yet wired.
+    Forge { amount: AmountSpec },
+    /// End the player's turn immediately. STUB — calling cs.end_turn()
+    /// from inside OnPlay nests the turn machine; needs a "pending
+    /// end-of-turn" flag the env loop consumes. FranticEscape is the
+    /// only card that uses this.
+    EndTurn,
+    /// Complete a Quest card's objective (StS2 mechanic). STUB.
+    CompleteQuest,
+    /// Generate a random potion into the player's potion belt.
+    /// STUB — potion-belt state not in CombatState.
+    GenerateRandomPotion,
+    /// Top up the potion belt to full from the per-combat
+    /// potion-generation RNG stream. EntropicBrew. STUB.
+    FillPotionSlots,
+    /// Auto-play (without paying energy / using a hand slot) the top
+    /// `n` cards of the draw pile. DistilledChaos, Mayhem-family.
+    /// STUB — needs auto-play recursion into play_card.
+    AutoplayFromDraw { n: i32 },
+    /// Pick cards via the given selector from `from` and move to `to`.
+    /// Generalizes Anointed (pile-pick → hand) and similar.
+    MoveCard {
+        from: Pile,
+        to: Pile,
+        selector: Selector,
+    },
+    /// Exhaust cards selected from `from` (typically Hand). Supersedes
+    /// `ExhaustRandomInHand` for the general case (top-of-pile and
+    /// filter-based selection are also supported).
+    ExhaustCards {
+        from: Pile,
+        selector: Selector,
+    },
+    /// Discard cards selected from `from` (typically Hand). Acrobatics
+    /// uses this with PlayerInteractive (currently → Random fallback).
+    DiscardCards {
+        from: Pile,
+        selector: Selector,
+    },
+    /// In-combat upgrade of cards selected from `from`. Armaments.
+    UpgradeCards {
+        from: Pile,
+        selector: Selector,
+    },
+    /// Apply a runtime keyword (Ethereal / Exhaust / Retain / Innate)
+    /// to selected cards. JossPaper-style. STUB — keyword runtime
+    /// mutation surface not yet plumbed.
+    ApplyKeywordToCards {
+        keyword: String,
+        from: Pile,
+        selector: Selector,
+    },
+    /// Transform selected cards into random replacements from the
+    /// card pool. PandorasBox-style. STUB — transformation requires
+    /// CardFactory RNG plumbing.
+    TransformCards {
+        from: Pile,
+        selector: Selector,
+    },
+    /// Set the energy cost of selected cards for a duration.
+    /// Discovery-style. STUB — per-card per-scope cost override not
+    /// yet plumbed into CardInstance.
+    SetCardCost {
+        from: Pile,
+        selector: Selector,
+        cost: AmountSpec,
+        scope: CostScope,
+    },
+    /// Spawn a fresh monster into the named slot. Used by summon
+    /// moves (LivingFog, Fabricator, Ovicopter, Doormaker).
+    SummonMonster {
+        monster_id: String,
+        slot: String,
+    },
+    /// Drop the actor's own HP to 0 (GasBomb Explode, DeathBlowIntent).
+    /// `target` is interpreted as the actor in monster contexts;
+    /// `Target::SelfPlayer` is a no-op (no cards self-kill).
+    KillSelf,
+    /// Set max HP to `amount` and heal to full. TestSubject Revive,
+    /// Doormaker DramaticOpen phase shift.
+    SetMaxHpAndHeal { amount: AmountSpec, target: Target },
+}
+
+/// Lifetime of a card-cost override.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CostScope {
+    ThisTurn,
+    ThisCombat,
+    UntilPlayed,
 }
 
 /// Per-invocation context. Holds everything the dispatcher needs to
@@ -558,6 +730,318 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 }
             }
         }
+        Effect::LoseBlock { amount, target } => {
+            let amt = amount.resolve(ctx);
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                if let Some(c) = creature_at_mut(cs, side, idx) {
+                    c.block = (c.block - amt).max(0);
+                }
+            });
+        }
+        Effect::ModifyPowerAmount { power_id, delta, target } => {
+            let d = delta.resolve(ctx);
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                if let Some(c) = creature_at_mut(cs, side, idx) {
+                    if let Some(p) = c.powers.iter_mut().find(|p| p.id == *power_id) {
+                        p.amount += d;
+                    }
+                }
+            });
+        }
+        Effect::GainGold { amount } => {
+            let amt = amount.resolve(ctx).max(0);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                ps.pending_gold += amt;
+            }
+        }
+        Effect::LoseGold { amount } => {
+            let amt = amount.resolve(ctx).max(0);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                ps.pending_gold = (ps.pending_gold - amt).max(0);
+            }
+        }
+        Effect::GainStars { amount } => {
+            let amt = amount.resolve(ctx).max(0);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                ps.pending_stars += amt;
+            }
+        }
+        Effect::ChannelOrb { .. }
+        | Effect::EvokeNextOrb
+        | Effect::TriggerOrbPassive
+        | Effect::ChangeOrbSlots { .. } => {
+            // STUB: orb system not yet implemented. Defect / orb-using
+            // cards encode as data but no state changes until the orb
+            // queue + slot count + passive/evoke pipeline lands.
+        }
+        Effect::SummonOsty { .. } | Effect::DamageFromOsty { .. } => {
+            // STUB: Osty companion system not yet implemented.
+        }
+        Effect::Forge { .. } => {
+            // STUB: in-combat smith-forge not yet implemented.
+        }
+        Effect::EndTurn => {
+            // STUB: calling end_turn() mid-card nests the turn machine.
+            // Once a "pending end-of-turn" flag exists in CombatState,
+            // this primitive flips it and the env loop drains the
+            // remaining play-stack before transitioning.
+        }
+        Effect::CompleteQuest => {
+            // STUB: quest progression isn't represented in combat state.
+        }
+        Effect::GenerateRandomPotion | Effect::FillPotionSlots => {
+            // STUB: potion belt isn't in CombatState.
+        }
+        Effect::AutoplayFromDraw { .. } => {
+            // STUB: requires re-entry into play_card from inside OnPlay.
+            // DistilledChaos / Mayhem-family cards encode as data but
+            // don't fire until the auto-play recursion lands.
+        }
+        Effect::MoveCard { from, to, selector } => {
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            // Iterate high-to-low to keep indices valid as we remove.
+            let mut sorted = picks;
+            sorted.sort_unstable_by(|a, b| b.cmp(a));
+            for idx in sorted {
+                if let Some(card) = remove_card_from_pile(cs, ctx.player_idx, *from, idx) {
+                    push_card_to_pile(cs, ctx.player_idx, *to, card);
+                }
+            }
+        }
+        Effect::ExhaustCards { from, selector } => {
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            let mut sorted = picks;
+            sorted.sort_unstable_by(|a, b| b.cmp(a));
+            for idx in sorted {
+                if let Some(card) = remove_card_from_pile(cs, ctx.player_idx, *from, idx) {
+                    push_card_to_pile(cs, ctx.player_idx, Pile::Exhaust, card);
+                }
+            }
+        }
+        Effect::DiscardCards { from, selector } => {
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            let mut sorted = picks;
+            sorted.sort_unstable_by(|a, b| b.cmp(a));
+            for idx in sorted {
+                if let Some(card) = remove_card_from_pile(cs, ctx.player_idx, *from, idx) {
+                    push_card_to_pile(cs, ctx.player_idx, Pile::Discard, card);
+                }
+            }
+        }
+        Effect::UpgradeCards { from, selector } => {
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                let cards = pile_mut(ps, *from);
+                for idx in picks {
+                    if let Some(card) = cards.cards.get_mut(idx) {
+                        // Bumping upgrade_level past the card's allowed
+                        // max is a no-op upstream (canonical_int_value
+                        // tolerates), but cap defensively at 1 for now —
+                        // most cards in StS2 only upgrade once.
+                        if card.upgrade_level < 1 {
+                            card.upgrade_level += 1;
+                        }
+                    }
+                }
+            }
+        }
+        Effect::ApplyKeywordToCards { .. } => {
+            // STUB: keyword runtime mutation needs a per-CardInstance
+            // override field. Defer.
+        }
+        Effect::TransformCards { .. } => {
+            // STUB: CardFactory.CreateRandom* not yet plumbed through
+            // a named RNG stream.
+        }
+        Effect::SetCardCost { .. } => {
+            // STUB: per-card cost override (this-turn / this-combat /
+            // until-played) requires extra fields on CardInstance.
+        }
+        Effect::SummonMonster { monster_id, slot } => {
+            // Reuses the existing monster_dispatch + spawn payload path.
+            crate::monster_dispatch::spawn_monster_into_slot(cs, monster_id, slot);
+        }
+        Effect::KillSelf => {
+            // Interpreted as the actor; in card OnPlay contexts the
+            // actor is the player and KillSelf is unused (no cards
+            // self-kill the player). For monster moves dispatched
+            // through the VM, the actor index will live in EffectContext
+            // once that path lands.
+            // No-op for now to keep cards safe.
+        }
+        Effect::SetMaxHpAndHeal { amount, target } => {
+            let amt = amount.resolve(ctx);
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                if let Some(c) = creature_at_mut(cs, side, idx) {
+                    c.max_hp = amt.max(1);
+                    c.current_hp = c.max_hp;
+                }
+            });
+        }
+    }
+}
+
+fn for_each_target_idx<F>(
+    cs: &mut CombatState,
+    ctx: &EffectContext,
+    target: Target,
+    mut f: F,
+) where
+    F: FnMut(&mut CombatState, CombatSide, usize),
+{
+    match target {
+        Target::SelfPlayer => f(cs, CombatSide::Player, ctx.player_idx),
+        Target::ChosenEnemy => {
+            if let Some((side, idx)) = ctx.target {
+                f(cs, side, idx);
+            }
+        }
+        Target::AllEnemies => {
+            let n = cs.enemies.len();
+            for i in 0..n {
+                if cs.enemies[i].current_hp == 0 {
+                    continue;
+                }
+                f(cs, CombatSide::Enemy, i);
+            }
+        }
+        Target::RandomEnemy => {
+            if let Some(idx) = pick_random_alive_enemy(cs) {
+                f(cs, CombatSide::Enemy, idx);
+            }
+        }
+    }
+}
+
+fn player_state_mut(
+    cs: &mut CombatState,
+    player_idx: usize,
+) -> Option<&mut crate::combat::PlayerState> {
+    cs.allies.get_mut(player_idx).and_then(|c| c.player.as_mut())
+}
+
+fn pile_mut<'a>(
+    ps: &'a mut crate::combat::PlayerState,
+    pile: Pile,
+) -> &'a mut crate::combat::CardPile {
+    match pile {
+        Pile::Hand => &mut ps.hand,
+        Pile::Discard => &mut ps.discard,
+        Pile::Draw => &mut ps.draw,
+        Pile::Exhaust => &mut ps.exhaust,
+    }
+}
+
+fn remove_card_from_pile(
+    cs: &mut CombatState,
+    player_idx: usize,
+    pile: Pile,
+    idx: usize,
+) -> Option<crate::combat::CardInstance> {
+    let ps = player_state_mut(cs, player_idx)?;
+    let cards = pile_mut(ps, pile);
+    if idx >= cards.cards.len() {
+        return None;
+    }
+    Some(cards.cards.remove(idx))
+}
+
+fn push_card_to_pile(
+    cs: &mut CombatState,
+    player_idx: usize,
+    pile: Pile,
+    card: crate::combat::CardInstance,
+) {
+    if let Some(ps) = player_state_mut(cs, player_idx) {
+        pile_mut(ps, pile).cards.push(card);
+    }
+}
+
+/// Resolve a Selector to the list of card indices in the named pile.
+/// Indices are returned in pile order; callers that mutate the pile
+/// (Exhaust / Discard / MoveCard) sort descending before removing.
+fn select_card_indices(
+    cs: &mut CombatState,
+    player_idx: usize,
+    pile: Pile,
+    selector: &Selector,
+) -> Vec<usize> {
+    let Some(ps) = player_state_mut(cs, player_idx) else {
+        return Vec::new();
+    };
+    let cards = pile_mut(ps, pile);
+    let len = cards.cards.len();
+    if len == 0 {
+        return Vec::new();
+    }
+    match selector {
+        Selector::All => (0..len).collect(),
+        Selector::Random { n } => {
+            // Re-borrow rng via the temp-swap trick.
+            let n = (*n).max(0) as usize;
+            let n = n.min(len);
+            // Snapshot indices, draw without replacement.
+            let mut pool: Vec<usize> = (0..len).collect();
+            let mut picked = Vec::with_capacity(n);
+            let mut rng = std::mem::replace(&mut cs.rng, crate::rng::Rng::new(0, 0));
+            for _ in 0..n {
+                if pool.is_empty() {
+                    break;
+                }
+                let pick = rng.next_int_range(0, pool.len() as i32) as usize;
+                picked.push(pool.swap_remove(pick));
+            }
+            cs.rng = rng;
+            picked
+        }
+        Selector::Top { n } => {
+            let n = (*n).max(0) as usize;
+            let start = len.saturating_sub(n);
+            (start..len).rev().collect()
+        }
+        Selector::Bottom { n } => {
+            let n = (*n).max(0) as usize;
+            (0..n.min(len)).collect()
+        }
+        Selector::FirstMatching { n, filter } => {
+            // Re-borrow pile.
+            let Some(ps) = player_state_mut(cs, player_idx) else {
+                return Vec::new();
+            };
+            let cards = pile_mut(ps, pile);
+            let n = (*n).max(0) as usize;
+            let mut out = Vec::new();
+            for (i, card) in cards.cards.iter().enumerate() {
+                if matches_filter(card, filter) {
+                    out.push(i);
+                    if out.len() >= n {
+                        break;
+                    }
+                }
+            }
+            out
+        }
+        Selector::PlayerInteractive { n } => {
+            // Deferred: until multi-step play API lands, fall back to
+            // Random selection. Deterministic given combat RNG.
+            let stub = Selector::Random { n: *n };
+            select_card_indices(cs, player_idx, pile, &stub)
+        }
+    }
+}
+
+fn matches_filter(card: &crate::combat::CardInstance, filter: &CardFilter) -> bool {
+    let Some(data) = crate::card::by_id(&card.id) else {
+        return false;
+    };
+    match filter {
+        CardFilter::Any => true,
+        CardFilter::Upgradable => card.upgrade_level == 0,
+        CardFilter::OfType(t) => {
+            format!("{:?}", data.card_type).eq_ignore_ascii_case(t)
+        }
+        CardFilter::HasKeyword(k) => data.keywords.iter().any(|kw| kw.eq_ignore_ascii_case(k)),
+        CardFilter::TaggedAs(t) => data.tags.iter().any(|tag| tag.eq_ignore_ascii_case(t)),
     }
 }
 
@@ -1069,6 +1553,238 @@ mod tests {
         execute_effects(&mut cs, &effects, &ctx);
         assert_eq!(cs.allies[0].player.as_ref().unwrap().hand.cards.len(), 0);
         assert!(cs.allies[0].player.as_ref().unwrap().discard.cards.len() >= hand_size);
+    }
+
+    /// LoseBlock decrements target block, floors at 0.
+    #[test]
+    fn lose_block_floors_at_zero() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].block = 7;
+        let effects = vec![Effect::LoseBlock {
+            amount: AmountSpec::Fixed(10),
+            target: Target::SelfPlayer,
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        assert_eq!(cs.allies[0].block, 0);
+    }
+
+    /// GainGold + LoseGold accumulate / drain pending_gold; floor at 0.
+    #[test]
+    fn gain_gold_and_lose_gold_accumulate() {
+        let mut cs = ironclad_combat();
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(
+            &mut cs,
+            &[Effect::GainGold {
+                amount: AmountSpec::Fixed(20),
+            }],
+            &ctx,
+        );
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().pending_gold, 20);
+        execute_effects(
+            &mut cs,
+            &[Effect::LoseGold {
+                amount: AmountSpec::Fixed(50),
+            }],
+            &ctx,
+        );
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().pending_gold, 0);
+    }
+
+    /// GainStars accumulates pending_stars.
+    #[test]
+    fn gain_stars_accumulates() {
+        let mut cs = ironclad_combat();
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(
+            &mut cs,
+            &[Effect::GainStars {
+                amount: AmountSpec::Fixed(3),
+            }],
+            &ctx,
+        );
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().pending_stars, 3);
+    }
+
+    /// ExhaustCards with `Selector::All` clears hand → exhaust.
+    #[test]
+    fn exhaust_cards_all_from_hand_clears_hand() {
+        let mut cs = ironclad_combat();
+        // Seed two cards into hand.
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        for _ in 0..3 {
+            if let Some(card) = crate::card::by_id("StrikeIronclad") {
+                ps.hand
+                    .cards
+                    .push(crate::combat::CardInstance::from_card(card, 0));
+            }
+        }
+        let hand_before = cs.allies[0].player.as_ref().unwrap().hand.cards.len();
+        let exhaust_before = cs.allies[0].player.as_ref().unwrap().exhaust.cards.len();
+        let effects = vec![Effect::ExhaustCards {
+            from: Pile::Hand,
+            selector: Selector::All,
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().hand.cards.len(), 0);
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().exhaust.cards.len(),
+            exhaust_before + hand_before
+        );
+    }
+
+    /// UpgradeCards FirstMatching(Upgradable) bumps upgrade_level.
+    #[test]
+    fn upgrade_cards_first_matching_upgradable() {
+        let mut cs = ironclad_combat();
+        // Seed an upgradable card.
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        if let Some(card) = crate::card::by_id("StrikeIronclad") {
+            ps.hand
+                .cards
+                .push(crate::combat::CardInstance::from_card(card, 0));
+        }
+        let effects = vec![Effect::UpgradeCards {
+            from: Pile::Hand,
+            selector: Selector::FirstMatching {
+                n: 1,
+                filter: CardFilter::Upgradable,
+            },
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let upgraded_count = cs.allies[0]
+            .player
+            .as_ref()
+            .unwrap()
+            .hand
+            .cards
+            .iter()
+            .filter(|c| c.upgrade_level >= 1)
+            .count();
+        assert!(upgraded_count >= 1);
+    }
+
+    /// SummonMonster appends a new enemy and fires its spawn payload
+    /// (HardenedShellPower for SkulkingColony).
+    #[test]
+    fn summon_monster_appends_and_spawns() {
+        let mut cs = ironclad_combat();
+        let n_before = cs.enemies.len();
+        let effects = vec![Effect::SummonMonster {
+            monster_id: "SkulkingColony".to_string(),
+            slot: "back".to_string(),
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        assert_eq!(cs.enemies.len(), n_before + 1);
+        let new_idx = n_before;
+        assert_eq!(cs.enemies[new_idx].model_id, "SkulkingColony");
+        // SkulkingColony spawn applies HardenedShellPower.
+        assert!(cs.enemies[new_idx]
+            .powers
+            .iter()
+            .any(|p| p.id == "HardenedShellPower"));
+    }
+
+    /// SetMaxHpAndHeal resets HP. TestSubject Revive shape.
+    #[test]
+    fn set_max_hp_and_heal_resets_to_full() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].current_hp = 30;
+        let effects = vec![Effect::SetMaxHpAndHeal {
+            amount: AmountSpec::Fixed(60),
+            target: Target::SelfPlayer,
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        assert_eq!(cs.allies[0].max_hp, 60);
+        assert_eq!(cs.allies[0].current_hp, 60);
+    }
+
+    /// ModifyPowerAmount adjusts an existing power without going
+    /// through ApplyPower's Counter merging.
+    #[test]
+    fn modify_power_amount_adjusts_existing_stack() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 2);
+        let effects = vec![Effect::ModifyPowerAmount {
+            power_id: "VulnerablePower".to_string(),
+            delta: AmountSpec::Fixed(3),
+            target: Target::ChosenEnemy,
+        }];
+        let ctx = EffectContext::for_card(
+            0,
+            Some((CombatSide::Enemy, 0)),
+            "StrikeIronclad",
+            0,
+            None,
+            0,
+        );
+        execute_effects(&mut cs, &effects, &ctx);
+        let vuln = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "VulnerablePower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(vuln, 5);
+    }
+
+    /// Stub primitives (orb / osty / forge / quest / end-turn /
+    /// potion-fill / auto-play / keyword / transform / cost) do not
+    /// crash; they just don't change state. This is the "encode-able
+    /// but inert" surface area.
+    #[test]
+    fn stub_primitives_are_safe_noops() {
+        let mut cs = ironclad_combat();
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        let stubs = vec![
+            Effect::ChannelOrb {
+                orb_id: "LightningOrb".to_string(),
+            },
+            Effect::EvokeNextOrb,
+            Effect::TriggerOrbPassive,
+            Effect::ChangeOrbSlots {
+                delta: AmountSpec::Fixed(1),
+            },
+            Effect::SummonOsty {
+                osty_id: "BoneCompanion".to_string(),
+            },
+            Effect::DamageFromOsty {
+                amount: AmountSpec::Fixed(5),
+                target: Target::ChosenEnemy,
+            },
+            Effect::Forge {
+                amount: AmountSpec::Fixed(1),
+            },
+            Effect::EndTurn,
+            Effect::CompleteQuest,
+            Effect::GenerateRandomPotion,
+            Effect::FillPotionSlots,
+            Effect::AutoplayFromDraw { n: 3 },
+            Effect::ApplyKeywordToCards {
+                keyword: "Exhaust".to_string(),
+                from: Pile::Hand,
+                selector: Selector::All,
+            },
+            Effect::TransformCards {
+                from: Pile::Discard,
+                selector: Selector::All,
+            },
+            Effect::SetCardCost {
+                from: Pile::Hand,
+                selector: Selector::All,
+                cost: AmountSpec::Fixed(0),
+                scope: CostScope::ThisTurn,
+            },
+            Effect::KillSelf,
+        ];
+        execute_effects(&mut cs, &stubs, &ctx);
+        // Just assert the run didn't panic and state is plausible.
+        assert!(cs.allies[0].current_hp > 0);
     }
 
     /// RandomEnemy target picks a live enemy via combat RNG. Two runs

@@ -30,6 +30,55 @@
 use crate::combat::*;
 use crate::rng::Rng;
 
+/// Spawn a fresh monster into the named slot and fire its spawn
+/// payload (`AfterAddedToRoom`). Used by summon moves (LivingFog,
+/// Fabricator, Ovicopter, Doormaker) and the data-driven
+/// `Effect::SummonMonster` primitive.
+pub fn spawn_monster_into_slot(cs: &mut CombatState, monster_id: &str, slot: &str) {
+    let new_idx = cs.enemies.len();
+    cs.enemies.push(Creature::from_monster_spawn(monster_id, slot));
+    fire_one_monster_spawn(cs, new_idx);
+}
+
+fn fire_one_monster_spawn(cs: &mut CombatState, i: usize) {
+    let id = cs.enemies[i].model_id.clone();
+    match id.as_str() {
+        "Exoskeleton" => exoskeleton_spawn(cs, i),
+        "ThievingHopper" => thieving_hopper_spawn(cs, i),
+        "BowlbugRock" => bowlbug_rock_spawn(cs, i),
+        "MechaKnight" => mecha_knight_spawn(cs, i),
+        "Entomancer" => entomancer_spawn(cs, i),
+        "LivingShield" => living_shield_spawn(cs, i),
+        "Byrdonis" => byrdonis_spawn(cs, i),
+        "Chomper" => chomper_spawn(cs, i),
+        "CorpseSlug" => corpse_slug_spawn(cs, i),
+        "MysteriousKnight" => {
+            cs.apply_power(CombatSide::Enemy, i, "StrengthPower", 6);
+            cs.apply_power(CombatSide::Enemy, i, "PlatingPower", 6);
+        }
+        "SlumberingBeetle" => slumbering_beetle_spawn(cs, i),
+        "LagavulinMatriarch" => lagavulin_matriarch_spawn(cs, i),
+        "Crusher" => {
+            cs.apply_power(CombatSide::Enemy, i, "BackAttackLeftPower", 1);
+            cs.apply_power(CombatSide::Enemy, i, "CrabRagePower", 1);
+        }
+        "Rocket" => {
+            cs.apply_power(CombatSide::Enemy, i, "BackAttackRightPower", 1);
+            cs.apply_power(CombatSide::Enemy, i, "CrabRagePower", 1);
+            let n_players = cs.allies.len();
+            for p in 0..n_players {
+                cs.apply_power(CombatSide::Player, p, "SurroundedPower", 1);
+            }
+        }
+        "SkulkingColony" => skulking_colony_spawn(cs, i),
+        "LouseProgenitor" => louse_progenitor_spawn(cs, i),
+        "TerrorEel" => terror_eel_spawn(cs, i),
+        "PhantasmalGardener" => phantasmal_gardener_spawn(cs, i),
+        "InfestedPrism" => infested_prism_spawn(cs, i),
+        _ => {}
+    }
+}
+
 /// Fire spawn payloads (`AfterAddedToRoom`) for every enemy that has
 /// one. Idempotent: only fires when called.
 pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {

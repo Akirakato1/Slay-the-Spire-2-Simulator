@@ -103,6 +103,16 @@ pub struct PlayerState {
     /// dispatch over this list. Mutated only by mid-combat effects that
     /// add/remove relics; usually static for the duration.
     pub relics: Vec<String>,
+    /// Gold accumulated mid-combat by effects like HandOfGreed /
+    /// Alchemize / FoulPotion. Folded into `CombatRewards.gold` when
+    /// the combat ends. Lives here (not in RunState) because combat is
+    /// stateless w.r.t. the strategic layer.
+    pub pending_gold: i32,
+    /// Stars accumulated mid-combat (StS2 secondary resource — GatherLight,
+    /// Watcher-family cards). System not yet wired into card play
+    /// gating; tracked here so the data-driven effect path is
+    /// future-compatible.
+    pub pending_stars: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -9930,12 +9940,14 @@ impl Creature {
                 energy: DEFAULT_TURN_ENERGY,
                 turn_energy: DEFAULT_TURN_ENERGY,
                 relics: setup.relics,
+                pending_gold: 0,
+                pending_stars: 0,
             }),
             monster: None,
         }
     }
 
-    fn from_monster_spawn(monster_id: &str, slot: &str) -> Self {
+    pub fn from_monster_spawn(monster_id: &str, slot: &str) -> Self {
         let data = crate::monster::by_id(monster_id);
         let (min_hp, max_hp) = data
             .map(|m| (m.min_hp_base.unwrap_or(1), m.max_hp_base.unwrap_or(1)))

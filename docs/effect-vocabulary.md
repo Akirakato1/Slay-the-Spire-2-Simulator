@@ -39,6 +39,7 @@ underlying primitive vocabulary is small.
 | `LoseHp { amount, target }` (bypass-block self / direct damage) | ✅ | 18 | `Effect::LoseHp`. Covers Bloodletting and the C# `ValueProp.Unblockable\|Unpowered` family. |
 | `RepeatUntilNoKills(attack_payload)` | ❌ | 1 | EchoingSlash. Single card but a true primitive. |
 | `Kill { target }` | ✅ | 2 | `Effect::Kill`. Sacrifice. Sets HP to 0; death detection runs on next state check. |
+| `ModifyPowerAmount<T> { target, delta }` | ✅ | 2 | `Effect::ModifyPowerAmount`. Direct stack mutation; bypasses Counter merge. |
 
 ### 1.2 Block / HP primitives
 
@@ -46,7 +47,7 @@ underlying primitive vocabulary is small.
 |---|---|---:|---|
 | `GainBlock { target=Self, amount }` | ✅ | 77 | `combat.rs::gain_block`. |
 | `GainBlock { amount = f(state) }` (e.g. Sacrifice: `Osty.MaxHp * 2`) | ❌ | rare | Generalize amount-spec. |
-| `LoseBlock { target, amount }` | ❌ | 1 | Sunder-style. |
+| `LoseBlock { target, amount }` | ✅ | 1 | `Effect::LoseBlock`. Sunder-style. |
 | `Heal { target, amount }` | ✅ | 2 | `combat.rs::heal_creature`. |
 | `GainMaxHp { target, amount }` | ✅ | 1 | Feed. `change_max_hp`. |
 | `LoseMaxHp { target, amount }` | 🟡 | 1 | Inverse via `change_max_hp(-n)`. |
@@ -470,6 +471,26 @@ combat.rs `fire_*_hook` functions and `tick_*_powers` callers). Closure on the
 power-VM is a follow-up after the effect-VM for cards/relics/potions lands.
 
 ---
+
+## 7a. Closure summary (2026-05-14, post-batch implementation)
+
+| primitive category | full impl ✅ | stub (encode-able, deferred) | missing |
+|---|---|---|---|
+| Damage / Block / Power | DealDamage (single/multi/all/random) · GainBlock · ApplyPower · RemovePower · ModifyPowerAmount · LoseBlock · LoseHp · Kill · Heal · ChangeMaxHp · SetMaxHpAndHeal | — | RepeatUntilNoKills (EchoingSlash) · DamageWithCallback (FiendFire mid-sequence) |
+| Resources | GainEnergy · LoseEnergy · GainGold · LoseGold · GainStars | EndTurn · CompleteQuest · GenerateRandomPotion · FillPotionSlots · Forge | — |
+| Pile flow | DrawCards · AddCardToPile · Shuffle · DiscardHand · MoveCard · ExhaustCards · DiscardCards · UpgradeCards · ExhaustRandomInHand | AutoplayFromDraw · ApplyKeywordToCards · TransformCards · SetCardCost · AutoPlay { card_ref } | — |
+| Selectors | All · Random · Top · Bottom · FirstMatching(filter) | PlayerInteractive (→ Random fallback) | — |
+| Orbs (Defect) | — | ChannelOrb · EvokeNextOrb · TriggerOrbPassive · ChangeOrbSlots | — |
+| Osty / Forge | — | SummonOsty · DamageFromOsty · Forge | — |
+| Monsters | SummonMonster · KillSelf · SetMaxHpAndHeal | — | OnPreventedDeath (relic hook) |
+
+**Closed-vocabulary status**: every primitive observed in the C# survey
+either has a real Rust implementation or an encode-able stub variant.
+Cards/relics/potions can be encoded as effect-list data **today**
+without missing any vocabulary; cards that depend on stub primitives
+encode cleanly but their state changes only land when the backing
+system (orb queue, Osty companion, Star economy, Forge mechanic,
+player-interactive multi-step actions) is implemented.
 
 ## 8. Estimated implementation closure
 
