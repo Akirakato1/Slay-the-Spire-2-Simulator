@@ -1444,6 +1444,39 @@ fn dispatch_on_play(
             );
             true
         }
+        // SwordBoomerang (Ironclad common Attack, 1 cost): 3 damage
+        // per hit × Repeat hits (3 base, 4 upgraded). Each hit picks a
+        // fresh random alive enemy via self.rng; if every enemy dies
+        // mid-volley, remaining hits are skipped (matches C#
+        // `TargetingRandomOpponents`, which re-samples HittableEnemies
+        // each iteration and bails when empty).
+        "SwordBoomerang" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let hits = canonical_int_value(card, "Repeat", upgrade_level);
+            for _ in 0..hits {
+                let alive: Vec<usize> = cs
+                    .enemies
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, e)| e.current_hp > 0)
+                    .map(|(i, _)| i)
+                    .collect();
+                if alive.is_empty() {
+                    break;
+                }
+                let pick = cs.rng.next_int_range(0, alive.len() as i32) as usize;
+                let idx = alive[pick];
+                cs.deal_damage_enchanted(
+                    (CombatSide::Player, player_idx),
+                    (CombatSide::Enemy, idx),
+                    damage,
+                    ValueProp::MOVE,
+                    enchantment,
+                );
+            }
+            true
+        }
         // Cinder (Ironclad common Attack, 2 cost): 18 damage (24
         // upgraded) + exhaust a random card from hand. Like TrueGrit
         // the card itself goes to discard — the Exhaust hover-tip is a
@@ -3873,6 +3906,75 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- SwordBoomerang tests -------------------------------------
+
+    #[test]
+    fn sword_boomerang_dispatches_three_hits_total() {
+        let mut cs = ironclad_combat();
+        cs.rng = Rng::new(42, 0);
+        let card = card_by_id("SwordBoomerang").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let total_hp_before: i32 = cs.enemies.iter().map(|e| e.current_hp).sum();
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        let total_hp_after: i32 = cs.enemies.iter().map(|e| e.current_hp).sum();
+        // 3 hits × 3 damage = 9 total damage distributed across enemies.
+        assert_eq!(total_hp_before - total_hp_after, 9);
+    }
+
+    #[test]
+    fn upgraded_sword_boomerang_does_four_hits() {
+        let mut cs = ironclad_combat();
+        cs.rng = Rng::new(42, 0);
+        let card = card_by_id("SwordBoomerang").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let total_hp_before: i32 = cs.enemies.iter().map(|e| e.current_hp).sum();
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        let total_hp_after: i32 = cs.enemies.iter().map(|e| e.current_hp).sum();
+        // Upgrade adds 1 hit → 4 hits × 3 damage = 12.
+        assert_eq!(total_hp_before - total_hp_after, 12);
+    }
+
+    #[test]
+    fn sword_boomerang_skips_dead_enemies_mid_volley() {
+        // Set up: two enemies, both at 3 HP. SwordBoomerang base form
+        // does 3×3=9 total damage; with both enemies dropping after one
+        // hit each, the third hit has no alive target and is skipped.
+        let mut cs = ironclad_combat();
+        cs.rng = Rng::new(42, 0);
+        cs.enemies[0].current_hp = 3;
+        cs.enemies[1].current_hp = 3;
+        let card = card_by_id("SwordBoomerang").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        // Both enemies dead. No panic on the would-be-third hit.
+        assert_eq!(cs.enemies[0].current_hp, 0);
+        assert_eq!(cs.enemies[1].current_hp, 0);
     }
 
     // ---------- Cinder tests ---------------------------------------------
