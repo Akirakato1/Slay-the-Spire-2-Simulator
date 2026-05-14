@@ -564,6 +564,10 @@ impl CombatState {
     fn tick_temporary_strength_powers(&mut self, side: CombatSide) {
         const TEMP_STRENGTH_POWERS: &[(&str, i32)] = &[
             ("SetupStrikePower", 1),
+            // ManglePower: IsPositive=false → applies -Amount Strength.
+            // On owner-side turn end, removes itself and re-applies
+            // +Amount Strength to undo.
+            ("ManglePower", -1),
         ];
         let n_allies = self.allies.len();
         let n_enemies = self.enemies.len();
@@ -1505,6 +1509,37 @@ fn dispatch_on_play(
                 "StrengthPower",
                 strength,
             );
+            true
+        }
+        // Mangle (Ironclad rare Attack, 3 cost, AnyEnemy): 15 damage
+        // (20 upgraded) + apply ManglePower equal to StrengthLoss (10,
+        // 15 upgraded). ManglePower extends TemporaryStrengthPower with
+        // IsPositive=false → applies negative Strength on the target
+        // for one of its turns. tick_temporary_strength_powers undoes
+        // the Strength loss at target-side turn end.
+        "Mangle" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let strength_loss =
+                canonical_int_value(card, "StrengthLoss", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            cs.apply_power(target.0, target.1, "ManglePower", strength_loss);
+            cs.apply_power(target.0, target.1, "StrengthPower", -strength_loss);
+            true
+        }
+        // Impervious (Ironclad rare Exhaust Skill, 2 cost, Self): 30
+        // block (40 upgraded). Exhaust keyword handles routing.
+        "Impervious" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
             true
         }
         // SetupStrike (Ironclad common Strike-tagged Attack, 1 cost):
@@ -4080,6 +4115,134 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Impervious tests -----------------------------------------
+
+    #[test]
+    fn impervious_grants_thirty_block_and_exhausts() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let card = card_by_id("Impervious").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 30);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.exhaust.cards.iter().any(|c| c.id == "Impervious"));
+    }
+
+    #[test]
+    fn upgraded_impervious_grants_forty_block() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let card = card_by_id("Impervious").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 40);
+    }
+
+    // ---------- Mangle tests ---------------------------------------------
+
+    #[test]
+    fn mangle_damages_and_temporarily_drops_target_strength() {
+        let mut cs = ironclad_combat();
+        // Pre-buff enemy with Strength to see the temporary drop.
+        cs.apply_power(CombatSide::Enemy, 0, "StrengthPower", 5);
+        cs.allies[0].player.as_mut().unwrap().energy = 3;
+        let card = card_by_id("Mangle").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 15);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ManglePower"),
+            10
+        );
+        // 5 (pre-existing) - 10 (Mangle) = -5 Strength on enemy now.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            -5
+        );
+    }
+
+    #[test]
+    fn mangle_strength_loss_clears_at_end_of_enemy_turn() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "StrengthPower", 5);
+        cs.allies[0].player.as_mut().unwrap().energy = 3;
+        let card = card_by_id("Mangle").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        // Enemy turn passes; end_turn undoes ManglePower.
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ManglePower"),
+            0
+        );
+        // +10 Strength restored → 5 - 10 + 10 = 5.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            5
+        );
+    }
+
+    #[test]
+    fn upgraded_mangle_does_twenty_damage_and_fifteen_strength_loss() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 3;
+        let card = card_by_id("Mangle").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 20);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ManglePower"),
+            15
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            -15
+        );
     }
 
     // ---------- SetupStrike tests ----------------------------------------
