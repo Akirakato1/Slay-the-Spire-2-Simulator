@@ -3265,6 +3265,97 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: Seapunk ------------------------------------
+//
+// Reflects C# `Seapunk.GenerateMoveStateMachine`:
+//   Init: SEA_KICK_MOVE.
+//   Cycle: SeaKick → SpinningKick → BubbleBurp → SeaKick → …
+//   No RNG.
+//
+// A0 payloads:
+//   - SeaKick: 11 damage (DeadlyEnemies: 13)
+//   - SpinningKick: 2 damage × 4 hits (consts)
+//   - BubbleBurp: 7 self-block (ToughEnemies: 8) + 1 self-Strength
+//       (DeadlyEnemies: 2)
+
+const SEAPUNK_SEA_KICK_DAMAGE: i32 = 11;
+const SEAPUNK_SPINNING_KICK_DAMAGE: i32 = 2;
+const SEAPUNK_SPINNING_KICK_HITS: i32 = 4;
+const SEAPUNK_BUBBLE_BLOCK: i32 = 7;
+const SEAPUNK_BUBBLE_STRENGTH: i32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SeapunkIntent {
+    SeaKick,
+    SpinningKick,
+    BubbleBurp,
+}
+
+impl SeapunkIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            SeapunkIntent::SeaKick => "SEA_KICK_MOVE",
+            SeapunkIntent::SpinningKick => "SPINNING_KICK_MOVE",
+            SeapunkIntent::BubbleBurp => "BUBBLE_BURP_MOVE",
+        }
+    }
+}
+
+/// Pick Seapunk's next intent. Init → SeaKick, then deterministic
+/// cycle SeaKick → SpinningKick → BubbleBurp → SeaKick.
+pub fn pick_seapunk_intent(last_intent: Option<SeapunkIntent>) -> SeapunkIntent {
+    match last_intent {
+        None => SeapunkIntent::SeaKick,
+        Some(SeapunkIntent::SeaKick) => SeapunkIntent::SpinningKick,
+        Some(SeapunkIntent::SpinningKick) => SeapunkIntent::BubbleBurp,
+        Some(SeapunkIntent::BubbleBurp) => SeapunkIntent::SeaKick,
+    }
+}
+
+/// Execute one Seapunk move's payload.
+pub fn execute_seapunk_move(
+    cs: &mut CombatState,
+    seapunk_idx: usize,
+    target_player_idx: usize,
+    intent: SeapunkIntent,
+) {
+    let attacker = (CombatSide::Enemy, seapunk_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        SeapunkIntent::SeaKick => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SEAPUNK_SEA_KICK_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        SeapunkIntent::SpinningKick => {
+            for _ in 0..SEAPUNK_SPINNING_KICK_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    SEAPUNK_SPINNING_KICK_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        SeapunkIntent::BubbleBurp => {
+            cs.gain_block(
+                CombatSide::Enemy,
+                seapunk_idx,
+                SEAPUNK_BUBBLE_BLOCK,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                seapunk_idx,
+                "StrengthPower",
+                SEAPUNK_BUBBLE_STRENGTH,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: CorpseSlug ---------------------------------
 //
 // Reflects C# `CorpseSlug.GenerateMoveStateMachine`:
@@ -8042,6 +8133,56 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- Seapunk tests ---------------------------------------------
+
+    #[test]
+    fn seapunk_first_turn_is_sea_kick() {
+        assert_eq!(pick_seapunk_intent(None), SeapunkIntent::SeaKick);
+    }
+
+    #[test]
+    fn seapunk_cycle_sea_kick_spinning_bubble() {
+        assert_eq!(
+            pick_seapunk_intent(Some(SeapunkIntent::SeaKick)),
+            SeapunkIntent::SpinningKick
+        );
+        assert_eq!(
+            pick_seapunk_intent(Some(SeapunkIntent::SpinningKick)),
+            SeapunkIntent::BubbleBurp
+        );
+        assert_eq!(
+            pick_seapunk_intent(Some(SeapunkIntent::BubbleBurp)),
+            SeapunkIntent::SeaKick
+        );
+    }
+
+    #[test]
+    fn seapunk_sea_kick_deals_eleven() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_seapunk_move(&mut cs, 0, 0, SeapunkIntent::SeaKick);
+        assert_eq!(cs.allies[0].current_hp, hp - 11);
+    }
+
+    #[test]
+    fn seapunk_spinning_kick_hits_four_times_for_two() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_seapunk_move(&mut cs, 0, 0, SeapunkIntent::SpinningKick);
+        assert_eq!(cs.allies[0].current_hp, hp - 8);
+    }
+
+    #[test]
+    fn seapunk_bubble_burp_gains_block_and_strength() {
+        let mut cs = ironclad_combat();
+        execute_seapunk_move(&mut cs, 0, 0, SeapunkIntent::BubbleBurp);
+        assert_eq!(cs.enemies[0].block, 7);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            1
         );
     }
 
