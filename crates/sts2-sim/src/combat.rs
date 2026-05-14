@@ -3641,6 +3641,83 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: BygoneEffigy -------------------------------
+//
+// Reflects C# `BygoneEffigy.GenerateMoveStateMachine`:
+//   Init: InitialSleep (no-op + SleepIntent).
+//   InitialSleep → Wake → Slash → Slash → ...
+//
+// A0 payloads:
+//   - InitialSleep: no-op (just an intent display)
+//   - Wake:         apply StrengthPower(+10) to self
+//   - Slash:        13 damage (DeadlyEnemies: 15)
+//
+// SleepIntent (Sleep mechanic) is just an intent display in C# — the
+// monster doesn't act, the player gets a free turn. We model that as
+// a no-op execute and rely on the same intent-display semantics.
+
+const BYGONE_EFFIGY_WAKE_STRENGTH: i32 = 10;
+const BYGONE_EFFIGY_SLASH_DAMAGE: i32 = 13;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BygoneEffigyIntent {
+    InitialSleep,
+    Wake,
+    Slash,
+}
+
+impl BygoneEffigyIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            BygoneEffigyIntent::InitialSleep => "INITIAL_SLEEP_MOVE",
+            BygoneEffigyIntent::Wake => "WAKE_MOVE",
+            BygoneEffigyIntent::Slash => "SLASHES_MOVE",
+        }
+    }
+}
+
+pub fn pick_bygone_effigy_intent(
+    last_intent: Option<BygoneEffigyIntent>,
+) -> BygoneEffigyIntent {
+    match last_intent {
+        None => BygoneEffigyIntent::InitialSleep,
+        Some(BygoneEffigyIntent::InitialSleep) => BygoneEffigyIntent::Wake,
+        Some(BygoneEffigyIntent::Wake) => BygoneEffigyIntent::Slash,
+        Some(BygoneEffigyIntent::Slash) => BygoneEffigyIntent::Slash,
+    }
+}
+
+pub fn execute_bygone_effigy_move(
+    cs: &mut CombatState,
+    effigy_idx: usize,
+    target_player_idx: usize,
+    intent: BygoneEffigyIntent,
+) {
+    let attacker = (CombatSide::Enemy, effigy_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        BygoneEffigyIntent::InitialSleep => {
+            // No payload — just an intent-only marker.
+        }
+        BygoneEffigyIntent::Wake => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                effigy_idx,
+                "StrengthPower",
+                BYGONE_EFFIGY_WAKE_STRENGTH,
+            );
+        }
+        BygoneEffigyIntent::Slash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                BYGONE_EFFIGY_SLASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: SlimedBerserker ----------------------------
 //
 // Reflects C# `SlimedBerserker.GenerateMoveStateMachine`:
@@ -11203,6 +11280,61 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- BygoneEffigy tests -----------------------------------------
+
+    #[test]
+    fn bygone_effigy_init_sleep_then_wake_then_slash_forever() {
+        assert_eq!(
+            pick_bygone_effigy_intent(None),
+            BygoneEffigyIntent::InitialSleep
+        );
+        assert_eq!(
+            pick_bygone_effigy_intent(Some(BygoneEffigyIntent::InitialSleep)),
+            BygoneEffigyIntent::Wake
+        );
+        assert_eq!(
+            pick_bygone_effigy_intent(Some(BygoneEffigyIntent::Wake)),
+            BygoneEffigyIntent::Slash
+        );
+        for _ in 0..5 {
+            assert_eq!(
+                pick_bygone_effigy_intent(Some(BygoneEffigyIntent::Slash)),
+                BygoneEffigyIntent::Slash
+            );
+        }
+    }
+
+    #[test]
+    fn bygone_effigy_initial_sleep_is_noop() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_bygone_effigy_move(
+            &mut cs,
+            0,
+            0,
+            BygoneEffigyIntent::InitialSleep,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp);
+    }
+
+    #[test]
+    fn bygone_effigy_wake_applies_ten_strength() {
+        let mut cs = ironclad_combat();
+        execute_bygone_effigy_move(&mut cs, 0, 0, BygoneEffigyIntent::Wake);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            10
+        );
+    }
+
+    #[test]
+    fn bygone_effigy_slash_deals_thirteen_baseline() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_bygone_effigy_move(&mut cs, 0, 0, BygoneEffigyIntent::Slash);
+        assert_eq!(cs.allies[0].current_hp, hp - 13);
     }
 
     // ---------- SlimedBerserker tests --------------------------------------

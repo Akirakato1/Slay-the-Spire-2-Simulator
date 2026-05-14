@@ -98,6 +98,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "SpinyToad"
             | "GlobeHead"
             | "SlimedBerserker"
+            | "BygoneEffigy"
     )
 }
 
@@ -594,6 +595,17 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_slimed_berserker_intent(last);
             execute_slimed_berserker_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "BygoneEffigy" => {
+            let last = last_ref.and_then(|s| match s {
+                "INITIAL_SLEEP_MOVE" => Some(BygoneEffigyIntent::InitialSleep),
+                "WAKE_MOVE" => Some(BygoneEffigyIntent::Wake),
+                "SLASHES_MOVE" => Some(BygoneEffigyIntent::Slash),
+                _ => None,
+            });
+            let intent = pick_bygone_effigy_intent(last);
+            execute_bygone_effigy_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {
