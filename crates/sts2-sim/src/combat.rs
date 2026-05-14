@@ -3265,6 +3265,81 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: TurretOperator -----------------------------
+//
+// Reflects C# `TurretOperator.GenerateMoveStateMachine`. Deterministic
+// 3-state cycle:
+//   Unload1 → Unload2 → Reload → Unload1 → …
+// Unload1 and Unload2 have identical payloads (separate C# nodes for
+// the chain order). Kept as distinct variants because they live in
+// different state positions.
+//
+// A0 payloads:
+//   - Unload (1 or 2): 3 damage × 5 hits (DeadlyEnemies: 4)
+//   - Reload: +1 self-Strength
+
+const TURRET_OPERATOR_FIRE_DAMAGE: i32 = 3;
+const TURRET_OPERATOR_FIRE_HITS: i32 = 5;
+const TURRET_OPERATOR_RELOAD_STRENGTH: i32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TurretOperatorIntent {
+    Unload1,
+    Unload2,
+    Reload,
+}
+
+impl TurretOperatorIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            TurretOperatorIntent::Unload1 => "UNLOAD_MOVE_1",
+            TurretOperatorIntent::Unload2 => "UNLOAD_MOVE_2",
+            TurretOperatorIntent::Reload => "RELOAD_MOVE",
+        }
+    }
+}
+
+pub fn pick_turret_operator_intent(
+    last_intent: Option<TurretOperatorIntent>,
+) -> TurretOperatorIntent {
+    match last_intent {
+        None => TurretOperatorIntent::Unload1,
+        Some(TurretOperatorIntent::Unload1) => TurretOperatorIntent::Unload2,
+        Some(TurretOperatorIntent::Unload2) => TurretOperatorIntent::Reload,
+        Some(TurretOperatorIntent::Reload) => TurretOperatorIntent::Unload1,
+    }
+}
+
+pub fn execute_turret_operator_move(
+    cs: &mut CombatState,
+    turret_idx: usize,
+    target_player_idx: usize,
+    intent: TurretOperatorIntent,
+) {
+    let attacker = (CombatSide::Enemy, turret_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        TurretOperatorIntent::Unload1 | TurretOperatorIntent::Unload2 => {
+            for _ in 0..TURRET_OPERATOR_FIRE_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    TURRET_OPERATOR_FIRE_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        TurretOperatorIntent::Reload => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                turret_idx,
+                "StrengthPower",
+                TURRET_OPERATOR_RELOAD_STRENGTH,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: TwigSlimeM ---------------------------------
 //
 // Reflects C# `TwigSlimeM.GenerateMoveStateMachine`:
@@ -8422,6 +8497,56 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- TurretOperator tests --------------------------------------
+
+    #[test]
+    fn turret_operator_chain_unload1_unload2_reload() {
+        assert_eq!(
+            pick_turret_operator_intent(None),
+            TurretOperatorIntent::Unload1
+        );
+        assert_eq!(
+            pick_turret_operator_intent(Some(TurretOperatorIntent::Unload1)),
+            TurretOperatorIntent::Unload2
+        );
+        assert_eq!(
+            pick_turret_operator_intent(Some(TurretOperatorIntent::Unload2)),
+            TurretOperatorIntent::Reload
+        );
+        assert_eq!(
+            pick_turret_operator_intent(Some(TurretOperatorIntent::Reload)),
+            TurretOperatorIntent::Unload1
+        );
+    }
+
+    #[test]
+    fn turret_operator_unload_hits_five_times_for_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_turret_operator_move(&mut cs, 0, 0, TurretOperatorIntent::Unload1);
+        assert_eq!(cs.allies[0].current_hp, hp - 15);
+    }
+
+    #[test]
+    fn turret_operator_unload1_unload2_share_payload() {
+        let mut cs = ironclad_combat();
+        let hp1_before = cs.enemies[0].current_hp;
+        let _ = hp1_before;
+        let p1 = cs.allies[0].current_hp;
+        execute_turret_operator_move(&mut cs, 0, 0, TurretOperatorIntent::Unload2);
+        assert_eq!(cs.allies[0].current_hp, p1 - 15);
+    }
+
+    #[test]
+    fn turret_operator_reload_gains_one_strength() {
+        let mut cs = ironclad_combat();
+        execute_turret_operator_move(&mut cs, 0, 0, TurretOperatorIntent::Reload);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            1
         );
     }
 

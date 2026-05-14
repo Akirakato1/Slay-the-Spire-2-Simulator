@@ -42,6 +42,7 @@ PORTED_INTENT_MACHINES = {
     "LeafSlimeS",
     "TwigSlimeM",
     "LeafSlimeM",
+    "TurretOperator",
 }
 
 
