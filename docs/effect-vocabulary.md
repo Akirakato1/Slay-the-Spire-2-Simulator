@@ -129,6 +129,21 @@ Pareto frontier: `ApplyPower` + `Attack(single/multi/all)` + `GainBlock` +
 already implemented in the Rust core. The long tail of one-offs (about 18
 primitives, ❌ above) is the remaining wiring work.
 
+### 1.10 Migrated to data (plan §0.2.6 in motion)
+
+The following 21 cards have had their match-arm OnPlay deleted and now run
+through `effects::card_effects → execute_effects`. Their existing
+spec-derived tests stay green, which validates the VM against the live
+`play_card` path (not just synthetic tests). Adding a new card to this
+registry now is a pure data edit — no Rust dispatcher code.
+
+- 5× Strike (Ironclad / Silent / Defect / Regent / Necrobinder)
+- 5× Defend (same character split)
+- Bash, Neutralize, Thunderclap, IronWave, TwinStrike, Inflame, Bloodletting
+- Defile, Defy
+- CosmicIndifference, CloakOfStars, AstralPulse
+- BeamCell, BoostAway
+
 ---
 
 ## 2. Relic hooks + bodies

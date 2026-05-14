@@ -2198,131 +2198,25 @@ fn dispatch_on_play(
     target: Option<(CombatSide, usize)>,
     x_value: i32,
 ) -> bool {
+    // Data-driven path (plan §0.2.6). Cards whose OnPlay is fully
+    // expressible as an effect list live in `effects::card_effects` and
+    // execute through the VM without a match-arm here.
+    if let Some(effects) = crate::effects::card_effects(card_id) {
+        let ctx = crate::effects::EffectContext::for_card(
+            player_idx,
+            target,
+            card_id,
+            upgrade_level,
+            enchantment,
+            x_value,
+        );
+        crate::effects::execute_effects(cs, &effects, &ctx);
+        return true;
+    }
     match card_id {
-        // All 5 Strike variants: deal Damage to single AnyEnemy target,
-        // routed through the modifier pipeline with ValueProp.Move. The
-        // played card's enchantment threads through pre-power modifiers.
-        "StrikeIronclad" | "StrikeSilent" | "StrikeDefect" | "StrikeRegent"
-        | "StrikeNecrobinder" => {
-            let Some(target) = target else { return false; };
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let damage = canonical_int_value(card, "Damage", upgrade_level);
-            cs.deal_damage_enchanted(
-                (CombatSide::Player, player_idx),
-                target,
-                damage,
-                ValueProp::MOVE,
-                enchantment,
-            );
-            true
-        }
-        // All 5 Defend variants: gain Block on self. `gain_block` routes
-        // through `modify_block` with ValueProp::MOVE, so Frail/Dexterity
-        // on the player apply automatically.
-        "DefendIronclad" | "DefendSilent" | "DefendDefect" | "DefendRegent"
-        | "DefendNecrobinder" => {
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let block = canonical_int_value(card, "Block", upgrade_level);
-            cs.gain_block(CombatSide::Player, player_idx, block);
-            true
-        }
-        // Bash (Ironclad basic): 8 damage + 2 Vulnerable to single enemy.
-        // Upgrade: +2 damage, +1 Vulnerable.
-        "Bash" => {
-            let Some(target) = target else { return false; };
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let damage = canonical_int_value(card, "Damage", upgrade_level);
-            let vuln = canonical_int_value(card, "Vulnerable", upgrade_level);
-            cs.deal_damage_enchanted(
-                (CombatSide::Player, player_idx),
-                target,
-                damage,
-                ValueProp::MOVE,
-                enchantment,
-            );
-            cs.apply_power(target.0, target.1, "VulnerablePower", vuln);
-            true
-        }
-        // Neutralize (Silent basic): 3 damage + 1 Weak to single enemy.
-        // Upgrade: +1 damage, +1 Weak.
-        "Neutralize" => {
-            let Some(target) = target else { return false; };
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let damage = canonical_int_value(card, "Damage", upgrade_level);
-            let weak = canonical_int_value(card, "Weak", upgrade_level);
-            cs.deal_damage_enchanted(
-                (CombatSide::Player, player_idx),
-                target,
-                damage,
-                ValueProp::MOVE,
-                enchantment,
-            );
-            cs.apply_power(target.0, target.1, "WeakPower", weak);
-            true
-        }
-        // Thunderclap (Ironclad common): 4 damage + 1 Vulnerable to ALL
-        // enemies. Upgrade: +3 damage. Each enemy takes the damage
-        // independently (block recomputes per target). Dead enemies skip.
-        "Thunderclap" => {
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let damage = canonical_int_value(card, "Damage", upgrade_level);
-            let vuln = canonical_int_value(card, "Vulnerable", upgrade_level);
-            let n = cs.enemies.len();
-            for i in 0..n {
-                if cs.enemies[i].current_hp == 0 {
-                    continue;
-                }
-                cs.deal_damage_enchanted(
-                    (CombatSide::Player, player_idx),
-                    (CombatSide::Enemy, i),
-                    damage,
-                    ValueProp::MOVE,
-                    enchantment,
-                );
-                // C# applies to HittableEnemies (still-alive); skip dead
-                // before AND after damage to match.
-                if cs.enemies[i].current_hp > 0 {
-                    cs.apply_power(CombatSide::Enemy, i, "VulnerablePower", vuln);
-                }
-            }
-            true
-        }
-        // IronWave (Ironclad common): 5 damage to single enemy + 5 block
-        // on self. Upgrade: +2 each. C# order is block-then-damage; we
-        // match.
-        "IronWave" => {
-            let Some(target) = target else { return false; };
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let damage = canonical_int_value(card, "Damage", upgrade_level);
-            let block = canonical_int_value(card, "Block", upgrade_level);
-            cs.gain_block(CombatSide::Player, player_idx, block);
-            cs.deal_damage_enchanted(
-                (CombatSide::Player, player_idx),
-                target,
-                damage,
-                ValueProp::MOVE,
-                enchantment,
-            );
-            true
-        }
         // TwinStrike (Ironclad common): 5 damage × 2 hits to single
         // enemy. Upgrade: +2 per hit (becomes 7×2). C# uses
         // `.WithHitCount(2)` — each hit goes through modifiers independently.
-        "TwinStrike" => {
-            let Some(target) = target else { return false; };
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let damage = canonical_int_value(card, "Damage", upgrade_level);
-            for _ in 0..2 {
-                cs.deal_damage_enchanted(
-                    (CombatSide::Player, player_idx),
-                    target,
-                    damage,
-                    ValueProp::MOVE,
-                    enchantment,
-                );
-            }
-            true
-        }
         // Anger (Ironclad common): 6 damage + add a copy of self to
         // discard pile. Upgrade: +2 damage. The clone is `played_card`
         // pre-routing, so we can't directly access it from here —
@@ -2345,46 +2239,6 @@ fn dispatch_on_play(
             if let Some(ps) = cs.allies[player_idx].player.as_mut() {
                 ps.discard.cards.push(clone);
             }
-            true
-        }
-        // Inflame (Ironclad uncommon): apply 2 Strength to self.
-        // Upgrade: +1 Strength.
-        "Inflame" => {
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let strength = canonical_int_value(card, "StrengthPower", upgrade_level);
-            cs.apply_power(
-                CombatSide::Player,
-                player_idx,
-                "StrengthPower",
-                strength,
-            );
-            true
-        }
-        // Defile (Necrobinder common Ethereal Attack, 1E, AnyEnemy):
-        // 13 damage (17 upgraded). Ethereal handling deferred.
-        "Defile" => {
-            let Some(target) = target else { return false; };
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let damage = canonical_int_value(card, "Damage", upgrade_level);
-            cs.deal_damage_enchanted(
-                (CombatSide::Player, player_idx),
-                target,
-                damage,
-                ValueProp::MOVE,
-                enchantment,
-            );
-            true
-        }
-        // Defy (Necrobinder common Ethereal Skill, 1E, AnyEnemy): 6
-        // block (9 upgraded) + 1 Weak (unchanged on upgrade — only
-        // Block upgrades). Block reaches the caster, Weak the target.
-        "Defy" => {
-            let Some(target) = target else { return false; };
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let block = canonical_int_value(card, "Block", upgrade_level);
-            let weak = canonical_int_value(card, "Weak", upgrade_level);
-            cs.gain_block(CombatSide::Player, player_idx, block);
-            cs.apply_power(target.0, target.1, "WeakPower", weak);
             true
         }
         // GraveWarden (Necrobinder common Skill, 1E, Self): 8 block
@@ -2424,74 +2278,7 @@ fn dispatch_on_play(
             }
             true
         }
-        // CosmicIndifference (Regent common Skill, 1E, Self): 6 block
-        // (9 upgraded).
-        "CosmicIndifference" => {
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let block = canonical_int_value(card, "Block", upgrade_level);
-            cs.gain_block(CombatSide::Player, player_idx, block);
-            true
-        }
-        // CloakOfStars (Regent common Skill, 1E, Self): 7 block (10
-        // upgraded).
-        "CloakOfStars" => {
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let block = canonical_int_value(card, "Block", upgrade_level);
-            cs.gain_block(CombatSide::Player, player_idx, block);
-            true
-        }
         // ---------- Defect / Regent cross-pool commons -----------
-        // BeamCell (Defect common Attack, 0E, AnyEnemy): 3 damage
-        // (4 upgraded) + 1 Vulnerable (2 upgraded). Identical shape
-        // to Bash but smaller numbers.
-        "BeamCell" => {
-            let Some(target) = target else { return false; };
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let damage = canonical_int_value(card, "Damage", upgrade_level);
-            let vuln = canonical_int_value(card, "Vulnerable", upgrade_level);
-            cs.deal_damage_enchanted(
-                (CombatSide::Player, player_idx),
-                target,
-                damage,
-                ValueProp::MOVE,
-                enchantment,
-            );
-            cs.apply_power(target.0, target.1, "VulnerablePower", vuln);
-            true
-        }
-        // BoostAway (Defect common Skill, 0E, Self): 6 block (9
-        // upgraded) + add a Dazed (status) to discard. Dazed is
-        // Ethereal+Unplayable; full keyword handling deferred but
-        // tracking it in discard is correct for now.
-        "BoostAway" => {
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let block = canonical_int_value(card, "Block", upgrade_level);
-            cs.gain_block(CombatSide::Player, player_idx, block);
-            cs.add_card_to_pile(player_idx, "Dazed", 0, PileType::Discard);
-            true
-        }
-        // AstralPulse (Regent common Attack, 0E, AllEnemies): 14
-        // damage (18 upgraded) to each enemy. CanonicalStarCost=3 is
-        // the Regent star-cost mechanic — not modeled yet; card costs
-        // 0 energy and free-fires until the star economy lands.
-        "AstralPulse" => {
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let damage = canonical_int_value(card, "Damage", upgrade_level);
-            let n = cs.enemies.len();
-            for i in 0..n {
-                if cs.enemies[i].current_hp == 0 {
-                    continue;
-                }
-                cs.deal_damage_enchanted(
-                    (CombatSide::Player, player_idx),
-                    (CombatSide::Enemy, i),
-                    damage,
-                    ValueProp::MOVE,
-                    enchantment,
-                );
-            }
-            true
-        }
         // CollisionCourse (Regent common Attack, 0E, AnyEnemy): 11
         // damage (15 upgraded) + add Debris (status, 1E Exhaust) to
         // hand. Debris OnPlay isn't ported yet — tracking presence
@@ -3162,21 +2949,6 @@ fn dispatch_on_play(
                 if cur_vuln > 0 {
                     cs.apply_power(target.0, target.1, "VulnerablePower", cur_vuln);
                 }
-            }
-            true
-        }
-        // Bloodletting (Ironclad common Skill, 0 cost): lose 3 HP +
-        // gain 2 energy (3 upgraded). C# damage call carries
-        // Unblockable|Unpowered|Move so it bypasses block AND the
-        // modifier pipeline — equivalent to our `lose_hp`. Energy gain
-        // is uncapped (matches StS — can exceed max energy mid-turn).
-        "Bloodletting" => {
-            let Some(card) = card_by_id(card_id) else { return false; };
-            let hp_loss = canonical_int_value(card, "HpLoss", upgrade_level);
-            let energy = canonical_int_value(card, "Energy", upgrade_level);
-            cs.lose_hp(CombatSide::Player, player_idx, hp_loss);
-            if let Some(ps) = cs.allies[player_idx].player.as_mut() {
-                ps.energy += energy;
             }
             true
         }

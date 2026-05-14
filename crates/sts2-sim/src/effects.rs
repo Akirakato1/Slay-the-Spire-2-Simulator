@@ -235,6 +235,175 @@ pub fn execute_effects(cs: &mut CombatState, effects: &[Effect], ctx: &EffectCon
     }
 }
 
+/// Registry of cards whose OnPlay is fully expressed as data, replacing
+/// their match-arm implementation in `combat.rs::dispatch_on_play`. The
+/// dispatcher consults this first; falls back to the match-arm path for
+/// cards still on the hand-coded route.
+///
+/// Migrating a card here means: (1) the only primitives it uses are
+/// already implemented in the VM, and (2) its existing spec-derived
+/// tests still pass after the route change. This is plan §0.2.6 in
+/// motion — one card or family at a time.
+pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
+    match card_id {
+        // All 5 Strike variants: deal Damage to a single chosen enemy.
+        "StrikeIronclad" | "StrikeSilent" | "StrikeDefect" | "StrikeRegent"
+        | "StrikeNecrobinder" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("Damage".to_string()),
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
+        // All 5 Defend variants: gain Block on self.
+        "DefendIronclad" | "DefendSilent" | "DefendDefect" | "DefendRegent"
+        | "DefendNecrobinder" => Some(vec![Effect::GainBlock {
+            amount: AmountSpec::Canonical("Block".to_string()),
+            target: Target::SelfPlayer,
+        }]),
+
+        // ----- Ironclad starter / common -----
+        // Bash: damage + Vulnerable on single enemy.
+        "Bash" => Some(vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+            Effect::ApplyPower {
+                power_id: "VulnerablePower".to_string(),
+                amount: AmountSpec::Canonical("Vulnerable".to_string()),
+                target: Target::ChosenEnemy,
+            },
+        ]),
+        // Neutralize (Silent basic): damage + Weak.
+        "Neutralize" => Some(vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+            Effect::ApplyPower {
+                power_id: "WeakPower".to_string(),
+                amount: AmountSpec::Canonical("Weak".to_string()),
+                target: Target::ChosenEnemy,
+            },
+        ]),
+        // Thunderclap: AOE damage + AOE Vulnerable.
+        "Thunderclap" => Some(vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::AllEnemies,
+                hits: 1,
+            },
+            Effect::ApplyPower {
+                power_id: "VulnerablePower".to_string(),
+                amount: AmountSpec::Canonical("Vulnerable".to_string()),
+                target: Target::AllEnemies,
+            },
+        ]),
+        // IronWave: block then damage.
+        "IronWave" => Some(vec![
+            Effect::GainBlock {
+                amount: AmountSpec::Canonical("Block".to_string()),
+                target: Target::SelfPlayer,
+            },
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+        ]),
+        // TwinStrike: Damage × 2 hits to a single enemy.
+        "TwinStrike" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("Damage".to_string()),
+            target: Target::ChosenEnemy,
+            hits: 2,
+        }]),
+        // Inflame: apply Strength to self.
+        "Inflame" => Some(vec![Effect::ApplyPower {
+            power_id: "StrengthPower".to_string(),
+            amount: AmountSpec::Canonical("StrengthPower".to_string()),
+            target: Target::SelfPlayer,
+        }]),
+        // Bloodletting: lose HP (bypass block) + gain energy.
+        "Bloodletting" => Some(vec![
+            Effect::LoseHp {
+                amount: AmountSpec::Canonical("HpLoss".to_string()),
+                target: Target::SelfPlayer,
+            },
+            Effect::GainEnergy {
+                amount: AmountSpec::Canonical("Energy".to_string()),
+            },
+        ]),
+
+        // ----- Necrobinder commons -----
+        // Defile: single-target damage (Ethereal handled at routing layer).
+        "Defile" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("Damage".to_string()),
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
+        // Defy: block self + Weak on target.
+        "Defy" => Some(vec![
+            Effect::GainBlock {
+                amount: AmountSpec::Canonical("Block".to_string()),
+                target: Target::SelfPlayer,
+            },
+            Effect::ApplyPower {
+                power_id: "WeakPower".to_string(),
+                amount: AmountSpec::Canonical("Weak".to_string()),
+                target: Target::ChosenEnemy,
+            },
+        ]),
+
+        // ----- Regent commons -----
+        // CosmicIndifference: block self.
+        "CosmicIndifference" => Some(vec![Effect::GainBlock {
+            amount: AmountSpec::Canonical("Block".to_string()),
+            target: Target::SelfPlayer,
+        }]),
+        // CloakOfStars: block self.
+        "CloakOfStars" => Some(vec![Effect::GainBlock {
+            amount: AmountSpec::Canonical("Block".to_string()),
+            target: Target::SelfPlayer,
+        }]),
+        // AstralPulse: AOE damage.
+        "AstralPulse" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("Damage".to_string()),
+            target: Target::AllEnemies,
+            hits: 1,
+        }]),
+
+        // ----- Defect commons -----
+        // BeamCell: damage + Vulnerable (Bash-shape, smaller numbers).
+        "BeamCell" => Some(vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+            Effect::ApplyPower {
+                power_id: "VulnerablePower".to_string(),
+                amount: AmountSpec::Canonical("Vulnerable".to_string()),
+                target: Target::ChosenEnemy,
+            },
+        ]),
+        // BoostAway: block self + Dazed to discard.
+        "BoostAway" => Some(vec![
+            Effect::GainBlock {
+                amount: AmountSpec::Canonical("Block".to_string()),
+                target: Target::SelfPlayer,
+            },
+            Effect::AddCardToPile {
+                card_id: "Dazed".to_string(),
+                upgrade: 0,
+                pile: Pile::Discard,
+            },
+        ]),
+
+        _ => None,
+    }
+}
+
 fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
     match eff {
         Effect::DealDamage {
