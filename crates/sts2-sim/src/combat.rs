@@ -25,6 +25,7 @@ use crate::encounter::EncounterData;
 use crate::monster::MonsterData;
 use crate::power::{by_id as power_by_id, PowerStackType};
 use crate::rng::Rng;
+use serde::{Deserialize, Serialize};
 
 /// Default player energy at the start of each combat turn. (StS1/StS2
 /// standard; the actual game lookup includes relic/affliction modifiers that
@@ -32,7 +33,7 @@ use crate::rng::Rng;
 pub const DEFAULT_TURN_ENERGY: i32 = 3;
 
 /// C# `CombatSide`. `None` is a sentinel — combat is always Player or Enemy.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CombatSide {
     None,
     Player,
@@ -1028,7 +1029,7 @@ impl CombatState {
 }
 
 /// Outcome of [`CombatState::play_card`].
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub enum PlayResult {
     /// OnPlay dispatched and ran cleanly; energy spent; card routed.
     Ok,
@@ -1591,7 +1592,7 @@ pub fn pick_axebot_intent(rng: &mut Rng, last_intent: Option<AxebotIntent>) -> A
 
 /// Result of a resolved combat. Reported by [`CombatState::is_combat_over`]
 /// when the combat ends.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CombatResult {
     Victory,
     Defeat,
@@ -1647,7 +1648,7 @@ pub enum CombatEvent {
 ///
 /// Card / potion / relic fields are placeholders for future expansion —
 /// currently only `gold` is populated.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CombatRewards {
     pub gold: i32,
     /// Card-reward choice triplet. Empty until card-reward generation lands.
@@ -1677,7 +1678,7 @@ fn gold_reward_range(room_type: Option<&str>) -> (i32, i32) {
 
 /// Outcome of a single `apply_damage` call. Useful for combat-log replay
 /// and for upstream hooks that need to know whether HP actually moved.
-#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DamageOutcome {
     /// Damage absorbed by block.
     pub blocked: i32,

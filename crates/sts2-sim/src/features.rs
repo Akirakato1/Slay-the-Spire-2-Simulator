@@ -46,6 +46,20 @@
 use crate::card::{CardData, CardRarity, CardType, TargetType};
 use crate::combat::{CardInstance, Creature, CreatureKind, PowerInstance};
 use crate::relic::{RelicData, RelicRarity};
+use serde::{ser::SerializeSeq, Serialize, Serializer};
+
+// `serde` derive can't generate a `Serialize` impl for `[T; N]` when
+// `N > 32` (large-array support requires a separate crate or a manual
+// impl). We hand-write impls below that emit a flat JSON array. The
+// derived shape is a single `[…]` per feature struct — agents reading
+// the JSON treat it as the feature row directly.
+fn serialize_f32_slice<S: Serializer>(values: &[f32], s: S) -> Result<S::Ok, S::Error> {
+    let mut seq = s.serialize_seq(Some(values.len()))?;
+    for v in values {
+        seq.serialize_element(v)?;
+    }
+    seq.end()
+}
 
 /// Schema version. Bump when the feature layout below changes.
 pub const OBSERVATION_SCHEMA_VERSION: u32 = 1;
@@ -64,6 +78,12 @@ pub struct CardFeatures {
 impl CardFeatures {
     pub fn as_slice(&self) -> &[f32] {
         &self.values
+    }
+}
+
+impl Serialize for CardFeatures {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        serialize_f32_slice(&self.values, s)
     }
 }
 
@@ -226,7 +246,7 @@ fn effective_var(card: &CardData, var_kind: &str, upgrade_level: i32) -> Option<
 /// Per-pile card feature vectors include the card's current instance
 /// state (upgrade level, enchantment) — the agent never has to look
 /// the runtime info up separately.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CombatObservation {
     /// Pinned to `OBSERVATION_SCHEMA_VERSION` at observation time.
     /// Agents reject observations whose version doesn't match their
@@ -260,7 +280,7 @@ pub struct CombatObservation {
     pub enemies: Vec<CreatureStateFeatures>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct PilesFeatures {
     pub draw: Vec<CardFeatures>,
     pub hand: Vec<CardFeatures>,
@@ -381,6 +401,12 @@ impl RelicFeatures {
     }
 }
 
+impl Serialize for RelicFeatures {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        serialize_f32_slice(&self.values, s)
+    }
+}
+
 // Layout:
 //   0..8:  RelicRarity one-hot (None / Starter / Common / Uncommon / Rare /
 //          Shop / Event / Ancient)
@@ -462,6 +488,12 @@ pub struct CreatureStateFeatures {
 impl CreatureStateFeatures {
     pub fn as_slice(&self) -> &[f32] {
         &self.values
+    }
+}
+
+impl Serialize for CreatureStateFeatures {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        serialize_f32_slice(&self.values, s)
     }
 }
 

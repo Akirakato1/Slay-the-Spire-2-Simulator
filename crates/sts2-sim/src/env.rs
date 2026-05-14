@@ -32,13 +32,14 @@ use crate::combat::{
     CombatResult, CombatRewards, CombatSide, CombatState, PlayResult, PlayerSetup,
 };
 use crate::rng::Rng;
+use serde::{Deserialize, Serialize};
 
 /// The set of actions the agent can take during a combat turn.
 ///
 /// Mirrors the C# `PlayerChoice` family (card-play, end-turn, potion-use)
 /// at a coarse granularity. Card-play with multi-card-pick choices
 /// (Discovery, etc.) will need a richer sub-action; not modeled yet.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Action {
     /// Play the card at `hand_idx` from the given player's hand.
     /// `target` is None when the card's `TargetType` doesn't need one
@@ -64,7 +65,7 @@ pub enum Action {
 /// Result of one `step()`. Reward shaping is intentionally minimal at
 /// this layer — the agent crate adds dense shaping (HP-preserved, etc.)
 /// during training as needed.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StepOutcome {
     /// True iff the combat has terminated (Victory / Defeat).
     pub terminal: bool,
