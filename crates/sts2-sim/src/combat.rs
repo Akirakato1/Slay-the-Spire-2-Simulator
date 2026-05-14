@@ -342,10 +342,17 @@ impl CombatState {
         // of that side's next turn. This matches StS rules: block from
         // Defend persists through enemy attacks, then resets when you play
         // again. We clear on this side's begin, not on end.
+        //
+        // BarricadePower exception: its `ShouldClearBlock(creature)` C#
+        // hook returns false when called on owner, so block is preserved
+        // across the owner's turn boundary. We honor this by skipping the
+        // clear for any creature that holds BarricadePower.
         match side {
             CombatSide::Player => {
                 for ally in self.allies.iter_mut() {
-                    ally.block = 0;
+                    if !ally.powers.iter().any(|p| p.id == "BarricadePower") {
+                        ally.block = 0;
+                    }
                     // Energy refresh: fill to per-turn allotment. C# routes
                     // this through Hook.ModifyEnergyGain which lets relics
                     // (Velvet Choker, etc.) tweak the amount; until those
@@ -357,7 +364,9 @@ impl CombatState {
             }
             CombatSide::Enemy => {
                 for enemy in self.enemies.iter_mut() {
-                    enemy.block = 0;
+                    if !enemy.powers.iter().any(|p| p.id == "BarricadePower") {
+                        enemy.block = 0;
+                    }
                 }
             }
             CombatSide::None => {}
@@ -1441,6 +1450,19 @@ fn dispatch_on_play(
                 player_idx,
                 "StrengthPower",
                 strength,
+            );
+            true
+        }
+        // Barricade (Ironclad rare Power, 3 cost, Self): apply 1
+        // BarricadePower. Its ShouldClearBlock hook (handled in
+        // begin_turn) preserves block across the owner's turn
+        // boundary. Single stack — never accumulates.
+        "Barricade" => {
+            cs.apply_power(
+                CombatSide::Player,
+                player_idx,
+                "BarricadePower",
+                1,
             );
             true
         }
@@ -3944,6 +3966,57 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Barricade tests ------------------------------------------
+
+    #[test]
+    fn barricade_applies_single_stack() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 3;
+        let card = card_by_id("Barricade").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "BarricadePower"),
+            1
+        );
+    }
+
+    #[test]
+    fn barricade_preserves_block_across_player_turn_start() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "BarricadePower", 1);
+        cs.allies[0].block = 20;
+        cs.begin_turn(CombatSide::Player);
+        // Block survives the turn-start clear.
+        assert_eq!(cs.allies[0].block, 20);
+    }
+
+    #[test]
+    fn no_barricade_clears_block_on_turn_start_as_usual() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].block = 20;
+        cs.begin_turn(CombatSide::Player);
+        // Baseline: no Barricade → block wipes.
+        assert_eq!(cs.allies[0].block, 0);
+    }
+
+    #[test]
+    fn barricade_on_enemy_preserves_enemy_block_too() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "BarricadePower", 1);
+        cs.enemies[0].block = 15;
+        cs.begin_turn(CombatSide::Enemy);
+        assert_eq!(cs.enemies[0].block, 15);
     }
 
     // ---------- PerfectedStrike tests ------------------------------------
