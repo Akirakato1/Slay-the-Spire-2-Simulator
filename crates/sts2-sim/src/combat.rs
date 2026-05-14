@@ -1020,6 +1020,7 @@ impl CombatState {
         let card_id;
         let upgrade_level;
         let energy_cost;
+        let x_value;
         let card_data: &'static CardData;
         let max_target_side;
         let max_target_idx;
@@ -1038,8 +1039,20 @@ impl CombatState {
             };
             card_id = card.id.clone();
             upgrade_level = card.upgrade_level;
-            energy_cost = card.current_energy_cost;
             card_data = data;
+            // X-cost cards (Whirlwind): consume all available energy; the
+            // resolved X is the integer count of energy spent. Matches
+            // C# CardModel.ResolveEnergyXValue / energy-cost-X gating.
+            // Non-X cards use the card's printed cost (with the
+            // energy_cost_upgrade_delta already applied at CardInstance
+            // creation time).
+            if data.has_energy_cost_x {
+                energy_cost = ps.energy.max(0);
+                x_value = energy_cost;
+            } else {
+                energy_cost = card.current_energy_cost;
+                x_value = 0;
+            }
             if ps.energy < energy_cost {
                 return PlayResult::InsufficientEnergy {
                     available: ps.energy,
@@ -1085,6 +1098,7 @@ impl CombatState {
             played_card.enchantment.as_ref(),
             player_idx,
             target,
+            x_value,
         );
 
         // 6. Route the card per its type. Status/Curse cards exhaust
@@ -1187,6 +1201,7 @@ fn dispatch_on_play(
     enchantment: Option<&EnchantmentInstance>,
     player_idx: usize,
     target: Option<(CombatSide, usize)>,
+    x_value: i32,
 ) -> bool {
     match card_id {
         // All 5 Strike variants: deal Damage to single AnyEnemy target,
@@ -1348,6 +1363,35 @@ fn dispatch_on_play(
                 "StrengthPower",
                 strength,
             );
+            true
+        }
+        // Whirlwind (Ironclad uncommon X-cost Attack): hit ALL enemies
+        // X times for 5 damage each (8 upgraded). C# uses
+        // `DamageCmd.Attack(...).WithHitCount(num).TargetingAllOpponents`
+        // where `num = ResolveEnergyXValue()` (= the energy we spent
+        // computing as x_value above). Each hit goes through the modifier
+        // pipeline independently; dead enemies skip mid-way through.
+        "Whirlwind" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            for _ in 0..x_value {
+                if cs.enemies.iter().all(|e| e.current_hp == 0) {
+                    break;
+                }
+                let n = cs.enemies.len();
+                for i in 0..n {
+                    if cs.enemies[i].current_hp == 0 {
+                        continue;
+                    }
+                    cs.deal_damage_enchanted(
+                        (CombatSide::Player, player_idx),
+                        (CombatSide::Enemy, i),
+                        damage,
+                        ValueProp::MOVE,
+                        enchantment,
+                    );
+                }
+            }
             true
         }
         // LegSweep (Silent uncommon Skill): gain 11 block + apply 2 Weak
@@ -3516,6 +3560,92 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Whirlwind / X-cost tests ---------------------------------
+
+    #[test]
+    fn whirlwind_consumes_all_energy_and_hits_each_enemy_x_times() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 3;
+        let card = card_by_id("Whirlwind").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp0_before = cs.enemies[0].current_hp;
+        let hp1_before = cs.enemies[1].current_hp;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        // X=3, damage 5 → 15 to each enemy.
+        assert_eq!(cs.enemies[0].current_hp, hp0_before - 15);
+        assert_eq!(cs.enemies[1].current_hp, hp1_before - 15);
+        // All energy consumed.
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 0);
+    }
+
+    #[test]
+    fn whirlwind_with_zero_energy_is_noop() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 0;
+        let card = card_by_id("Whirlwind").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before);
+    }
+
+    #[test]
+    fn upgraded_whirlwind_does_eight_per_hit() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let card = card_by_id("Whirlwind").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        // X=2, damage 5+3=8 → 16 per enemy.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 16);
+    }
+
+    #[test]
+    fn whirlwind_picks_up_strength_per_hit() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let card = card_by_id("Whirlwind").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        // X=2, damage (5+2)=7 → 14 per enemy.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 14);
     }
 
     // ---------- LegSweep dispatch tests ----------------------------------
