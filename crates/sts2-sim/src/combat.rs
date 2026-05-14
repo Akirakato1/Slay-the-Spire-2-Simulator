@@ -1369,6 +1369,40 @@ fn dispatch_on_play(
             );
             true
         }
+        // Breakthrough (Ironclad common Attack, AoE): lose 1 HP
+        // unblockable THEN 9 damage to ALL enemies (13 upgraded). C# is
+        // strict on order: HpLoss first, then attack. Dead enemies skip.
+        "Breakthrough" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let hp_loss = canonical_int_value(card, "HpLoss", upgrade_level);
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.lose_hp(CombatSide::Player, player_idx, hp_loss);
+            let n = cs.enemies.len();
+            for i in 0..n {
+                if cs.enemies[i].current_hp == 0 {
+                    continue;
+                }
+                cs.deal_damage_enchanted(
+                    (CombatSide::Player, player_idx),
+                    (CombatSide::Enemy, i),
+                    damage,
+                    ValueProp::MOVE,
+                    enchantment,
+                );
+            }
+            true
+        }
+        // BloodWall (Ironclad common Skill, 2 cost): lose 2 HP
+        // unblockable THEN 16 block (20 upgraded). C# order is
+        // HpLoss → GainBlock.
+        "BloodWall" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let hp_loss = canonical_int_value(card, "HpLoss", upgrade_level);
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.lose_hp(CombatSide::Player, player_idx, hp_loss);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            true
+        }
         // Tremble (Ironclad common Exhaust Skill): apply 3 Vulnerable
         // to single enemy. Upgrade: +1 Vulnerable. Exhausts via the
         // keyword-driven routing.
@@ -3643,6 +3677,125 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Breakthrough + BloodWall tests ---------------------------
+
+    #[test]
+    fn breakthrough_loses_hp_then_aoe_damages() {
+        let mut cs = ironclad_combat();
+        let hp_before = cs.allies[0].current_hp;
+        let e0 = cs.enemies[0].current_hp;
+        let e1 = cs.enemies[1].current_hp;
+        let card = card_by_id("Breakthrough").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].current_hp, hp_before - 1);
+        assert_eq!(cs.enemies[0].current_hp, e0 - 9);
+        assert_eq!(cs.enemies[1].current_hp, e1 - 9);
+    }
+
+    #[test]
+    fn upgraded_breakthrough_does_thirteen_per_enemy() {
+        let mut cs = ironclad_combat();
+        let e0 = cs.enemies[0].current_hp;
+        let card = card_by_id("Breakthrough").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, e0 - 13);
+    }
+
+    #[test]
+    fn breakthrough_self_damage_bypasses_block() {
+        // HpLoss is Unblockable | Unpowered → block on player unchanged.
+        let mut cs = ironclad_combat();
+        cs.allies[0].block = 20;
+        let hp_before = cs.allies[0].current_hp;
+        let card = card_by_id("Breakthrough").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].current_hp, hp_before - 1);
+        assert_eq!(cs.allies[0].block, 20);
+    }
+
+    #[test]
+    fn blood_wall_loses_hp_then_grants_block() {
+        let mut cs = ironclad_combat();
+        let hp_before = cs.allies[0].current_hp;
+        let card = card_by_id("BloodWall").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].current_hp, hp_before - 2);
+        assert_eq!(cs.allies[0].block, 16);
+    }
+
+    #[test]
+    fn upgraded_blood_wall_grants_twenty_block() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("BloodWall").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 20);
+    }
+
+    #[test]
+    fn blood_wall_block_picks_up_frail() {
+        // BloodWall threads through gain_block → modify_block, so Frail
+        // reduces it: 16 * 0.75 = 12.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 1);
+        let card = card_by_id("BloodWall").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 12);
     }
 
     // ---------- Tremble + Apparition tests -------------------------------
