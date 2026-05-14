@@ -17,6 +17,7 @@ pub mod hash;
 pub mod map;
 pub mod modifier;
 pub mod monster;
+pub mod monster_dispatch;
 pub mod orb;
 pub mod path_pruning;
 pub mod potion;

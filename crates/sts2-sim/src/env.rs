@@ -123,6 +123,11 @@ impl CombatEnv {
         // part of opening combat; we run it eagerly so the agent's
         // first `observation()` reflects post-hook state.
         state.fire_before_combat_start_hooks();
+        // Monster `AfterAddedToRoom` payloads — applies per-monster
+        // start-of-combat powers (HardToKill, EscapeArtist, Plating,
+        // Artifact, ...). Mirrors C# CombatRoom's per-monster
+        // AfterAddedToRoom dispatch.
+        crate::monster_dispatch::fire_monster_spawn_hooks(&mut state);
         // Initial draw: every player starts the first turn with 5 cards
         // in hand. C# CombatManager.BeginCombat triggers this. Without
         // this, agents see an empty hand on the first observation and
@@ -169,12 +174,34 @@ impl CombatEnv {
             }
             Action::EndTurn { player_idx: _ } => {
                 self.state.end_turn();
-                // Enemy turn loop: not implemented yet. Each living
-                // enemy would execute its picked intent then pick the
-                // next one. Skip for now and just flip the side back
-                // to Player; downstream callers can directly call
-                // `execute_axebot_move` for the single-monster case.
                 self.state.begin_turn(CombatSide::Enemy);
+                // Enemy turn dispatch: for every living enemy, pick
+                // and execute its next intent. Unported monsters
+                // (model_id not in the registry) skip silently —
+                // their `dispatch_enemy_turn` returns false. The
+                // for-loop reads len() each iteration so spawned
+                // monsters mid-turn would be picked up; today no
+                // monster summons enemies inside a turn.
+                for enemy_idx in 0..self.state.enemies.len() {
+                    // Always target the first player; multiplayer
+                    // target selection isn't modeled.
+                    crate::monster_dispatch::dispatch_enemy_turn(
+                        &mut self.state,
+                        enemy_idx,
+                        0,
+                    );
+                    // If the player died mid-turn, bail — no more
+                    // enemy moves should resolve.
+                    if self
+                        .state
+                        .allies
+                        .first()
+                        .map(|a| a.current_hp == 0)
+                        .unwrap_or(true)
+                    {
+                        break;
+                    }
+                }
                 self.state.end_turn();
                 self.state.begin_turn(CombatSide::Player);
                 // Per-turn 5-card draw at the start of the player's
