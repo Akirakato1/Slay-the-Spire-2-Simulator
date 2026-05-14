@@ -38,6 +38,8 @@ PORTED_INTENT_MACHINES = {
     "ScrollOfBiting",
     "CorpseSlug",
     "Seapunk",
+    "TwigSlimeS",
+    "LeafSlimeS",
 }
 
 

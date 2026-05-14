@@ -3265,6 +3265,141 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: TwigSlimeS ---------------------------------
+//
+// Reflects C# `TwigSlimeS.GenerateMoveStateMachine`. Trivial: single
+// Butt move that always loops. No state branching, no RNG, no powers.
+//
+// A0 payload: Butt 4 damage (DeadlyEnemies: 5).
+
+const TWIG_SLIME_S_BUTT_DAMAGE: i32 = 4;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TwigSlimeSIntent {
+    Butt,
+}
+
+impl TwigSlimeSIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            TwigSlimeSIntent::Butt => "BUTT_MOVE",
+        }
+    }
+}
+
+pub fn pick_twig_slime_s_intent(
+    _last_intent: Option<TwigSlimeSIntent>,
+) -> TwigSlimeSIntent {
+    TwigSlimeSIntent::Butt
+}
+
+pub fn execute_twig_slime_s_move(
+    cs: &mut CombatState,
+    slime_idx: usize,
+    target_player_idx: usize,
+    intent: TwigSlimeSIntent,
+) {
+    let attacker = (CombatSide::Enemy, slime_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        TwigSlimeSIntent::Butt => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TWIG_SLIME_S_BUTT_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: LeafSlimeS ---------------------------------
+//
+// Reflects C# `LeafSlimeS.GenerateMoveStateMachine`:
+//   Two-move random pick with CannotRepeat on both branches.
+//     - Butt (3 damage)
+//     - Goop (add 1 Slimed status card to player's discard pile)
+//   Init = RandomBranch directly (no fixed first move). Each turn the
+//   pick excludes the last-played move.
+//
+// A0 payloads:
+//   - Butt: 3 damage (DeadlyEnemies: 4)
+//   - Goop: 1 Slimed to discard (const)
+
+const LEAF_SLIME_S_BUTT_DAMAGE: i32 = 3;
+const LEAF_SLIME_S_GOOP_COUNT: i32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum LeafSlimeSIntent {
+    Butt,
+    Goop,
+}
+
+impl LeafSlimeSIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            LeafSlimeSIntent::Butt => "BUTT_MOVE",
+            LeafSlimeSIntent::Goop => "GOOP_MOVE",
+        }
+    }
+}
+
+/// Pick LeafSlimeS's next intent. Random 50/50 first turn; subsequent
+/// turns exclude the last-played move (both branches CannotRepeat).
+/// Together this gives a strict alternation after turn 1, but first
+/// turn is RNG-determined.
+pub fn pick_leaf_slime_s_intent(
+    rng: &mut Rng,
+    last_intent: Option<LeafSlimeSIntent>,
+) -> LeafSlimeSIntent {
+    match last_intent {
+        None => {
+            // 50/50 RandomBranch — both branches weight 1.
+            let w_butt: f32 = 1.0;
+            let w_goop: f32 = 1.0;
+            let total = w_butt + w_goop;
+            let mut roll = rng.next_float(total);
+            roll -= w_butt;
+            if roll <= 0.0 {
+                return LeafSlimeSIntent::Butt;
+            }
+            LeafSlimeSIntent::Goop
+        }
+        Some(LeafSlimeSIntent::Butt) => LeafSlimeSIntent::Goop,
+        Some(LeafSlimeSIntent::Goop) => LeafSlimeSIntent::Butt,
+    }
+}
+
+pub fn execute_leaf_slime_s_move(
+    cs: &mut CombatState,
+    slime_idx: usize,
+    target_player_idx: usize,
+    intent: LeafSlimeSIntent,
+) {
+    let attacker = (CombatSide::Enemy, slime_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        LeafSlimeSIntent::Butt => {
+            cs.deal_damage(
+                attacker,
+                player,
+                LEAF_SLIME_S_BUTT_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        LeafSlimeSIntent::Goop => {
+            for _ in 0..LEAF_SLIME_S_GOOP_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Slimed",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: Seapunk ------------------------------------
 //
 // Reflects C# `Seapunk.GenerateMoveStateMachine`:
@@ -8134,6 +8269,72 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- TwigSlimeS + LeafSlimeS tests -----------------------------
+
+    #[test]
+    fn twig_slime_s_always_butts() {
+        assert_eq!(
+            pick_twig_slime_s_intent(None),
+            TwigSlimeSIntent::Butt
+        );
+        assert_eq!(
+            pick_twig_slime_s_intent(Some(TwigSlimeSIntent::Butt)),
+            TwigSlimeSIntent::Butt
+        );
+    }
+
+    #[test]
+    fn twig_slime_s_butt_deals_four() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_twig_slime_s_move(&mut cs, 0, 0, TwigSlimeSIntent::Butt);
+        assert_eq!(cs.allies[0].current_hp, hp - 4);
+    }
+
+    #[test]
+    fn leaf_slime_s_alternates_after_init() {
+        // After init the cycle is strict alternation (both branches
+        // CannotRepeat).
+        let mut rng = Rng::new(1, 0);
+        let last = pick_leaf_slime_s_intent(&mut rng, None);
+        for _ in 0..20 {
+            let next = pick_leaf_slime_s_intent(&mut rng, Some(last));
+            assert_ne!(next, last);
+        }
+    }
+
+    #[test]
+    fn leaf_slime_s_init_picks_50_50() {
+        let mut rng = Rng::new(1234, 0);
+        let mut butt = 0;
+        let mut goop = 0;
+        for _ in 0..10_000 {
+            match pick_leaf_slime_s_intent(&mut rng, None) {
+                LeafSlimeSIntent::Butt => butt += 1,
+                LeafSlimeSIntent::Goop => goop += 1,
+            }
+        }
+        let tol = 200;
+        assert!((butt - 5000_i32).abs() < tol, "Butt: {butt}");
+        assert!((goop - 5000_i32).abs() < tol, "Goop: {goop}");
+    }
+
+    #[test]
+    fn leaf_slime_s_butt_deals_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_leaf_slime_s_move(&mut cs, 0, 0, LeafSlimeSIntent::Butt);
+        assert_eq!(cs.allies[0].current_hp, hp - 3);
+    }
+
+    #[test]
+    fn leaf_slime_s_goop_adds_slimed_to_discard() {
+        let mut cs = ironclad_combat();
+        execute_leaf_slime_s_move(&mut cs, 0, 0, LeafSlimeSIntent::Goop);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.discard.cards.iter().any(|c| c.id == "Slimed"));
     }
 
     // ---------- Seapunk tests ---------------------------------------------
