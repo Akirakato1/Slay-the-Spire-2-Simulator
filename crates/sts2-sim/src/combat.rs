@@ -1369,6 +1369,35 @@ fn dispatch_on_play(
             );
             true
         }
+        // Tremble (Ironclad common Exhaust Skill): apply 3 Vulnerable
+        // to single enemy. Upgrade: +1 Vulnerable. Exhausts via the
+        // keyword-driven routing.
+        "Tremble" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let vuln = canonical_int_value(card, "Vulnerable", upgrade_level);
+            cs.apply_power(target.0, target.1, "VulnerablePower", vuln);
+            true
+        }
+        // Apparition (Ancient Skill, Ethereal + Exhaust): apply 1
+        // Intangible to self. Upgrade strips Ethereal (handled at card
+        // schema level, not here). The IntangiblePower modifier already
+        // caps incoming damage at 1 via the existing damage pipeline.
+        "Apparition" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            // PowerVar<IntangiblePower> indexes by "IntangiblePower"
+            // (matches Inflame's StrengthPower convention, not the
+            // suffix-stripped LegSweep "Weak" form). canonical_int_value
+            // matches via the generic field.
+            let stacks = canonical_int_value(card, "IntangiblePower", upgrade_level);
+            cs.apply_power(
+                CombatSide::Player,
+                player_idx,
+                "IntangiblePower",
+                stacks,
+            );
+            true
+        }
         // MoltenFist (Ironclad common Exhaust Attack): 10 damage (14
         // upgraded) + if target is alive AND already Vulnerable,
         // re-apply that many stacks. C# samples the count BEFORE the
@@ -3614,6 +3643,100 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Tremble + Apparition tests -------------------------------
+
+    #[test]
+    fn tremble_applies_three_vulnerable_and_exhausts() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("Tremble").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            3
+        );
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.exhaust.len(), 1);
+        assert_eq!(ps.exhaust.cards[0].id, "Tremble");
+    }
+
+    #[test]
+    fn upgraded_tremble_applies_four_vulnerable() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("Tremble").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VulnerablePower"),
+            4
+        );
+    }
+
+    #[test]
+    fn apparition_grants_intangible_one_and_exhausts() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("Apparition").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "IntangiblePower"),
+            1
+        );
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert_eq!(ps.exhaust.len(), 1);
+        assert_eq!(ps.exhaust.cards[0].id, "Apparition");
+    }
+
+    #[test]
+    fn apparition_intangible_caps_incoming_damage_at_one() {
+        // End-to-end: after Apparition, the existing IntangiblePower
+        // damage cap kicks in via the damage pipeline.
+        let mut cs = ironclad_combat();
+        let card = card_by_id("Apparition").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        cs.play_card(0, hand_idx, None);
+        let hp_before = cs.allies[0].current_hp;
+        // Big incoming attack should be capped to 1.
+        cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            50,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp_before - 1);
     }
 
     // ---------- MoltenFist / Exhaust routing tests -----------------------
