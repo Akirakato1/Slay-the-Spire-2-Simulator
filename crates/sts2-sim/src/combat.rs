@@ -614,18 +614,37 @@ impl CombatState {
         actual
     }
 
-    /// Add `amount` block to a creature. Floors at 0 (no negative block).
+    /// Add `amount` block to a creature, threading through the block
+    /// modifier pipeline (Dexterity additive, Frail multiplicative). The
+    /// default `ValueProp::MOVE` matches card-play and monster-move block —
+    /// the contexts where C# `IsPoweredCardOrMonsterMoveBlock` returns true.
+    /// Floors at 0 (no negative block).
     pub fn gain_block(
         &mut self,
         side: CombatSide,
         target_idx: usize,
         amount: i32,
     ) -> i32 {
+        self.gain_block_with_props(side, target_idx, amount, ValueProp::MOVE)
+    }
+
+    /// Like `gain_block`, but lets the caller pass explicit `ValueProp`
+    /// flags. Relic / scripted block sources flag `UNPOWERED` so they
+    /// bypass Frail/Dexterity (matches C# `ValueProp.Unpowered` on
+    /// `BlockVar`).
+    pub fn gain_block_with_props(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        amount: i32,
+        props: ValueProp,
+    ) -> i32 {
+        let modified = self.modify_block((side, target_idx), amount, props);
         let actual = {
             let Some(target) = creature_mut(self, side, target_idx) else {
                 return 0;
             };
-            let actual = amount.max(0);
+            let actual = modified.max(0);
             target.block += actual;
             actual
         };
@@ -639,6 +658,34 @@ impl CombatState {
             });
         }
         actual
+    }
+
+    /// Compute final integer block after applying every active block
+    /// modifier on the gainer (Dexterity additive, Frail multiplicative).
+    /// Mirrors C# `Hook.ModifyBlock` / `ModifyBlockInternal` for the
+    /// player-self / monster-self block-gain path.
+    ///
+    /// Both Dexterity (`ModifyBlockAdditive`) and Frail
+    /// (`ModifyBlockMultiplicative`) gate on
+    /// `props.IsPoweredCardOrMonsterMoveBlock()` — same `Move && !Unpowered`
+    /// shape as the attack pipeline's `is_powered_attack`. Status-source
+    /// block (Anchor's `Unpowered` flag, etc.) bypasses the pipeline.
+    pub fn modify_block(
+        &self,
+        gainer: (CombatSide, usize),
+        raw: i32,
+        props: ValueProp,
+    ) -> i32 {
+        let mut num = raw as f64;
+        let powers = creature_powers(self, gainer);
+        for power in powers {
+            num += power_block_additive(power, props);
+        }
+        for power in powers {
+            num *= power_block_multiplicative(power, props);
+        }
+        let clamped = num.max(0.0);
+        clamped as i32
     }
 
     // ---------- Power apply / decrement / lookup --------------------------
@@ -1125,11 +1172,9 @@ fn dispatch_on_play(
             );
             true
         }
-        // All 5 Defend variants: gain Block on self. The C# calls
-        // CreatureCmd.GainBlock which threads through block-modifier hooks
-        // (Frail / Dexterity) — those powers aren't ported yet, so for
-        // now we go straight to gain_block. Once Frail/Dexterity land,
-        // wrap this in a modify_block pipeline analogous to modify_damage.
+        // All 5 Defend variants: gain Block on self. `gain_block` routes
+        // through `modify_block` with ValueProp::MOVE, so Frail/Dexterity
+        // on the player apply automatically.
         "DefendIronclad" | "DefendSilent" | "DefendDefect" | "DefendRegent"
         | "DefendNecrobinder" => {
             let Some(card) = card_by_id(card_id) else { return false; };
@@ -1335,10 +1380,15 @@ fn dispatch_relic_before_combat_start(
     match relic_id {
         // Anchor: gain 10 block at combat start. C# uses
         // `BlockVar(10m, ValueProp.Unpowered)` — Unpowered bypasses any
-        // Frail-style block modifiers, which is what our raw gain_block
-        // does anyway (no Frail wrapper yet).
+        // Frail-style block modifiers. We pass UNPOWERED so the
+        // modify_block pipeline skips Frail/Dexterity.
         "Anchor" => {
-            cs.gain_block(CombatSide::Player, player_idx, 10);
+            cs.gain_block_with_props(
+                CombatSide::Player,
+                player_idx,
+                10,
+                ValueProp::UNPOWERED,
+            );
         }
         _ => {}
     }
@@ -1472,6 +1522,36 @@ fn power_damage_cap_target(power: &PowerInstance) -> f64 {
     match power.id.as_str() {
         "IntangiblePower" => 1.0,
         _ => f64::MAX,
+    }
+}
+
+/// Per-power `ModifyBlockAdditive` contribution. Returns 0 for
+/// non-applicable powers / non-powered block. The "owner == gainer" check
+/// is structurally enforced: this is only invoked over the gainer's own
+/// power list.
+fn power_block_additive(power: &PowerInstance, props: ValueProp) -> f64 {
+    if !props.is_powered_attack() {
+        return 0.0;
+    }
+    match power.id.as_str() {
+        // DexterityPower.ModifyBlockAdditive: +Amount on powered block
+        // gains by the owner. allow_negative=true → Dex can be negative.
+        "DexterityPower" => power.amount as f64,
+        _ => 0.0,
+    }
+}
+
+/// Per-power `ModifyBlockMultiplicative` contribution. Returns 1.0 for
+/// non-applicable powers / non-powered block.
+fn power_block_multiplicative(power: &PowerInstance, props: ValueProp) -> f64 {
+    if !props.is_powered_attack() {
+        return 1.0;
+    }
+    match power.id.as_str() {
+        // FrailPower.ModifyBlockMultiplicative: ×0.75 on powered block
+        // gains by the owner.
+        "FrailPower" => 0.75,
+        _ => 1.0,
     }
 }
 
@@ -2244,6 +2324,118 @@ mod tests {
         assert_eq!(cs.allies[0].block, 8);
         cs.gain_block(CombatSide::Player, 0, -10);
         assert_eq!(cs.allies[0].block, 8);
+    }
+
+    // ---------- Block modifier pipeline tests ----------------------------
+
+    #[test]
+    fn modify_block_no_modifiers_passes_through() {
+        let cs = ironclad_combat();
+        let b = cs.modify_block((CombatSide::Player, 0), 5, ValueProp::MOVE);
+        assert_eq!(b, 5);
+    }
+
+    #[test]
+    fn frail_reduces_block_to_three_quarters() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 1);
+        // 5 * 0.75 = 3.75 → trunc → 3
+        let b = cs.modify_block((CombatSide::Player, 0), 5, ValueProp::MOVE);
+        assert_eq!(b, 3);
+    }
+
+    #[test]
+    fn frail_only_applies_to_powered_block() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 1);
+        // Unpowered source (Anchor-style) bypasses Frail.
+        let b = cs.modify_block(
+            (CombatSide::Player, 0),
+            10,
+            ValueProp::UNPOWERED,
+        );
+        assert_eq!(b, 10);
+    }
+
+    #[test]
+    fn dexterity_adds_to_block() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "DexterityPower", 2);
+        // 5 + 2 = 7
+        let b = cs.modify_block((CombatSide::Player, 0), 5, ValueProp::MOVE);
+        assert_eq!(b, 7);
+    }
+
+    #[test]
+    fn negative_dexterity_subtracts_block() {
+        // Dexterity.allow_negative=true. -3 Dex on 5 block → 2.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "DexterityPower", -3);
+        let b = cs.modify_block((CombatSide::Player, 0), 5, ValueProp::MOVE);
+        assert_eq!(b, 2);
+    }
+
+    #[test]
+    fn frail_and_dexterity_compose_additive_then_multiplicative() {
+        // C# order: ModifyBlockAdditive (Dex) THEN
+        // ModifyBlockMultiplicative (Frail). (5+2)*0.75 = 5.25 → trunc → 5.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "DexterityPower", 2);
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 1);
+        let b = cs.modify_block((CombatSide::Player, 0), 5, ValueProp::MOVE);
+        assert_eq!(b, 5);
+    }
+
+    #[test]
+    fn defend_with_frail_gains_three_block() {
+        // Defend = 5 block. With Frail: 5 * 0.75 = 3.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 1);
+        let card = card_by_id("DefendIronclad").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        assert_eq!(cs.allies[0].block, 0);
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 3);
+    }
+
+    #[test]
+    fn defend_with_dexterity_gains_seven_block() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "DexterityPower", 2);
+        let card = card_by_id("DefendIronclad").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 7);
+    }
+
+    #[test]
+    fn anchor_block_bypasses_frail() {
+        // Anchor passes UNPOWERED so 10 block lands fully even with Frail.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "FrailPower", 1);
+        cs.gain_block_with_props(
+            CombatSide::Player,
+            0,
+            10,
+            ValueProp::UNPOWERED,
+        );
+        assert_eq!(cs.allies[0].block, 10);
     }
 
     // ---------- Power primitive tests ------------------------------------
