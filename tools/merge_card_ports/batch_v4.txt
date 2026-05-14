@@ -1,0 +1,66 @@
+// batch_v4.txt - re-encode of cards needing AmountSpec::Max/Min/Sub/FloorDiv +
+// Condition::XEnergyGe. Verified against C# source in
+// sts2_decompiled/.../Models/Cards/.
+
+// Hang.cs L36-49: damage chosen + Apply<HangPower>(target, Max(2, target.HangPower)).
+// (Overflow clamp at 999_999_999 ignored — within i32 range we never hit it in
+// a realistic combat.)
+        "Hang" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::ApplyPower {
+                power_id: "HangPower".to_string(),
+                amount: AmountSpec::Max {
+                    left: Box::new(AmountSpec::Fixed(2)),
+                    right: Box::new(AmountSpec::TargetPowerAmount { power_id: "HangPower".to_string() }),
+                },
+                target: Target::ChosenEnemy,
+            },
+        ]),
+
+// NoEscape.cs L29-44, L57-61: Apply<DoomPower>(target, floor(target.DoomPower / DoomThreshold)).
+// CalculationBase=10, CalculationExtra=5 are display-only — the applied amount
+// is purely the FloorDiv.
+        "NoEscape" => Some(vec![Effect::ApplyPower {
+            power_id: "DoomPower".to_string(),
+            amount: AmountSpec::FloorDiv {
+                left: Box::new(AmountSpec::TargetPowerAmount { power_id: "DoomPower".to_string() }),
+                right: Box::new(AmountSpec::Canonical("DoomThreshold".to_string())),
+            },
+            target: Target::ChosenEnemy,
+        }]),
+
+// HeavenlyDrill.cs L58-71: X-cost; hits = X*2 if X >= Energy.Int (= 4), else X.
+// Wrap as Conditional + Repeat. Inner DealDamage is hits=1 so Repeat count is
+// the resolved hit total.
+        "HeavenlyDrill" => Some(vec![Effect::Conditional {
+            condition: Condition::XEnergyGe { n: 4 },
+            then_branch: vec![Effect::Repeat {
+                count: AmountSpec::Mul {
+                    left: Box::new(AmountSpec::XEnergy),
+                    right: Box::new(AmountSpec::Fixed(2)),
+                },
+                body: vec![Effect::DealDamage {
+                    amount: AmountSpec::Canonical("Damage".to_string()),
+                    target: Target::ChosenEnemy,
+                    hits: 1,
+                }],
+            }],
+            else_branch: vec![Effect::Repeat {
+                count: AmountSpec::XEnergy,
+                body: vec![Effect::DealDamage {
+                    amount: AmountSpec::Canonical("Damage".to_string()),
+                    target: Target::ChosenEnemy,
+                    hits: 1,
+                }],
+            }],
+        }]),
+
+// Scrawl.cs body: Draw(10 - HandSize-excluding-self). HandCount today reads
+// post-removal-of-source-card hand size — see comment in AmountSpec resolver.
+// The C# variable name `MaxHandSize` is the cap (10).
+        "Scrawl" => Some(vec![Effect::DrawCards {
+            amount: AmountSpec::Sub {
+                left: Box::new(AmountSpec::Fixed(10)),
+                right: Box::new(AmountSpec::HandCount),
+            },
+        }]),

@@ -22,29 +22,59 @@ import sys
 here = os.path.dirname(__file__)
 repo = os.path.dirname(os.path.dirname(here))
 
-ARM_RE = re.compile(
-    r'^\s*"(?P<name>[A-Za-z_0-9]+)"\s*=>\s*Some\(vec!\[.*\]\)\s*,?\s*$'
-)
+ARM_START_RE = re.compile(r'^\s*"(?P<name>[A-Za-z_0-9]+)"\s*=>\s*Some\(vec!\[')
 ARM_NAME_ONLY_RE = re.compile(r'"(?P<name>[A-Za-z_0-9]+)"')
 
 
 def extract_arms(text):
-    """Return ordered list of (name, full_arm_line)."""
+    """Return ordered list of (name, full_arm_text). Supports both
+    single-line `"X" => Some(vec![...]),` and multi-line arms with
+    paren-balanced bodies. Skips entries inside `// SKIP X: ...` comments."""
     out = []
     seen = set()
-    for line in text.splitlines():
-        m = ARM_RE.match(line)
+    lines = text.splitlines(keepends=True)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        m = ARM_START_RE.match(line.rstrip('\n').rstrip())
         if not m:
+            i += 1
             continue
         name = m.group('name')
         if name in seen:
+            i += 1
             continue
         seen.add(name)
-        # Re-indent to 8 spaces (strip then prepend) and ensure trailing comma.
-        body = line.strip()
+        acc = [line]
+        # Balance Some( ... ) ... starting from this line. Track parens
+        # and brackets together; the arm ends when we return to the
+        # starting depth.
+        depth = 0
+        started = False
+        for ch in line:
+            if ch in '([':
+                depth += 1
+                started = True
+            elif ch in ')]':
+                depth -= 1
+        i += 1
+        while i < len(lines) and not (started and depth == 0):
+            l = lines[i]
+            acc.append(l)
+            for ch in l:
+                if ch in '([':
+                    depth += 1
+                    started = True
+                elif ch in ')]':
+                    depth -= 1
+            i += 1
+        body = ''.join(acc).rstrip()
         if not body.endswith(','):
             body += ','
-        out.append((name, '        ' + body))
+        # Re-indent every line to 8 spaces.
+        indented = '\n'.join('        ' + ln.lstrip() if ln.strip() else ''
+                             for ln in body.splitlines())
+        out.append((name, indented))
     return out
 
 
@@ -61,7 +91,7 @@ def collect_existing(effects_src):
 
 
 def main():
-    batch_files = ['batch_v2_1.txt', 'batch_v2_2.txt', 'batch_v2_3.txt', 'batch_v2_4.txt', 'batch_v3.txt']
+    batch_files = ['batch_v2_1.txt', 'batch_v2_2.txt', 'batch_v2_3.txt', 'batch_v2_4.txt', 'batch_v3.txt', 'batch_v4.txt']
     all_arms = []
     for fname in batch_files:
         p = os.path.join(here, fname)

@@ -176,6 +176,18 @@ pub enum AmountSpec {
     DistinctOrbTypesInQueue,
     /// Sum of positive stars-deltas this turn (Radiate hit count).
     StarsGainedThisTurnPositive,
+    /// `max(a, b)`. Mirrors C# `Math.Max(a, b)` — Hang's
+    /// `Apply<HangPower>(Max(2, target.HangPower))`.
+    Max { left: Box<AmountSpec>, right: Box<AmountSpec> },
+    /// `min(a, b)`. Mirrors C# `Math.Min(a, b)`.
+    Min { left: Box<AmountSpec>, right: Box<AmountSpec> },
+    /// `a - b`. Convenience for `Add(a, Mul(b, -1))` shaped expressions.
+    /// Drives Scrawl (`Draw(10 - HandCount)`).
+    Sub { left: Box<AmountSpec>, right: Box<AmountSpec> },
+    /// `floor(a / b)` (zero if `b <= 0`). Mirrors C# `Math.Floor(a / b)`.
+    /// NoEscape: `floor(target.DoomPower / DoomThreshold)`. BloodPotion:
+    /// `floor(target.MaxHp * HealPercent / 100)`.
+    FloorDiv { left: Box<AmountSpec>, right: Box<AmountSpec> },
 }
 
 /// Named card pool reference for `Effect::AddRandomCardFromPool`.
@@ -293,6 +305,11 @@ pub enum Condition {
     /// `PlayerState.relic_counters[key] % modulus == remainder`. Drives
     /// HappyFlower / Pendulum "every Nth turn" relics.
     RelicCounterModEq { key: String, modulus: i32, remainder: i32 },
+    /// Resolved X-energy value compared to `n`. HeavenlyDrill: doubles
+    /// hits when `X >= Energy.IntValue` (= 4).
+    XEnergyGe { n: i32 },
+    /// `EffectContext::x_value == n` (rare; HeavenlyDrill edge).
+    XEnergyEq { n: i32 },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1032,6 +1049,32 @@ impl AmountSpec {
                 .unwrap_or(0),
             AmountSpec::StarsGainedThisTurnPositive => {
                 stars_gained_this_turn_positive(cs, ctx.player_idx)
+            }
+            AmountSpec::Max { left, right } => {
+                left.resolve(ctx, cs).max(right.resolve(ctx, cs))
+            }
+            AmountSpec::Min { left, right } => {
+                left.resolve(ctx, cs).min(right.resolve(ctx, cs))
+            }
+            AmountSpec::Sub { left, right } => {
+                left.resolve(ctx, cs) - right.resolve(ctx, cs)
+            }
+            AmountSpec::FloorDiv { left, right } => {
+                let r = right.resolve(ctx, cs);
+                if r <= 0 {
+                    return 0;
+                }
+                let l = left.resolve(ctx, cs);
+                // i32 division floors toward zero, NOT toward neg-inf.
+                // For our use cases (NoEscape's positive Doom amounts,
+                // BloodPotion's positive MaxHp*pct) the difference is
+                // invisible, but match C# Math.Floor explicitly.
+                let q = l / r;
+                if (l % r) != 0 && (l < 0) {
+                    q - 1
+                } else {
+                    q
+                }
             }
         }
     }
@@ -3270,7 +3313,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 146 hand-curated arms covering Acrobatics..Rattle.
+        // 149 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -3420,6 +3463,47 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Eradicate" => Some(vec![Effect::Repeat { count: AmountSpec::XEnergy, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }]),
         "CrashLanding" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }, Effect::Repeat { count: AmountSpec::Add { left: Box::new(AmountSpec::Fixed(10)), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::HandCount), right: Box::new(AmountSpec::Fixed(-1)) }) }, body: vec![Effect::AddCardToPile { card_id: "Debris".to_string(), upgrade: 0, pile: Pile::Hand }] }]),
         "LegionOfBone" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) }]),
+        "Hang" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower {
+        power_id: "HangPower".to_string(),
+        amount: AmountSpec::Max {
+        left: Box::new(AmountSpec::Fixed(2)),
+        right: Box::new(AmountSpec::TargetPowerAmount { power_id: "HangPower".to_string() }),
+        },
+        target: Target::ChosenEnemy,
+        },
+        ]),
+        "NoEscape" => Some(vec![Effect::ApplyPower {
+        power_id: "DoomPower".to_string(),
+        amount: AmountSpec::FloorDiv {
+        left: Box::new(AmountSpec::TargetPowerAmount { power_id: "DoomPower".to_string() }),
+        right: Box::new(AmountSpec::Canonical("DoomThreshold".to_string())),
+        },
+        target: Target::ChosenEnemy,
+        }]),
+        "HeavenlyDrill" => Some(vec![Effect::Conditional {
+        condition: Condition::XEnergyGe { n: 4 },
+        then_branch: vec![Effect::Repeat {
+        count: AmountSpec::Mul {
+        left: Box::new(AmountSpec::XEnergy),
+        right: Box::new(AmountSpec::Fixed(2)),
+        },
+        body: vec![Effect::DealDamage {
+        amount: AmountSpec::Canonical("Damage".to_string()),
+        target: Target::ChosenEnemy,
+        hits: 1,
+        }],
+        }],
+        else_branch: vec![Effect::Repeat {
+        count: AmountSpec::XEnergy,
+        body: vec![Effect::DealDamage {
+        amount: AmountSpec::Canonical("Damage".to_string()),
+        target: Target::ChosenEnemy,
+        hits: 1,
+        }],
+        }],
+        }]),
 
         _ => None,
     }
@@ -4030,6 +4114,8 @@ pub fn evaluate_condition(
                 })
                 .unwrap_or(false)
         }
+        Condition::XEnergyGe { n } => ctx.x_value >= *n,
+        Condition::XEnergyEq { n } => ctx.x_value == *n,
     }
 }
 
