@@ -3112,6 +3112,116 @@ pub fn execute_nibbit_move(
     }
 }
 
+// ---------- Monster intent: FlailKnight --------------------------------
+//
+// Reflects C# `FlailKnight.GenerateMoveStateMachine`:
+//   Start state: RAM_MOVE (one-shot init, no INIT ConditionalBranch).
+//   Subsequent: RandomBranchState pick across:
+//     - WarChant (weight 1, CannotRepeat)
+//     - Flail    (weight 2)
+//     - Ram      (weight 2)
+//   When last_intent == WarChant, WarChant is excluded (CannotRepeat).
+//   Pick uses Rng.NextFloat(total) + subtract-and-compare iteration.
+//
+// A0 payloads:
+//   - WarChant: +3 self-Strength (const)
+//   - Flail:    9 damage × 2 hits (DeadlyEnemies: 10)
+//   - Ram:      15 damage (DeadlyEnemies: 17)
+
+const FLAIL_KNIGHT_WAR_CHANT_STRENGTH: i32 = 3;
+const FLAIL_KNIGHT_FLAIL_DAMAGE: i32 = 9;
+const FLAIL_KNIGHT_FLAIL_HITS: i32 = 2;
+const FLAIL_KNIGHT_RAM_DAMAGE: i32 = 15;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum FlailKnightIntent {
+    WarChant,
+    Flail,
+    Ram,
+}
+
+impl FlailKnightIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            FlailKnightIntent::WarChant => "WAR_CHANT",
+            FlailKnightIntent::Flail => "FLAIL_MOVE",
+            FlailKnightIntent::Ram => "RAM_MOVE",
+        }
+    }
+}
+
+/// Pick FlailKnight's next intent. First turn: Ram. Subsequent:
+/// weighted-random across {WarChant 1, Flail 2, Ram 2}, with
+/// WarChant excluded when it was the last intent (C# CannotRepeat).
+pub fn pick_flail_knight_intent(
+    rng: &mut Rng,
+    last_intent: Option<FlailKnightIntent>,
+) -> FlailKnightIntent {
+    if last_intent.is_none() {
+        return FlailKnightIntent::Ram;
+    }
+    let war_chant_blocked = matches!(last_intent, Some(FlailKnightIntent::WarChant));
+    let w_war_chant: f32 = if war_chant_blocked { 0.0 } else { 1.0 };
+    let w_flail: f32 = 2.0;
+    let w_ram: f32 = 2.0;
+    let total = w_war_chant + w_flail + w_ram;
+    let mut roll = rng.next_float(total);
+    // Iteration order matches C#'s RandomBranchState.States list order
+    // (WarChant added first, then Flail, then Ram).
+    if !war_chant_blocked {
+        roll -= w_war_chant;
+        if roll <= 0.0 {
+            return FlailKnightIntent::WarChant;
+        }
+    }
+    roll -= w_flail;
+    if roll <= 0.0 {
+        return FlailKnightIntent::Flail;
+    }
+    // Last branch — math guarantees roll - w_ram <= 0 given total bound.
+    FlailKnightIntent::Ram
+}
+
+/// Execute one FlailKnight move's payload. Mirrors C# WarChantMove /
+/// FlailMove / RamMove minus audio/animation.
+pub fn execute_flail_knight_move(
+    cs: &mut CombatState,
+    knight_idx: usize,
+    target_player_idx: usize,
+    intent: FlailKnightIntent,
+) {
+    let attacker = (CombatSide::Enemy, knight_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        FlailKnightIntent::WarChant => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                knight_idx,
+                "StrengthPower",
+                FLAIL_KNIGHT_WAR_CHANT_STRENGTH,
+            );
+        }
+        FlailKnightIntent::Flail => {
+            for _ in 0..FLAIL_KNIGHT_FLAIL_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    FLAIL_KNIGHT_FLAIL_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        FlailKnightIntent::Ram => {
+            cs.deal_damage(
+                attacker,
+                player,
+                FLAIL_KNIGHT_RAM_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
 /// Result of a resolved combat. Reported by [`CombatState::is_combat_over`]
 /// when the combat ends.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -7442,6 +7552,97 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- FlailKnight intent + move payload tests -------------------
+
+    #[test]
+    fn flail_knight_first_turn_is_ram() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_flail_knight_intent(&mut rng, None),
+            FlailKnightIntent::Ram
+        );
+    }
+
+    #[test]
+    fn flail_knight_subsequent_picks_from_set() {
+        let mut rng = Rng::new(42, 0);
+        for _ in 0..100 {
+            let intent = pick_flail_knight_intent(
+                &mut rng,
+                Some(FlailKnightIntent::Ram),
+            );
+            assert!(matches!(
+                intent,
+                FlailKnightIntent::WarChant
+                    | FlailKnightIntent::Flail
+                    | FlailKnightIntent::Ram
+            ));
+        }
+    }
+
+    #[test]
+    fn flail_knight_war_chant_cannot_repeat() {
+        let mut rng = Rng::new(7, 0);
+        for _ in 0..200 {
+            let intent = pick_flail_knight_intent(
+                &mut rng,
+                Some(FlailKnightIntent::WarChant),
+            );
+            assert!(matches!(
+                intent,
+                FlailKnightIntent::Flail | FlailKnightIntent::Ram
+            ));
+        }
+    }
+
+    #[test]
+    fn flail_knight_weighted_distribution_after_non_war_chant() {
+        // From Ram: WarChant=1, Flail=2, Ram=2 → 20%/40%/40% of 5.
+        let mut rng = Rng::new(1234, 0);
+        let mut wc = 0;
+        let mut fl = 0;
+        let mut rm = 0;
+        let trials = 10_000;
+        for _ in 0..trials {
+            match pick_flail_knight_intent(&mut rng, Some(FlailKnightIntent::Ram)) {
+                FlailKnightIntent::WarChant => wc += 1,
+                FlailKnightIntent::Flail => fl += 1,
+                FlailKnightIntent::Ram => rm += 1,
+            }
+        }
+        // 4 SD tolerance on a binomial.
+        let tol = 250;
+        assert!((wc - 2000_i32).abs() < tol, "WarChant: {wc}");
+        assert!((fl - 4000_i32).abs() < tol, "Flail: {fl}");
+        assert!((rm - 4000_i32).abs() < tol, "Ram: {rm}");
+    }
+
+    #[test]
+    fn flail_knight_war_chant_gains_three_strength() {
+        let mut cs = ironclad_combat();
+        execute_flail_knight_move(&mut cs, 0, 0, FlailKnightIntent::WarChant);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn flail_knight_flail_hits_player_twice_for_nine() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_flail_knight_move(&mut cs, 0, 0, FlailKnightIntent::Flail);
+        assert_eq!(cs.allies[0].current_hp, hp - 18);
+    }
+
+    #[test]
+    fn flail_knight_ram_deals_fifteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_flail_knight_move(&mut cs, 0, 0, FlailKnightIntent::Ram);
+        assert_eq!(cs.allies[0].current_hp, hp - 15);
     }
 
     // ---------- Nibbit intent + move payload tests ------------------------
