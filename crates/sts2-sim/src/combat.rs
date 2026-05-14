@@ -3351,6 +3351,125 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: Entomancer ---------------------------------
+//
+// Reflects C# `Entomancer.GenerateMoveStateMachine`:
+//   Init: BEES_MOVE.
+//   Chain: Bees → Spear → Spit → Bees → … (deterministic, no RNG).
+//
+// On spawn: PersonalHivePower(1). Acts as a passive counter (no
+// per-power hooks); Spit reads it to branch.
+//
+// A0 payloads:
+//   - Bees:  3 damage × 7 hits (DeadlyEnemies count → 8)
+//   - Spear: 18 damage (DeadlyEnemies: 20)
+//   - Spit:  if PersonalHive < 3 → apply +1 PersonalHive + 1 self-Str;
+//            else → +2 self-Strength. (C# constant numbers.)
+
+const ENTOMANCER_BEES_DAMAGE: i32 = 3;
+const ENTOMANCER_BEES_HITS: i32 = 7;
+const ENTOMANCER_SPEAR_DAMAGE: i32 = 18;
+const ENTOMANCER_PERSONAL_HIVE_AMOUNT: i32 = 1;
+const ENTOMANCER_SPIT_HIVE_CAP: i32 = 3;
+const ENTOMANCER_SPIT_PRE_CAP_HIVE_GAIN: i32 = 1;
+const ENTOMANCER_SPIT_PRE_CAP_STRENGTH_GAIN: i32 = 1;
+const ENTOMANCER_SPIT_POST_CAP_STRENGTH_GAIN: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum EntomancerIntent {
+    Bees,
+    Spear,
+    Spit,
+}
+
+impl EntomancerIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            EntomancerIntent::Bees => "BEES_MOVE",
+            EntomancerIntent::Spear => "SPEAR_MOVE",
+            EntomancerIntent::Spit => "PHEROMONE_SPIT_MOVE",
+        }
+    }
+}
+
+pub fn entomancer_spawn(cs: &mut CombatState, entomancer_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        entomancer_idx,
+        "PersonalHivePower",
+        ENTOMANCER_PERSONAL_HIVE_AMOUNT,
+    );
+}
+
+pub fn pick_entomancer_intent(
+    last_intent: Option<EntomancerIntent>,
+) -> EntomancerIntent {
+    match last_intent {
+        None => EntomancerIntent::Bees,
+        Some(EntomancerIntent::Bees) => EntomancerIntent::Spear,
+        Some(EntomancerIntent::Spear) => EntomancerIntent::Spit,
+        Some(EntomancerIntent::Spit) => EntomancerIntent::Bees,
+    }
+}
+
+pub fn execute_entomancer_move(
+    cs: &mut CombatState,
+    entomancer_idx: usize,
+    target_player_idx: usize,
+    intent: EntomancerIntent,
+) {
+    let attacker = (CombatSide::Enemy, entomancer_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        EntomancerIntent::Bees => {
+            for _ in 0..ENTOMANCER_BEES_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    ENTOMANCER_BEES_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        EntomancerIntent::Spear => {
+            cs.deal_damage(
+                attacker,
+                player,
+                ENTOMANCER_SPEAR_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        EntomancerIntent::Spit => {
+            let hive = cs.get_power_amount(
+                CombatSide::Enemy,
+                entomancer_idx,
+                "PersonalHivePower",
+            );
+            if hive < ENTOMANCER_SPIT_HIVE_CAP {
+                cs.apply_power(
+                    CombatSide::Enemy,
+                    entomancer_idx,
+                    "PersonalHivePower",
+                    ENTOMANCER_SPIT_PRE_CAP_HIVE_GAIN,
+                );
+                cs.apply_power(
+                    CombatSide::Enemy,
+                    entomancer_idx,
+                    "StrengthPower",
+                    ENTOMANCER_SPIT_PRE_CAP_STRENGTH_GAIN,
+                );
+            } else {
+                cs.apply_power(
+                    CombatSide::Enemy,
+                    entomancer_idx,
+                    "StrengthPower",
+                    ENTOMANCER_SPIT_POST_CAP_STRENGTH_GAIN,
+                );
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: LivingShield -------------------------------
 //
 // Reflects C# `LivingShield.GenerateMoveStateMachine`:
@@ -8952,6 +9071,87 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- Entomancer tests ------------------------------------------
+
+    #[test]
+    fn entomancer_first_turn_is_bees() {
+        assert_eq!(pick_entomancer_intent(None), EntomancerIntent::Bees);
+    }
+
+    #[test]
+    fn entomancer_cycle_bees_spear_spit() {
+        assert_eq!(
+            pick_entomancer_intent(Some(EntomancerIntent::Bees)),
+            EntomancerIntent::Spear
+        );
+        assert_eq!(
+            pick_entomancer_intent(Some(EntomancerIntent::Spear)),
+            EntomancerIntent::Spit
+        );
+        assert_eq!(
+            pick_entomancer_intent(Some(EntomancerIntent::Spit)),
+            EntomancerIntent::Bees
+        );
+    }
+
+    #[test]
+    fn entomancer_bees_hits_seven_times_for_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_entomancer_move(&mut cs, 0, 0, EntomancerIntent::Bees);
+        assert_eq!(cs.allies[0].current_hp, hp - 21);
+    }
+
+    #[test]
+    fn entomancer_spear_deals_eighteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_entomancer_move(&mut cs, 0, 0, EntomancerIntent::Spear);
+        assert_eq!(cs.allies[0].current_hp, hp - 18);
+    }
+
+    #[test]
+    fn entomancer_spawn_applies_personal_hive_one() {
+        let mut cs = ironclad_combat();
+        entomancer_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PersonalHivePower"),
+            1
+        );
+    }
+
+    #[test]
+    fn entomancer_spit_pre_cap_grows_hive_and_strength() {
+        let mut cs = ironclad_combat();
+        entomancer_spawn(&mut cs, 0);
+        // PersonalHive = 1, < cap 3 → branch grows both.
+        execute_entomancer_move(&mut cs, 0, 0, EntomancerIntent::Spit);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PersonalHivePower"),
+            2
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn entomancer_spit_post_cap_only_grows_strength_by_two() {
+        let mut cs = ironclad_combat();
+        // Pre-load PersonalHive to cap.
+        cs.apply_power(CombatSide::Enemy, 0, "PersonalHivePower", 3);
+        execute_entomancer_move(&mut cs, 0, 0, EntomancerIntent::Spit);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PersonalHivePower"),
+            3
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
         );
     }
 
