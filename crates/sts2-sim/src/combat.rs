@@ -4081,6 +4081,240 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: Crusher (KaiserCrabBoss left arm) ----------
+//
+// Reflects C# `Crusher.GenerateMoveStateMachine`:
+//   Init: Thrash. Chain Thrash → EnlargingStrike → BugSting →
+//   Adapt → GuardedStrike → Thrash (5-state loop).
+//
+// Spawn: BackAttackLeftPower(1), CrabRagePower(1). Both marker-only
+// in this port — SurroundedPower's 1.5x bonus from back-side
+// attackers is deferred (the marker on the player is set by
+// Rocket spawn), and CrabRage's AfterDeath rage trigger (gain 6
+// Strength + 99 block when teammate dies) is deferred.
+//
+// A0 payloads:
+//   - Thrash:         12 damage (DeadlyEnemies: 14)
+//   - EnlargingStrike: 4 damage (DeadlyEnemies: 4)
+//   - BugSting:       6 damage × 2 hits + 2 Weak + 2 Frail
+//                     (DeadlyEnemies: 7)
+//   - Adapt:          +2 self-Strength (DeadlyEnemies: 3)
+//   - GuardedStrike:  12 damage + 18 block (DeadlyEnemies: 14)
+
+const CRUSHER_THRASH_DAMAGE: i32 = 12;
+const CRUSHER_ENLARGING_DAMAGE: i32 = 4;
+const CRUSHER_BUG_STING_DAMAGE: i32 = 6;
+const CRUSHER_BUG_STING_HITS: i32 = 2;
+const CRUSHER_BUG_STING_WEAK: i32 = 2;
+const CRUSHER_BUG_STING_FRAIL: i32 = 2;
+const CRUSHER_ADAPT_STRENGTH: i32 = 2;
+const CRUSHER_GUARDED_DAMAGE: i32 = 12;
+const CRUSHER_GUARDED_BLOCK: i32 = 18;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CrusherIntent {
+    Thrash,
+    EnlargingStrike,
+    BugSting,
+    Adapt,
+    GuardedStrike,
+}
+
+impl CrusherIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            CrusherIntent::Thrash => "THRASH_MOVE",
+            CrusherIntent::EnlargingStrike => "ENLARGING_STRIKE_MOVE",
+            CrusherIntent::BugSting => "BUG_STING_MOVE",
+            CrusherIntent::Adapt => "ADAPT_MOVE",
+            CrusherIntent::GuardedStrike => "GUARDED_STRIKE_MOVE",
+        }
+    }
+}
+
+pub fn pick_crusher_intent(last_intent: Option<CrusherIntent>) -> CrusherIntent {
+    match last_intent {
+        None => CrusherIntent::Thrash,
+        Some(CrusherIntent::Thrash) => CrusherIntent::EnlargingStrike,
+        Some(CrusherIntent::EnlargingStrike) => CrusherIntent::BugSting,
+        Some(CrusherIntent::BugSting) => CrusherIntent::Adapt,
+        Some(CrusherIntent::Adapt) => CrusherIntent::GuardedStrike,
+        Some(CrusherIntent::GuardedStrike) => CrusherIntent::Thrash,
+    }
+}
+
+pub fn execute_crusher_move(
+    cs: &mut CombatState,
+    crusher_idx: usize,
+    target_player_idx: usize,
+    intent: CrusherIntent,
+) {
+    let attacker = (CombatSide::Enemy, crusher_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        CrusherIntent::Thrash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                CRUSHER_THRASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        CrusherIntent::EnlargingStrike => {
+            cs.deal_damage(
+                attacker,
+                player,
+                CRUSHER_ENLARGING_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        CrusherIntent::BugSting => {
+            for _ in 0..CRUSHER_BUG_STING_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    CRUSHER_BUG_STING_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                CRUSHER_BUG_STING_WEAK,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "FrailPower",
+                CRUSHER_BUG_STING_FRAIL,
+            );
+        }
+        CrusherIntent::Adapt => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                crusher_idx,
+                "StrengthPower",
+                CRUSHER_ADAPT_STRENGTH,
+            );
+        }
+        CrusherIntent::GuardedStrike => {
+            cs.deal_damage(
+                attacker,
+                player,
+                CRUSHER_GUARDED_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.gain_block(
+                CombatSide::Enemy,
+                crusher_idx,
+                CRUSHER_GUARDED_BLOCK,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: Rocket (KaiserCrabBoss right arm) ----------
+//
+// Reflects C# `Rocket.GenerateMoveStateMachine`:
+//   Init: TargetingReticle. Chain TargetingReticle → PrecisionBeam
+//   → ChargeUp → Laser → Recharge → TargetingReticle (loop).
+//
+// Spawn: SurroundedPower(1) on every player, BackAttackRightPower(1),
+// CrabRagePower(1). All marker-only in this port (1.5x bonus and
+// rage hooks deferred).
+//
+// A0 payloads:
+//   - TargetingReticle: 3 damage (DeadlyEnemies: 4)
+//   - PrecisionBeam:    18 damage (DeadlyEnemies: 20)
+//   - ChargeUp:         +2 self-Strength (DeadlyEnemies: 3)
+//   - Laser:            31 damage (DeadlyEnemies: 35)
+//   - Recharge:         no-op (SleepIntent)
+
+const ROCKET_TARGETING_DAMAGE: i32 = 3;
+const ROCKET_PRECISION_DAMAGE: i32 = 18;
+const ROCKET_CHARGE_STRENGTH: i32 = 2;
+const ROCKET_LASER_DAMAGE: i32 = 31;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum RocketIntent {
+    TargetingReticle,
+    PrecisionBeam,
+    ChargeUp,
+    Laser,
+    Recharge,
+}
+
+impl RocketIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            RocketIntent::TargetingReticle => "TARGETING_RETICLE_MOVE",
+            RocketIntent::PrecisionBeam => "PRECISION_BEAM_MOVE",
+            RocketIntent::ChargeUp => "CHARGE_UP_MOVE",
+            RocketIntent::Laser => "LASER_MOVE",
+            RocketIntent::Recharge => "RECHARGE_MOVE",
+        }
+    }
+}
+
+pub fn pick_rocket_intent(last_intent: Option<RocketIntent>) -> RocketIntent {
+    match last_intent {
+        None => RocketIntent::TargetingReticle,
+        Some(RocketIntent::TargetingReticle) => RocketIntent::PrecisionBeam,
+        Some(RocketIntent::PrecisionBeam) => RocketIntent::ChargeUp,
+        Some(RocketIntent::ChargeUp) => RocketIntent::Laser,
+        Some(RocketIntent::Laser) => RocketIntent::Recharge,
+        Some(RocketIntent::Recharge) => RocketIntent::TargetingReticle,
+    }
+}
+
+pub fn execute_rocket_move(
+    cs: &mut CombatState,
+    rocket_idx: usize,
+    target_player_idx: usize,
+    intent: RocketIntent,
+) {
+    let attacker = (CombatSide::Enemy, rocket_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        RocketIntent::TargetingReticle => {
+            cs.deal_damage(
+                attacker,
+                player,
+                ROCKET_TARGETING_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        RocketIntent::PrecisionBeam => {
+            cs.deal_damage(
+                attacker,
+                player,
+                ROCKET_PRECISION_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        RocketIntent::ChargeUp => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                rocket_idx,
+                "StrengthPower",
+                ROCKET_CHARGE_STRENGTH,
+            );
+        }
+        RocketIntent::Laser => {
+            cs.deal_damage(
+                attacker,
+                player,
+                ROCKET_LASER_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        RocketIntent::Recharge => {
+            // SleepIntent — Rocket recharges without acting.
+        }
+    }
+}
+
 // ---------- Monster intent: Ovicopter ----------------------------------
 //
 // Reflects C# `Ovicopter.GenerateMoveStateMachine`:
@@ -13386,6 +13620,107 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- Crusher + Rocket tests -------------------------------------
+
+    #[test]
+    fn crusher_walks_five_state_chain() {
+        assert_eq!(pick_crusher_intent(None), CrusherIntent::Thrash);
+        assert_eq!(
+            pick_crusher_intent(Some(CrusherIntent::Thrash)),
+            CrusherIntent::EnlargingStrike
+        );
+        assert_eq!(
+            pick_crusher_intent(Some(CrusherIntent::EnlargingStrike)),
+            CrusherIntent::BugSting
+        );
+        assert_eq!(
+            pick_crusher_intent(Some(CrusherIntent::BugSting)),
+            CrusherIntent::Adapt
+        );
+        assert_eq!(
+            pick_crusher_intent(Some(CrusherIntent::Adapt)),
+            CrusherIntent::GuardedStrike
+        );
+        assert_eq!(
+            pick_crusher_intent(Some(CrusherIntent::GuardedStrike)),
+            CrusherIntent::Thrash
+        );
+    }
+
+    #[test]
+    fn crusher_thrash_deals_twelve() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_crusher_move(&mut cs, 0, 0, CrusherIntent::Thrash);
+        assert_eq!(cs.allies[0].current_hp, hp - 12);
+    }
+
+    #[test]
+    fn crusher_bug_sting_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_crusher_move(&mut cs, 0, 0, CrusherIntent::BugSting);
+        assert_eq!(cs.allies[0].current_hp, hp - 12);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            2
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "FrailPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn crusher_guarded_strike_damage_plus_block() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_crusher_move(&mut cs, 0, 0, CrusherIntent::GuardedStrike);
+        assert_eq!(cs.allies[0].current_hp, hp - 12);
+        assert_eq!(cs.enemies[0].block, 18);
+    }
+
+    #[test]
+    fn rocket_walks_five_state_chain() {
+        assert_eq!(pick_rocket_intent(None), RocketIntent::TargetingReticle);
+        assert_eq!(
+            pick_rocket_intent(Some(RocketIntent::TargetingReticle)),
+            RocketIntent::PrecisionBeam
+        );
+        assert_eq!(
+            pick_rocket_intent(Some(RocketIntent::PrecisionBeam)),
+            RocketIntent::ChargeUp
+        );
+        assert_eq!(
+            pick_rocket_intent(Some(RocketIntent::ChargeUp)),
+            RocketIntent::Laser
+        );
+        assert_eq!(
+            pick_rocket_intent(Some(RocketIntent::Laser)),
+            RocketIntent::Recharge
+        );
+        assert_eq!(
+            pick_rocket_intent(Some(RocketIntent::Recharge)),
+            RocketIntent::TargetingReticle
+        );
+    }
+
+    #[test]
+    fn rocket_laser_deals_thirty_one() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_rocket_move(&mut cs, 0, 0, RocketIntent::Laser);
+        assert_eq!(cs.allies[0].current_hp, hp - 31);
+    }
+
+    #[test]
+    fn rocket_recharge_is_noop() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_rocket_move(&mut cs, 0, 0, RocketIntent::Recharge);
+        assert_eq!(cs.allies[0].current_hp, hp);
     }
 
     // ---------- Ovicopter tests --------------------------------------------

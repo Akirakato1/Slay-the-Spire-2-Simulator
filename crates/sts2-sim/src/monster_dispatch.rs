@@ -51,6 +51,29 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
                 cs.apply_power(CombatSide::Enemy, i, "PlatingPower", 6);
             }
             "SlumberingBeetle" => slumbering_beetle_spawn(cs, i),
+            "Crusher" => {
+                cs.apply_power(
+                    CombatSide::Enemy,
+                    i,
+                    "BackAttackLeftPower",
+                    1,
+                );
+                cs.apply_power(CombatSide::Enemy, i, "CrabRagePower", 1);
+            }
+            "Rocket" => {
+                cs.apply_power(
+                    CombatSide::Enemy,
+                    i,
+                    "BackAttackRightPower",
+                    1,
+                );
+                cs.apply_power(CombatSide::Enemy, i, "CrabRagePower", 1);
+                // SurroundedPower(1) on every opponent.
+                let n_players = cs.allies.len();
+                for p in 0..n_players {
+                    cs.apply_power(CombatSide::Player, p, "SurroundedPower", 1);
+                }
+            }
             "SkulkingColony" => skulking_colony_spawn(cs, i),
             "LouseProgenitor" => louse_progenitor_spawn(cs, i),
             "TerrorEel" => terror_eel_spawn(cs, i),
@@ -127,6 +150,8 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "MagiKnight"
             | "SpectralKnight"
             | "Ovicopter"
+            | "Crusher"
+            | "Rocket"
     )
 }
 
@@ -741,6 +766,32 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "Crusher" => {
+            let last = last_ref.and_then(|s| match s {
+                "THRASH_MOVE" => Some(CrusherIntent::Thrash),
+                "ENLARGING_STRIKE_MOVE" => Some(CrusherIntent::EnlargingStrike),
+                "BUG_STING_MOVE" => Some(CrusherIntent::BugSting),
+                "ADAPT_MOVE" => Some(CrusherIntent::Adapt),
+                "GUARDED_STRIKE_MOVE" => Some(CrusherIntent::GuardedStrike),
+                _ => None,
+            });
+            let intent = pick_crusher_intent(last);
+            execute_crusher_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "Rocket" => {
+            let last = last_ref.and_then(|s| match s {
+                "TARGETING_RETICLE_MOVE" => Some(RocketIntent::TargetingReticle),
+                "PRECISION_BEAM_MOVE" => Some(RocketIntent::PrecisionBeam),
+                "CHARGE_UP_MOVE" => Some(RocketIntent::ChargeUp),
+                "LASER_MOVE" => Some(RocketIntent::Laser),
+                "RECHARGE_MOVE" => Some(RocketIntent::Recharge),
+                _ => None,
+            });
+            let intent = pick_rocket_intent(last);
+            execute_rocket_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "Ovicopter" => {
