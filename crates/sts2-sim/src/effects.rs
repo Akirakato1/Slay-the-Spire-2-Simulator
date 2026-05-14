@@ -397,6 +397,23 @@ pub enum Effect {
     /// Set max HP to `amount` and heal to full. TestSubject Revive,
     /// Doormaker DramaticOpen phase shift.
     SetMaxHpAndHeal { amount: AmountSpec, target: Target },
+    /// Stun `target` for their next turn — skip their move and clear
+    /// the flag. Mirrors C# `CreatureCmd.Stun(creature, ...)` plus the
+    /// power-driven variants (Asleep / Slumber / Burrowed → Stun). For
+    /// enemies, sets `MonsterState.flags["stunned"]=true`; the next
+    /// `dispatch_enemy_turn` consumes the flag. Stun on a player is
+    /// not yet modeled (no card / monster targets player-stun in our
+    /// current ports).
+    Stun { target: Target },
+    /// Apply an Affliction to every card in `pile`. HexPower-style:
+    /// iterate all cards, set `card.affliction = Some(...)`. STUB —
+    /// affliction-on-card infrastructure (CardInstance.affliction
+    /// field + lifecycle hooks) not yet present.
+    ApplyAfflictionToAllInPile {
+        affliction_id: String,
+        pile: Pile,
+        amount: AmountSpec,
+    },
 
     // ---------- Control flow ----------
     /// Conditional branch. Run `then_branch` if `condition` evaluates
@@ -994,6 +1011,27 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                     c.current_hp = c.max_hp;
                 }
             });
+        }
+        Effect::Stun { target } => {
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                if matches!(side, CombatSide::Enemy) {
+                    if let Some(ms) = cs
+                        .enemies
+                        .get_mut(idx)
+                        .and_then(|c| c.monster.as_mut())
+                    {
+                        ms.set_flag("stunned", true);
+                    }
+                }
+                // Player-stun is currently a no-op (no source applies
+                // player stun in current ports).
+            });
+        }
+        Effect::ApplyAfflictionToAllInPile { .. } => {
+            // STUB: requires affliction-on-card infrastructure
+            // (CardInstance.affliction + AfterCardEnteredCombat hook
+            // that re-applies to mid-combat-generated cards). HexPower
+            // is the only consumer today.
         }
         Effect::Conditional {
             condition,
@@ -2177,6 +2215,48 @@ mod tests {
         let hp_before = cs.allies[0].current_hp;
         execute_effects(&mut cs, &stubs, &ctx);
         assert_eq!(cs.allies[0].current_hp, hp_before);
+    }
+
+    /// Stun sets the monster's stunned flag. dispatch_enemy_turn
+    /// consumes it (test that path indirectly via the MonsterState
+    /// flag read here; full dispatch integration is in
+    /// monster_dispatch tests).
+    #[test]
+    fn stun_sets_monster_stunned_flag() {
+        let mut cs = ironclad_combat();
+        let effects = vec![Effect::Stun {
+            target: Target::ChosenEnemy,
+        }];
+        let ctx = EffectContext::for_card(
+            0,
+            Some((CombatSide::Enemy, 0)),
+            "StrikeIronclad",
+            0,
+            None,
+            0,
+        );
+        execute_effects(&mut cs, &effects, &ctx);
+        let stunned = cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("stunned"))
+            .unwrap_or(false);
+        assert!(stunned);
+    }
+
+    /// ApplyAfflictionToAllInPile is a stub (no affliction-on-card
+    /// infrastructure yet). Test confirms it doesn't crash.
+    #[test]
+    fn apply_affliction_to_all_in_pile_stub_is_safe() {
+        let mut cs = ironclad_combat();
+        let effects = vec![Effect::ApplyAfflictionToAllInPile {
+            affliction_id: "Hexed".to_string(),
+            pile: Pile::Hand,
+            amount: AmountSpec::Fixed(1),
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        // No-op; just confirms no panic.
     }
 
     /// Stub primitives (orb / osty / forge / quest / end-turn /

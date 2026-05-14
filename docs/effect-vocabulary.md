@@ -525,7 +525,7 @@ instead of CombatState.
 | Selectors | All · Random · Top · Bottom · FirstMatching(filter) | PlayerInteractive (→ Random fallback) | — |
 | Orbs (Defect) | — | ChannelOrb · EvokeNextOrb · TriggerOrbPassive · ChangeOrbSlots | — |
 | Osty / Forge | — | SummonOsty · DamageFromOsty · Forge | — |
-| Monsters | SummonMonster · KillSelf · SetMaxHpAndHeal | — | OnPreventedDeath (relic hook) |
+| Monsters | SummonMonster · KillSelf · SetMaxHpAndHeal · Stun (sets MonsterState.flag stunned) | ApplyAfflictionToAllInPile (needs affliction-on-card infra) | OnPreventedDeath (relic hook) |
 | Control flow | Conditional { condition, then, else } · Repeat { count, body } | — | — |
 | Condition vocabulary | Always · Never · Not · And · Or · IsUpgraded · HasPowerOnTarget · HasPowerOnSelf · CardCountInPile · HandHasCardMatching · SourceCardHasKeyword · RandomChance | OwnerLostHpThisTurn · AttackKilledTarget (need combat-history scan) | — |
 | Actors | SelfPlayer · SelfActor · ChosenEnemy · AllEnemies · RandomEnemy | — | TargetLowestHpEnemy · TargetHighestHpEnemy (rare) |

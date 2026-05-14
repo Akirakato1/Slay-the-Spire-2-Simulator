@@ -285,6 +285,16 @@ pub fn dispatch_enemy_turn(
     {
         return false;
     }
+    // Stun gate: if the monster carries the "stunned" flag, consume it
+    // and skip the move (mirrors C# `CreatureCmd.Stun` setting a
+    // skip-next-move flag). Returns true so the caller doesn't count
+    // this as an unported monster.
+    if let Some(ms) = cs.enemies[enemy_idx].monster.as_mut() {
+        if ms.flag("stunned") {
+            ms.set_flag("stunned", false);
+            return true;
+        }
+    }
     let model_id = cs.enemies[enemy_idx].model_id.clone();
     let slot = cs.enemies[enemy_idx].slot.clone();
     let last_str = last_intent_str(cs, enemy_idx);
