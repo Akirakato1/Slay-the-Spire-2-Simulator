@@ -608,6 +608,32 @@ impl CombatState {
         drawn
     }
 
+    /// Pick one card from the player's hand uniformly at random via
+    /// `self.rng` and move it to the exhaust pile. No-op if the hand is
+    /// empty. Returns the exhausted card's id (for logging / tests).
+    /// Mirrors C# `RunState.Rng.CombatCardSelection.NextItem(hand)
+    /// → CardCmd.Exhaust`.
+    pub fn exhaust_random_card_in_hand(
+        &mut self,
+        player_idx: usize,
+    ) -> Option<String> {
+        let hand_len = self
+            .allies
+            .get(player_idx)
+            .and_then(|c| c.player.as_ref())
+            .map(|ps| ps.hand.len())
+            .unwrap_or(0);
+        if hand_len == 0 {
+            return None;
+        }
+        let idx = self.rng.next_int_range(0, hand_len as i32) as usize;
+        let ps = self.allies[player_idx].player.as_mut().unwrap();
+        let card = ps.hand.cards.remove(idx);
+        let id = card.id.clone();
+        ps.exhaust.cards.push(card);
+        Some(id)
+    }
+
     /// Move every card in the named player's hand to discard. Useful for
     /// end-of-turn and effects like "Discard your hand."
     pub fn discard_hand(&mut self, player_idx: usize) {
@@ -1416,6 +1442,22 @@ fn dispatch_on_play(
                 "StrengthPower",
                 strength,
             );
+            true
+        }
+        // TrueGrit (Ironclad common Skill): 7 block (9 upgraded) +
+        // exhaust a random card from hand. The card itself routes to
+        // discard normally — the Exhaust hover-tip in C# is a UI hint
+        // for the *effect* (the hand-pick gets exhausted), not a
+        // CanonicalKeywords entry. C# distinguishes base vs upgraded:
+        // base picks randomly, upgraded prompts the player. Until
+        // player-choice machinery lands, fall back to random for both.
+        // Choice-routing fidelity is a known deviation tracked
+        // alongside Headbutt / Cinder etc.
+        "TrueGrit" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            cs.exhaust_random_card_in_hand(player_idx);
             true
         }
         // PommelStrike (Ironclad common Attack): 9 damage + draw N
@@ -3813,6 +3855,108 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- TrueGrit (RNG hand exhaust) tests ------------------------
+
+    #[test]
+    fn true_grit_grants_block_discards_self_and_exhausts_one_hand_card() {
+        let mut cs = ironclad_combat();
+        // Deterministic rng so the picked index is reproducible.
+        cs.rng = Rng::new(42, 0);
+        let strike = card_by_id("StrikeIronclad").unwrap();
+        let defend = card_by_id("DefendIronclad").unwrap();
+        let truegrit = card_by_id("TrueGrit").unwrap();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.hand.cards.clear();
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            ps.hand.cards.push(CardInstance::from_card(defend, 0));
+            ps.hand
+                .cards
+                .push(CardInstance::from_card(truegrit, 0));
+        }
+        let r = cs.play_card(0, 2, None); // TrueGrit at index 2
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 7);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        // TrueGrit itself → discard (Skill, no CanonicalKeywords Exhaust).
+        // One hand card → exhaust. So: hand=1, exhaust=1, discard=1.
+        assert_eq!(ps.hand.len(), 1);
+        assert_eq!(ps.exhaust.len(), 1);
+        assert!(ps.discard.cards.iter().any(|c| c.id == "TrueGrit"));
+    }
+
+    #[test]
+    fn upgraded_true_grit_grants_nine_block() {
+        let mut cs = ironclad_combat();
+        let truegrit = card_by_id("TrueGrit").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(truegrit, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        // 7 + 2 = 9.
+        assert_eq!(cs.allies[0].block, 9);
+    }
+
+    #[test]
+    fn true_grit_with_only_self_in_hand_no_extra_exhaust() {
+        // No other cards in hand → no second exhaust, just the block.
+        // TrueGrit itself goes to discard (not exhaust).
+        let mut cs = ironclad_combat();
+        let truegrit = card_by_id("TrueGrit").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .clear();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(truegrit, 0));
+        let r = cs.play_card(0, 0, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].block, 7);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        // Empty exhaust; TrueGrit lives in discard.
+        assert!(ps.exhaust.is_empty());
+        assert_eq!(ps.discard.len(), 1);
+        assert_eq!(ps.discard.cards[0].id, "TrueGrit");
+    }
+
+    #[test]
+    fn exhaust_random_card_uses_combat_rng_deterministically() {
+        // Two combats with same seed → same exhaust pick (both pick
+        // the same hand index).
+        let strike = card_by_id("StrikeIronclad").unwrap();
+        let defend = card_by_id("DefendIronclad").unwrap();
+        let make_cs = || {
+            let mut cs = ironclad_combat();
+            cs.rng = Rng::new(12345, 0);
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.hand.cards.clear();
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            ps.hand.cards.push(CardInstance::from_card(defend, 0));
+            ps.hand.cards.push(CardInstance::from_card(strike, 0));
+            cs
+        };
+        let mut cs1 = make_cs();
+        let mut cs2 = make_cs();
+        let id1 = cs1.exhaust_random_card_in_hand(0);
+        let id2 = cs2.exhaust_random_card_in_hand(0);
+        assert!(id1.is_some());
+        assert_eq!(id1, id2);
     }
 
     // ---------- PommelStrike + ShrugItOff (RNG draw) tests --------------
