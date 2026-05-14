@@ -1444,6 +1444,44 @@ fn dispatch_on_play(
             );
             true
         }
+        // PerfectedStrike (Ironclad common Attack, 2 cost): deal
+        // CalculationBase + ExtraDamage * (count of Strike-tagged cards
+        // in player's full combat deck — draw + hand + discard +
+        // exhaust). C# uses `PlayerCombatState.AllCards` which is the
+        // union of all piles. Upgrade bumps ExtraDamage by 1.
+        "PerfectedStrike" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let base_damage = canonical_int_value(card, "CalculationBase", upgrade_level);
+            let per_strike = canonical_int_value(card, "ExtraDamage", upgrade_level);
+            let strike_count = if let Some(ps) = cs.allies[player_idx].player.as_ref() {
+                let count_in = |pile: &CardPile| -> i32 {
+                    pile.cards
+                        .iter()
+                        .filter(|ci| {
+                            card_by_id(&ci.id)
+                                .map(|d| d.tags.iter().any(|t| t == "Strike"))
+                                .unwrap_or(false)
+                        })
+                        .count() as i32
+                };
+                count_in(&ps.draw)
+                    + count_in(&ps.hand)
+                    + count_in(&ps.discard)
+                    + count_in(&ps.exhaust)
+            } else {
+                0
+            };
+            let damage = base_damage + per_strike * strike_count;
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            true
+        }
         // SwordBoomerang (Ironclad common Attack, 1 cost): 3 damage
         // per hit × Repeat hits (3 base, 4 upgraded). Each hit picks a
         // fresh random alive enemy via self.rng; if every enemy dies
@@ -3906,6 +3944,85 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- PerfectedStrike tests ------------------------------------
+
+    #[test]
+    fn perfected_strike_baseline_counts_starter_strikes() {
+        // Starter Ironclad deck has 5 Strike-tagged cards (StrikeIronclad).
+        // PerfectedStrike base = 6 + 2*5 = 16.
+        let mut cs = ironclad_combat();
+        let card = card_by_id("PerfectedStrike").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 16);
+    }
+
+    #[test]
+    fn upgraded_perfected_strike_uses_three_per_strike() {
+        // 6 + 3*5 = 21.
+        let mut cs = ironclad_combat();
+        let card = card_by_id("PerfectedStrike").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 21);
+    }
+
+    #[test]
+    fn perfected_strike_counts_strikes_across_all_piles() {
+        // Move some Strikes to discard + a SetupStrike (also Strike-tagged)
+        // into hand. Total = 5 + 1 = 6 Strikes. Damage = 6 + 2*6 = 18.
+        let mut cs = ironclad_combat();
+        let setup_strike = card_by_id("SetupStrike").unwrap();
+        let perfected = card_by_id("PerfectedStrike").unwrap();
+        {
+            let ps = cs.allies[0].player.as_mut().unwrap();
+            ps.hand
+                .cards
+                .push(CardInstance::from_card(setup_strike, 0));
+            ps.hand
+                .cards
+                .push(CardInstance::from_card(perfected, 0));
+            // Move two StrikeIronclads from draw → discard to verify
+            // discard counts too.
+            for _ in 0..2 {
+                let i = ps
+                    .draw
+                    .cards
+                    .iter()
+                    .position(|c| c.id == "StrikeIronclad")
+                    .unwrap();
+                let c = ps.draw.cards.remove(i);
+                ps.discard.cards.push(c);
+            }
+        }
+        // PerfectedStrike is at the last hand index.
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        // 5 StrikeIronclad + 1 SetupStrike still in piles after play.
+        // Damage = 6 + 2*6 = 18.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 18);
     }
 
     // ---------- SwordBoomerang tests -------------------------------------
