@@ -189,6 +189,30 @@ impl PyCombatEnv {
         })
     }
 
+    /// Build a combat from an explicit monster list, bypassing the
+    /// static encounter table. Useful when replaying a `.run` log
+    /// whose multi-monster encounter (BowlbugsNormal, SlimesWeak,
+    /// ToadpolesWeak, …) uses dynamic spawn logic the extractor can't
+    /// follow — the .run records the actual monsters that spawned, so
+    /// we pass those directly. `monsters` is a list of "Foo" model
+    /// ids; slots are synthesized in order
+    /// ("front", "back", "third", "fourth").
+    #[staticmethod]
+    fn from_monsters(
+        seed: u32,
+        character: &str,
+        encounter_id: &str,
+        monsters: Vec<String>,
+    ) -> PyResult<Self> {
+        let inner = build_env_from_monsters(seed, character, encounter_id, &monsters)?;
+        Ok(Self {
+            inner,
+            character_id: character.to_string(),
+            encounter_id: encounter_id.to_string(),
+            seed,
+        })
+    }
+
     /// Reset to a fresh combat with the same character / encounter.
     /// Optionally takes a new seed.
     #[pyo3(signature = (seed=None))]
@@ -256,6 +280,53 @@ impl PyCombatEnv {
         self.encounter_id = snapshot.encounter_id.clone();
         self.seed = snapshot.seed;
     }
+}
+
+/// Slot names assigned to the 1st..Nth monster when no slot info is
+/// otherwise available (the `.run`-driven harness path).
+const DEFAULT_SLOTS: &[&str] = &["front", "back", "third", "fourth", "fifth"];
+
+fn build_env_from_monsters(
+    seed: u32,
+    character_id: &str,
+    encounter_id: &str,
+    monster_ids: &[String],
+) -> PyResult<sim_env::CombatEnv> {
+    let ch = character::by_id(character_id)
+        .ok_or_else(|| PyValueError::new_err(format!("unknown character: {character_id}")))?;
+    let canonical: Vec<encounter::MonsterSpawn> = monster_ids
+        .iter()
+        .enumerate()
+        .map(|(i, m)| encounter::MonsterSpawn {
+            monster: m.clone(),
+            slot: DEFAULT_SLOTS
+                .get(i)
+                .copied()
+                .unwrap_or("")
+                .to_string(),
+        })
+        .collect();
+    let synthetic = encounter::EncounterData {
+        id: encounter_id.to_string(),
+        room_type: None,
+        slots: Vec::new(),
+        canonical_monsters: canonical,
+        possible_monsters: monster_ids.to_vec(),
+    };
+    let deck = combat::deck_from_ids(&ch.starting_deck);
+    let setup = combat::PlayerSetup {
+        character: ch,
+        current_hp: ch.starting_hp.unwrap_or(0),
+        max_hp: ch.starting_hp.unwrap_or(0),
+        deck,
+        relics: ch.starting_relics.clone(),
+    };
+    Ok(sim_env::CombatEnv::reset(
+        &synthetic,
+        vec![setup],
+        Vec::new(),
+        seed,
+    ))
 }
 
 fn build_env(

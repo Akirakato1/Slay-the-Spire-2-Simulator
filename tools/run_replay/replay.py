@@ -91,15 +91,28 @@ def load_known_encounters() -> set[str]:
 def replay_one(
     encounter: str,
     character: str,
+    monster_ids: list[str],
     *,
     seed: int,
     step_cap: int,
 ) -> tuple[str, dict]:
-    """Replay one combat. Returns (status_code, info_dict)."""
+    """Replay one combat. Returns (status_code, info_dict).
+
+    Uses the `.run`-recorded monster_ids list directly via
+    `PyCombatEnv.from_monsters` — bypasses the encounter table's
+    canonical_monsters (which is dynamically filled at runtime in
+    C# for some multi-monster encounters and so doesn't extract
+    cleanly).
+    """
     rng = random.Random(seed)
+    # Normalize monster ids from "MONSTER.SEAPUNK" → "Seapunk".
+    sim_monsters = [normalize_id(m) for m in monster_ids]
     try:
-        env = sts2_sim_py.PyCombatEnv(
-            seed=seed, character=character, encounter=encounter
+        env = sts2_sim_py.PyCombatEnv.from_monsters(
+            seed=seed,
+            character=character,
+            encounter_id=encounter,
+            monsters=sim_monsters,
         )
     except Exception as exc:
         return STATUS_ENV_BUILD_FAILED, {"error": repr(exc)}
@@ -207,6 +220,7 @@ def walk_run(
                 status, info = replay_one(
                     enc,
                     character,
+                    monster_ids,
                     seed=combat_seed,
                     step_cap=step_cap,
                 )
