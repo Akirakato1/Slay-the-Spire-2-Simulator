@@ -437,6 +437,25 @@ impl CombatState {
         // ordering — adjust when #70 lands.
         self.tick_start_of_turn_powers(side);
         self.fire_after_side_turn_start_hooks(side);
+        // VigorPower snapshot: at start of enemy turn, freeze the
+        // current Vigor.amount per enemy. This is the amount that
+        // gets drained at the end of the turn (see tick_vigor_drain),
+        // so Vigor applied DURING the turn carries to the next turn
+        // without leaking into the consumption. Mirrors C#'s
+        // BeforeAttack/AfterAttack pairing.
+        if side == CombatSide::Enemy {
+            for enemy in self.enemies.iter_mut() {
+                let vigor = enemy
+                    .powers
+                    .iter()
+                    .find(|p| p.id == "VigorPower")
+                    .map(|p| p.amount)
+                    .unwrap_or(0);
+                if let Some(ms) = enemy.monster.as_mut() {
+                    ms.set_counter("vigor_snapshot", vigor);
+                }
+            }
+        }
         // RampartPower fires on Player-side start regardless of owner.
         // Walks enemies and grants block to their TurretOperator allies.
         if side == CombatSide::Player {
@@ -686,6 +705,14 @@ impl CombatState {
         // C#; gameplay-side this just counts down to align with the
         // intent state machine's Escape step.
         self.tick_escape_artist_powers(side);
+        // VigorPower drain: subtract the per-turn snapshot from
+        // VigorPower on each enemy. The snapshot was taken at
+        // begin_turn(Enemy); Vigor applied DURING the turn is
+        // untouched (its addition came AFTER the snapshot). Mirrors
+        // C# AfterAttack: ModifyAmount(-amountWhenAttackStarted).
+        if side == CombatSide::Enemy {
+            self.tick_vigor_drain();
+        }
         if self.log_enabled {
             let round = self.round_number;
             let side = self.current_side;
@@ -765,6 +792,41 @@ impl CombatState {
         }
         for idx in to_dec {
             self.decrement_power(side, idx, "EscapeArtistPower", 1);
+        }
+    }
+
+    /// Drain VigorPower at end of enemy turn by the amount snapshotted
+    /// at the start of the same turn. See `begin_turn` for the
+    /// snapshot. Clamps Vigor at 0; clears the snapshot counter.
+    fn tick_vigor_drain(&mut self) {
+        let n = self.enemies.len();
+        let mut drains: Vec<(usize, i32)> = Vec::new();
+        for i in 0..n {
+            let has_vigor = self.enemies[i]
+                .powers
+                .iter()
+                .any(|p| p.id == "VigorPower");
+            if !has_vigor {
+                continue;
+            }
+            let snap = self.enemies[i]
+                .monster
+                .as_ref()
+                .map(|m| m.counter("vigor_snapshot"))
+                .unwrap_or(0);
+            if snap > 0 {
+                drains.push((i, snap));
+            }
+        }
+        for (i, snap) in drains {
+            self.decrement_power(CombatSide::Enemy, i, "VigorPower", snap);
+            if let Some(ms) = self
+                .enemies
+                .get_mut(i)
+                .and_then(|c| c.monster.as_mut())
+            {
+                ms.set_counter("vigor_snapshot", 0);
+            }
         }
     }
 
@@ -1528,6 +1590,28 @@ impl CombatState {
                     }
                 }
                 self.remove_power(target.0, target.1, "CurlUpPower");
+            } else if power_id == "ShriekPower" {
+                // ShriekPower.AfterDamageReceived: when owner's
+                // CurrentHp ≤ Amount AND took unblocked damage, fire
+                // the shriek — set the shriek_triggered flag for the
+                // state machine to route to TerrorMove on the next
+                // enemy turn, then remove the power. C# also stuns
+                // the owner via TerrorState — Stun mechanic is
+                // deferred so the eel just acts normally next turn
+                // and we route directly to Terror.
+                let owner_hp = creature(self, target.0, target.1)
+                    .map(|c| c.current_hp)
+                    .unwrap_or(0);
+                if owner_hp <= amount {
+                    if let Some(creature) =
+                        creature_mut(self, target.0, target.1)
+                    {
+                        if let Some(ms) = creature.monster.as_mut() {
+                            ms.set_flag("shriek_triggered", true);
+                        }
+                    }
+                    self.remove_power(target.0, target.1, "ShriekPower");
+                }
             }
         }
     }
@@ -3083,6 +3167,15 @@ fn power_additive_dealer(power: &PowerInstance, props: ValueProp) -> f64 {
         // from the owner. allow_negative=true → Strength can be negative
         // (Weak-style debuffs subtract Strength).
         "StrengthPower" => power.amount as f64,
+        // VigorPower.ModifyDamageAdditive: +Amount on powered attacks
+        // from the owner. C# only buffs hits belonging to a single
+        // AttackCommand and then drains the power; we approximate by
+        // snapshotting the amount at the start of the owner's turn
+        // and draining by the snapshot at the end of that turn (see
+        // tick_vigor_consumption). Net: Vigor applied during turn N
+        // doesn't drain at end of N (snapshot was 0), so it boosts
+        // turn N+1's attack and then clears.
+        "VigorPower" if power.amount > 0 => power.amount as f64,
         _ => 0.0,
     }
 }
@@ -3765,6 +3858,132 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: TerrorEel (elite) --------------------------
+//
+// Reflects C# `TerrorEel.GenerateMoveStateMachine`:
+//   Init: Crash. Chain Crash ↔ Thrash. When ShriekPower fires (HP
+//   drops to ≤ ShriekAmount=70), route to Terror on next turn; in
+//   C# the eel also stuns the same turn — we skip Stun and just
+//   route straight to Terror, dropping the StunMove placeholder.
+//
+// Spawn (AfterAddedToRoom): apply ShriekPower(70) to self.
+//
+// A0 payloads:
+//   - Crash:   16 damage (DeadlyEnemies: 18)
+//   - Thrash:  3 damage × 3 hits + apply VigorPower(6) to self
+//              (DeadlyEnemies: 4 damage)
+//   - Terror:  apply VulnerablePower(99) to player
+//
+// VigorPower wires into power_additive_dealer with snapshot/drain
+// semantics in begin/end_turn(Enemy). ShriekPower wires into
+// fire_after_damage_received_hooks (sets the shriek_triggered flag
+// when CurrentHp <= Amount; the next intent pick routes to Terror).
+
+const TERROR_EEL_SHRIEK_AMOUNT: i32 = 70;
+const TERROR_EEL_CRASH_DAMAGE: i32 = 16;
+const TERROR_EEL_THRASH_DAMAGE: i32 = 3;
+const TERROR_EEL_THRASH_HITS: i32 = 3;
+const TERROR_EEL_THRASH_VIGOR: i32 = 6;
+const TERROR_EEL_TERROR_VULN: i32 = 99;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TerrorEelIntent {
+    Crash,
+    Thrash,
+    Terror,
+}
+
+impl TerrorEelIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            TerrorEelIntent::Crash => "CRASH_MOVE",
+            TerrorEelIntent::Thrash => "ThrashMove",
+            TerrorEelIntent::Terror => "TERROR_MOVE",
+        }
+    }
+}
+
+pub fn terror_eel_spawn(cs: &mut CombatState, eel_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        eel_idx,
+        "ShriekPower",
+        TERROR_EEL_SHRIEK_AMOUNT,
+    );
+}
+
+/// Pick the eel's next intent. `shriek_triggered` is the
+/// per-monster flag flipped on by fire_after_damage_received_hooks
+/// when the eel's HP drops to ≤ ShriekAmount. When set, the eel
+/// routes to Terror once (the flag is cleared inside execute).
+pub fn pick_terror_eel_intent(
+    last_intent: Option<TerrorEelIntent>,
+    shriek_triggered: bool,
+) -> TerrorEelIntent {
+    if shriek_triggered {
+        return TerrorEelIntent::Terror;
+    }
+    match last_intent {
+        None => TerrorEelIntent::Crash,
+        Some(TerrorEelIntent::Crash) => TerrorEelIntent::Thrash,
+        Some(TerrorEelIntent::Thrash) => TerrorEelIntent::Crash,
+        // After Terror resolves, the eel falls back to Crash and
+        // continues the normal cycle (C# routes Terror → Crash).
+        Some(TerrorEelIntent::Terror) => TerrorEelIntent::Crash,
+    }
+}
+
+pub fn execute_terror_eel_move(
+    cs: &mut CombatState,
+    eel_idx: usize,
+    target_player_idx: usize,
+    intent: TerrorEelIntent,
+) {
+    let attacker = (CombatSide::Enemy, eel_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        TerrorEelIntent::Crash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TERROR_EEL_CRASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        TerrorEelIntent::Thrash => {
+            for _ in 0..TERROR_EEL_THRASH_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    TERROR_EEL_THRASH_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+            cs.apply_power(
+                CombatSide::Enemy,
+                eel_idx,
+                "VigorPower",
+                TERROR_EEL_THRASH_VIGOR,
+            );
+        }
+        TerrorEelIntent::Terror => {
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "VulnerablePower",
+                TERROR_EEL_TERROR_VULN,
+            );
+            // Consume the shriek trigger so subsequent turns return
+            // to the Crash/Thrash cycle.
+            if let Some(creature) = cs.enemies.get_mut(eel_idx) {
+                if let Some(ms) = creature.monster.as_mut() {
+                    ms.set_flag("shriek_triggered", false);
+                }
+            }
         }
     }
 }
@@ -11670,6 +11889,178 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- TerrorEel + VigorPower + ShriekPower tests -----------------
+
+    #[test]
+    fn terror_eel_default_chain_crash_thrash() {
+        assert_eq!(
+            pick_terror_eel_intent(None, false),
+            TerrorEelIntent::Crash
+        );
+        assert_eq!(
+            pick_terror_eel_intent(Some(TerrorEelIntent::Crash), false),
+            TerrorEelIntent::Thrash
+        );
+        assert_eq!(
+            pick_terror_eel_intent(Some(TerrorEelIntent::Thrash), false),
+            TerrorEelIntent::Crash
+        );
+    }
+
+    #[test]
+    fn terror_eel_shriek_routes_to_terror() {
+        // Regardless of last intent, shriek_triggered forces Terror.
+        assert_eq!(
+            pick_terror_eel_intent(Some(TerrorEelIntent::Crash), true),
+            TerrorEelIntent::Terror
+        );
+        assert_eq!(pick_terror_eel_intent(None, true), TerrorEelIntent::Terror);
+    }
+
+    #[test]
+    fn terror_eel_spawn_applies_shriek_seventy() {
+        let mut cs = ironclad_combat();
+        terror_eel_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ShriekPower"),
+            70
+        );
+    }
+
+    #[test]
+    fn terror_eel_crash_deals_sixteen_baseline() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_terror_eel_move(&mut cs, 0, 0, TerrorEelIntent::Crash);
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+    }
+
+    #[test]
+    fn terror_eel_thrash_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_terror_eel_move(&mut cs, 0, 0, TerrorEelIntent::Thrash);
+        assert_eq!(cs.allies[0].current_hp, hp - 9);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VigorPower"),
+            6
+        );
+    }
+
+    #[test]
+    fn terror_eel_terror_applies_vulnerable_and_clears_shriek_flag() {
+        let mut cs = ironclad_combat();
+        if let Some(ms) = cs.enemies[0].monster.as_mut() {
+            ms.set_flag("shriek_triggered", true);
+        }
+        execute_terror_eel_move(&mut cs, 0, 0, TerrorEelIntent::Terror);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "VulnerablePower"),
+            99
+        );
+        assert!(!cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("shriek_triggered"))
+            .unwrap_or(true));
+    }
+
+    #[test]
+    fn vigor_adds_to_dealer_damage() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VigorPower", 6);
+        let hp = cs.allies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+    }
+
+    #[test]
+    fn vigor_persists_when_applied_during_turn() {
+        // Eel applies Vigor on Thrash. At end of THIS turn, Vigor was
+        // 0 at the snapshot — so it stays 6 for next turn.
+        let mut cs = ironclad_combat();
+        cs.current_side = CombatSide::Player;
+        cs.begin_turn(CombatSide::Enemy);
+        // Mid-turn: Thrash applies Vigor.
+        execute_terror_eel_move(&mut cs, 0, 0, TerrorEelIntent::Thrash);
+        cs.end_turn();
+        // Vigor not drained — it was 0 at snapshot.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VigorPower"),
+            6
+        );
+    }
+
+    #[test]
+    fn vigor_drains_after_being_used_full_turn() {
+        // Setup: Vigor=6 at start of enemy turn (already applied).
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VigorPower", 6);
+        cs.current_side = CombatSide::Player;
+        cs.begin_turn(CombatSide::Enemy);
+        // Snapshot now 6. End turn — Vigor drains to 0.
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VigorPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn shriek_fires_when_owner_drops_below_threshold() {
+        // Enemy max_hp 50, Shriek(40). Player hits for damage that
+        // takes HP to 30. Shriek fires, flag set, power removed.
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 50;
+        cs.enemies[0].max_hp = 50;
+        cs.apply_power(CombatSide::Enemy, 0, "ShriekPower", 40);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            20,
+            ValueProp::MOVE,
+        );
+        // HP now 30 ≤ 40 → Shriek fires.
+        assert_eq!(cs.enemies[0].current_hp, 30);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ShriekPower"),
+            0
+        );
+        assert!(cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("shriek_triggered"))
+            .unwrap_or(false));
+    }
+
+    #[test]
+    fn shriek_does_not_fire_above_threshold() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 100;
+        cs.enemies[0].max_hp = 100;
+        cs.apply_power(CombatSide::Enemy, 0, "ShriekPower", 40);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ShriekPower"),
+            40
+        );
+        assert!(!cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("shriek_triggered"))
+            .unwrap_or(true));
     }
 
     // ---------- LouseProgenitor + CurlUpPower tests ------------------------

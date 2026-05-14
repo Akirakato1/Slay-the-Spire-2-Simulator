@@ -48,6 +48,7 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
             "CorpseSlug" => corpse_slug_spawn(cs, i),
             "SkulkingColony" => skulking_colony_spawn(cs, i),
             "LouseProgenitor" => louse_progenitor_spawn(cs, i),
+            "TerrorEel" => terror_eel_spawn(cs, i),
             _ => {}
         }
     }
@@ -103,6 +104,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "BygoneEffigy"
             | "SkulkingColony"
             | "LouseProgenitor"
+            | "TerrorEel"
     )
 }
 
@@ -633,6 +635,22 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_louse_progenitor_intent(last);
             execute_louse_progenitor_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "TerrorEel" => {
+            let last = last_ref.and_then(|s| match s {
+                "CRASH_MOVE" => Some(TerrorEelIntent::Crash),
+                "ThrashMove" => Some(TerrorEelIntent::Thrash),
+                "TERROR_MOVE" => Some(TerrorEelIntent::Terror),
+                _ => None,
+            });
+            let shriek_triggered = cs.enemies[enemy_idx]
+                .monster
+                .as_ref()
+                .map(|m| m.flag("shriek_triggered"))
+                .unwrap_or(false);
+            let intent = pick_terror_eel_intent(last, shriek_triggered);
+            execute_terror_eel_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {
