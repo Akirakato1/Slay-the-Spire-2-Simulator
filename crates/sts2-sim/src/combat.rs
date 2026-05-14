@@ -4081,6 +4081,120 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: Ovicopter ----------------------------------
+//
+// Reflects C# `Ovicopter.GenerateMoveStateMachine`:
+//   Init: LayEggs.
+//   Chain: LayEggs → Smash → Tenderizer → conditional(CanLay →
+//          LayEggs, !CanLay → NutritionalPaste) → Smash → … (loop).
+//   CanLay = (alive teammates ≤ 3). NutritionalPaste → Smash.
+//
+// A0 payloads:
+//   - LayEggs:          summon 3 ToughEgg minions. Skipped — summon
+//                       system isn't ported; the move is a no-op.
+//                       Without summoned eggs, CanLay always holds
+//                       so the chain stays in LayEggs/Smash/
+//                       Tenderizer and never falls to
+//                       NutritionalPaste.
+//   - Smash:            16 damage (DeadlyEnemies: 17)
+//   - Tenderizer:       7 dmg + 2 Vulnerable on player
+//                       (DeadlyEnemies: 8)
+//   - NutritionalPaste: +3 self-Strength (DeadlyEnemies: 4) —
+//                       included for completeness even though
+//                       unreachable without summon system.
+
+const OVICOPTER_SMASH_DAMAGE: i32 = 16;
+const OVICOPTER_TENDERIZER_DAMAGE: i32 = 7;
+const OVICOPTER_TENDERIZER_VULN: i32 = 2;
+const OVICOPTER_NUTRITIONAL_STRENGTH: i32 = 3;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum OvicopterIntent {
+    LayEggs,
+    Smash,
+    Tenderizer,
+    NutritionalPaste,
+}
+
+impl OvicopterIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            OvicopterIntent::LayEggs => "LAY_EGGS_MOVE",
+            OvicopterIntent::Smash => "SMASH_MOVE",
+            OvicopterIntent::Tenderizer => "TENDERIZER_MOVE",
+            OvicopterIntent::NutritionalPaste => "NUTRITIONAL_PASTE_MOVE",
+        }
+    }
+}
+
+/// Pick Ovicopter's next intent. `can_lay` flips the post-Tenderizer
+/// branch — true → LayEggs (default since we don't summon, so the
+/// alive-teammate count never grows past 0), false → NutritionalPaste.
+pub fn pick_ovicopter_intent(
+    last_intent: Option<OvicopterIntent>,
+    can_lay: bool,
+) -> OvicopterIntent {
+    match last_intent {
+        None => OvicopterIntent::LayEggs,
+        Some(OvicopterIntent::LayEggs) => OvicopterIntent::Smash,
+        Some(OvicopterIntent::NutritionalPaste) => OvicopterIntent::Smash,
+        Some(OvicopterIntent::Smash) => OvicopterIntent::Tenderizer,
+        Some(OvicopterIntent::Tenderizer) => {
+            if can_lay {
+                OvicopterIntent::LayEggs
+            } else {
+                OvicopterIntent::NutritionalPaste
+            }
+        }
+    }
+}
+
+pub fn execute_ovicopter_move(
+    cs: &mut CombatState,
+    ovi_idx: usize,
+    target_player_idx: usize,
+    intent: OvicopterIntent,
+) {
+    let attacker = (CombatSide::Enemy, ovi_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        OvicopterIntent::LayEggs => {
+            // No-op — summon system deferred. C# summons 3 ToughEgg
+            // minions and applies MinionPower(1) to each.
+        }
+        OvicopterIntent::Smash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                OVICOPTER_SMASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        OvicopterIntent::Tenderizer => {
+            cs.deal_damage(
+                attacker,
+                player,
+                OVICOPTER_TENDERIZER_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "VulnerablePower",
+                OVICOPTER_TENDERIZER_VULN,
+            );
+        }
+        OvicopterIntent::NutritionalPaste => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                ovi_idx,
+                "StrengthPower",
+                OVICOPTER_NUTRITIONAL_STRENGTH,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: MagiKnight ---------------------------------
 //
 // Reflects C# `MagiKnight.GenerateMoveStateMachine`:
@@ -13272,6 +13386,73 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- Ovicopter tests --------------------------------------------
+
+    #[test]
+    fn ovicopter_walks_chain_with_can_lay() {
+        assert_eq!(pick_ovicopter_intent(None, true), OvicopterIntent::LayEggs);
+        assert_eq!(
+            pick_ovicopter_intent(Some(OvicopterIntent::LayEggs), true),
+            OvicopterIntent::Smash
+        );
+        assert_eq!(
+            pick_ovicopter_intent(Some(OvicopterIntent::Smash), true),
+            OvicopterIntent::Tenderizer
+        );
+        // CanLay=true after Tenderizer → back to LayEggs.
+        assert_eq!(
+            pick_ovicopter_intent(Some(OvicopterIntent::Tenderizer), true),
+            OvicopterIntent::LayEggs
+        );
+        // CanLay=false after Tenderizer → NutritionalPaste.
+        assert_eq!(
+            pick_ovicopter_intent(Some(OvicopterIntent::Tenderizer), false),
+            OvicopterIntent::NutritionalPaste
+        );
+        assert_eq!(
+            pick_ovicopter_intent(Some(OvicopterIntent::NutritionalPaste), false),
+            OvicopterIntent::Smash
+        );
+    }
+
+    #[test]
+    fn ovicopter_lay_eggs_is_noop() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_ovicopter_move(&mut cs, 0, 0, OvicopterIntent::LayEggs);
+        assert_eq!(cs.allies[0].current_hp, hp);
+    }
+
+    #[test]
+    fn ovicopter_smash_deals_sixteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_ovicopter_move(&mut cs, 0, 0, OvicopterIntent::Smash);
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+    }
+
+    #[test]
+    fn ovicopter_tenderizer_seven_dmg_plus_vuln() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_ovicopter_move(&mut cs, 0, 0, OvicopterIntent::Tenderizer);
+        assert_eq!(cs.allies[0].current_hp, hp - 7);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "VulnerablePower"),
+            2
+        );
+    }
+
+    #[test]
+    fn ovicopter_nutritional_paste_grants_three_strength() {
+        let mut cs = ironclad_combat();
+        execute_ovicopter_move(&mut cs, 0, 0, OvicopterIntent::NutritionalPaste);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            3
+        );
     }
 
     // ---------- MagiKnight + SpectralKnight tests --------------------------

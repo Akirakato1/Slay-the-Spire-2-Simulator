@@ -126,6 +126,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "Tunneler"
             | "MagiKnight"
             | "SpectralKnight"
+            | "Ovicopter"
     )
 }
 
@@ -740,6 +741,28 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "Ovicopter" => {
+            let last = last_ref.and_then(|s| match s {
+                "LAY_EGGS_MOVE" => Some(OvicopterIntent::LayEggs),
+                "SMASH_MOVE" => Some(OvicopterIntent::Smash),
+                "TENDERIZER_MOVE" => Some(OvicopterIntent::Tenderizer),
+                "NUTRITIONAL_PASTE_MOVE" => Some(OvicopterIntent::NutritionalPaste),
+                _ => None,
+            });
+            // CanLay: alive teammates count ≤ 3 (C# excludes self).
+            // No summon system → teammate count stays at whatever
+            // the encounter spawned, usually 0 for Ovicopter solo.
+            let live_teammates = cs
+                .enemies
+                .iter()
+                .enumerate()
+                .filter(|(i, e)| *i != enemy_idx && e.current_hp > 0)
+                .count();
+            let can_lay = live_teammates <= 3;
+            let intent = pick_ovicopter_intent(last, can_lay);
+            execute_ovicopter_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "MagiKnight" => {
