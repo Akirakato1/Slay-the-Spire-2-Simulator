@@ -1533,6 +1533,27 @@ fn dispatch_on_play(
             );
             true
         }
+        // BladeDance (Silent common Exhaust Skill, 1E, Self): add N
+        // Shivs to hand (N=3 base, 4 upgraded). Exhausts via keyword.
+        "BladeDance" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let shivs = canonical_int_value(card, "Cards", upgrade_level);
+            for _ in 0..shivs {
+                cs.add_card_to_hand(player_idx, "Shiv", 0);
+            }
+            true
+        }
+        // Snakebite (Silent common Retain Skill, 2E, AnyEnemy): apply
+        // 7 Poison (10 upgraded). Retain keyword handling — keeps the
+        // card in hand at end-of-turn discard — is deferred; doesn't
+        // affect OnPlay.
+        "Snakebite" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let poison = canonical_int_value(card, "Poison", upgrade_level);
+            cs.apply_power(target.0, target.1, "PoisonPower", poison);
+            true
+        }
         // Anticipate (Silent common Skill, 0E, Self): apply 2
         // AnticipatePower (3 upgraded). AnticipatePower extends
         // TemporaryDexterityPower (IsPositive=true) → silently grants
@@ -4421,6 +4442,63 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- BladeDance + Snakebite tests -----------------------------
+
+    #[test]
+    fn blade_dance_adds_three_shivs_and_exhausts() {
+        let mut cs = ironclad_combat();
+        let hand_before = cs.allies[0].player.as_ref().unwrap().hand.len();
+        inject_card_and_play(&mut cs, "BladeDance", 0, None);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        // +BladeDance (inject) → -BladeDance (play, routes to exhaust)
+        // → +3 Shivs. Net delta: +3.
+        assert_eq!(ps.hand.len(), hand_before + 3);
+        let shivs = ps.hand.cards.iter().filter(|c| c.id == "Shiv").count();
+        assert_eq!(shivs, 3);
+        assert!(ps.exhaust.cards.iter().any(|c| c.id == "BladeDance"));
+    }
+
+    #[test]
+    fn upgraded_blade_dance_adds_four_shivs() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "BladeDance", 1, None);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        let shivs = ps.hand.cards.iter().filter(|c| c.id == "Shiv").count();
+        assert_eq!(shivs, 4);
+    }
+
+    #[test]
+    fn snakebite_applies_seven_poison() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        inject_card_and_play(
+            &mut cs,
+            "Snakebite",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
+            7
+        );
+    }
+
+    #[test]
+    fn upgraded_snakebite_applies_ten_poison() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        inject_card_and_play(
+            &mut cs,
+            "Snakebite",
+            1,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
+            10
+        );
     }
 
     // ---------- Anticipate/Untouchable/FlickFlack/Ricochet tests ---------
