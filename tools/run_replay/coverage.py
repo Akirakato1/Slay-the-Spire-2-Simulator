@@ -56,6 +56,8 @@ PORTED_INTENT_MACHINES = {
     "OwlMagistrate",
     "ThievingHopper",
     "Toadpole",
+    "DevotedSculptor",
+    "Exoskeleton",
 }
 
 

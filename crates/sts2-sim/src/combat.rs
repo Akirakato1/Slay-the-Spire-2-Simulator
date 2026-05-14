@@ -3006,6 +3006,9 @@ fn power_multiplicative_target(power: &PowerInstance, props: ValueProp) -> f64 {
 fn power_damage_cap_target(power: &PowerInstance) -> f64 {
     match power.id.as_str() {
         "IntangiblePower" => 1.0,
+        // HardToKillPower.ModifyDamageCap: caps each incoming hit at
+        // `Amount`. Exoskeleton spawns with HardToKill(9).
+        "HardToKillPower" if power.amount > 0 => power.amount as f64,
         _ => f64::MAX,
     }
 }
@@ -3629,6 +3632,209 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: DevotedSculptor ----------------------------
+//
+// Reflects C# `DevotedSculptor.GenerateMoveStateMachine`:
+//   Init: ForbiddenIncantation (apply RitualPower(9) to self).
+//   Then: Savage forever.
+//
+// RitualPower wires into tick_territorial_powers (Strength ramp on
+// owner-side turn end). With Ritual(9), Sculptor gains +9 Strength per
+// turn after the buff — Savage starts at 12 dmg and grows by 9 each
+// turn.
+//
+// A0 payloads:
+//   - ForbiddenIncantation: apply RitualPower(9) to self
+//   - Savage: 12 damage (DeadlyEnemies: 15)
+
+const DEVOTED_SCULPTOR_RITUAL_AMOUNT: i32 = 9;
+const DEVOTED_SCULPTOR_SAVAGE_DAMAGE: i32 = 12;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum DevotedSculptorIntent {
+    ForbiddenIncantation,
+    Savage,
+}
+
+impl DevotedSculptorIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            DevotedSculptorIntent::ForbiddenIncantation => "FORBIDDEN_INCANTATION_MOVE",
+            DevotedSculptorIntent::Savage => "SAVAGE_MOVE",
+        }
+    }
+}
+
+pub fn pick_devoted_sculptor_intent(
+    last_intent: Option<DevotedSculptorIntent>,
+) -> DevotedSculptorIntent {
+    match last_intent {
+        None => DevotedSculptorIntent::ForbiddenIncantation,
+        Some(_) => DevotedSculptorIntent::Savage,
+    }
+}
+
+pub fn execute_devoted_sculptor_move(
+    cs: &mut CombatState,
+    sculptor_idx: usize,
+    target_player_idx: usize,
+    intent: DevotedSculptorIntent,
+) {
+    let attacker = (CombatSide::Enemy, sculptor_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        DevotedSculptorIntent::ForbiddenIncantation => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                sculptor_idx,
+                "RitualPower",
+                DEVOTED_SCULPTOR_RITUAL_AMOUNT,
+            );
+        }
+        DevotedSculptorIntent::Savage => {
+            cs.deal_damage(
+                attacker,
+                player,
+                DEVOTED_SCULPTOR_SAVAGE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: Exoskeleton --------------------------------
+//
+// Reflects C# `Exoskeleton.GenerateMoveStateMachine`. Slot-driven init:
+//   slot 1 (first):  Skitter
+//   slot 2 (second): Mandibles
+//   slot 3 (third):  Enrage
+//   slot 4 (fourth): RandomBranch(Skitter | Mandibles, CannotRepeat)
+//
+// Chain:
+//   Skitter   → RandomBranch (Skitter | Mandibles excluding repeat)
+//   Mandibles → Enrage
+//   Enrage    → RandomBranch
+//
+// Spawn (AfterAddedToRoom): apply HardToKillPower(9) to self —
+// per-hit damage cap at 9, wired into power_damage_cap_target.
+//
+// A0 payloads:
+//   - Skitter:   1 dmg × 3 hits (DeadlyEnemies: ×4 hits)
+//   - Mandibles: 8 dmg (DeadlyEnemies: 9)
+//   - Enrage:    apply StrengthPower(+2) to self
+
+const EXOSKELETON_HARD_TO_KILL_AMOUNT: i32 = 9;
+const EXOSKELETON_SKITTER_DAMAGE: i32 = 1;
+const EXOSKELETON_SKITTER_HITS: i32 = 3;
+const EXOSKELETON_MANDIBLES_DAMAGE: i32 = 8;
+const EXOSKELETON_ENRAGE_STRENGTH: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ExoskeletonIntent {
+    Skitter,
+    Mandibles,
+    Enrage,
+}
+
+impl ExoskeletonIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            ExoskeletonIntent::Skitter => "SKITTER_MOVE",
+            ExoskeletonIntent::Mandibles => "MANDIBLE_MOVE",
+            ExoskeletonIntent::Enrage => "ENRAGE_MOVE",
+        }
+    }
+}
+
+/// Spawn payload — caller invokes once per exoskeleton.
+pub fn exoskeleton_spawn(cs: &mut CombatState, exo_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        exo_idx,
+        "HardToKillPower",
+        EXOSKELETON_HARD_TO_KILL_AMOUNT,
+    );
+}
+
+/// `slot` is 1-based, matching the C# SlotName ("first"=1 etc.). For
+/// slot 4 (RandomBranch), `rng` is consulted; pass any `Rng` for
+/// slot 1..=3 (it's untouched on those paths).
+pub fn pick_exoskeleton_intent(
+    rng: &mut Rng,
+    last_intent: Option<ExoskeletonIntent>,
+    slot: u8,
+) -> ExoskeletonIntent {
+    match last_intent {
+        None => match slot {
+            1 => ExoskeletonIntent::Skitter,
+            2 => ExoskeletonIntent::Mandibles,
+            3 => ExoskeletonIntent::Enrage,
+            _ => exoskeleton_random_branch(rng, None),
+        },
+        Some(ExoskeletonIntent::Mandibles) => ExoskeletonIntent::Enrage,
+        Some(prev @ ExoskeletonIntent::Skitter) => {
+            exoskeleton_random_branch(rng, Some(prev))
+        }
+        Some(prev @ ExoskeletonIntent::Enrage) => {
+            exoskeleton_random_branch(rng, Some(prev))
+        }
+    }
+}
+
+/// RandomBranch over {Skitter, Mandibles} with CannotRepeat. If the
+/// last intent matches one of the branches, that branch is excluded.
+/// With one option left, return it directly.
+fn exoskeleton_random_branch(
+    rng: &mut Rng,
+    last_intent: Option<ExoskeletonIntent>,
+) -> ExoskeletonIntent {
+    let allowed: Vec<ExoskeletonIntent> =
+        [ExoskeletonIntent::Skitter, ExoskeletonIntent::Mandibles]
+            .into_iter()
+            .filter(|i| Some(*i) != last_intent)
+            .collect();
+    let pick = rng.next_int_range(0, allowed.len() as i32) as usize;
+    allowed[pick]
+}
+
+pub fn execute_exoskeleton_move(
+    cs: &mut CombatState,
+    exo_idx: usize,
+    target_player_idx: usize,
+    intent: ExoskeletonIntent,
+) {
+    let attacker = (CombatSide::Enemy, exo_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        ExoskeletonIntent::Skitter => {
+            for _ in 0..EXOSKELETON_SKITTER_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    EXOSKELETON_SKITTER_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        ExoskeletonIntent::Mandibles => {
+            cs.deal_damage(
+                attacker,
+                player,
+                EXOSKELETON_MANDIBLES_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        ExoskeletonIntent::Enrage => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                exo_idx,
+                "StrengthPower",
+                EXOSKELETON_ENRAGE_STRENGTH,
+            );
         }
     }
 }
@@ -10491,6 +10697,192 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- DevotedSculptor + Exoskeleton tests ------------------------
+
+    #[test]
+    fn devoted_sculptor_init_incants_then_savage_forever() {
+        assert_eq!(
+            pick_devoted_sculptor_intent(None),
+            DevotedSculptorIntent::ForbiddenIncantation
+        );
+        assert_eq!(
+            pick_devoted_sculptor_intent(Some(
+                DevotedSculptorIntent::ForbiddenIncantation
+            )),
+            DevotedSculptorIntent::Savage
+        );
+        for _ in 0..5 {
+            assert_eq!(
+                pick_devoted_sculptor_intent(Some(DevotedSculptorIntent::Savage)),
+                DevotedSculptorIntent::Savage
+            );
+        }
+    }
+
+    #[test]
+    fn devoted_sculptor_forbidden_incantation_applies_ritual_nine() {
+        let mut cs = ironclad_combat();
+        execute_devoted_sculptor_move(
+            &mut cs,
+            0,
+            0,
+            DevotedSculptorIntent::ForbiddenIncantation,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "RitualPower"),
+            9
+        );
+    }
+
+    #[test]
+    fn devoted_sculptor_savage_deals_twelve() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_devoted_sculptor_move(
+            &mut cs,
+            0,
+            0,
+            DevotedSculptorIntent::Savage,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 12);
+    }
+
+    #[test]
+    fn exoskeleton_init_by_slot() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_exoskeleton_intent(&mut rng, None, 1),
+            ExoskeletonIntent::Skitter
+        );
+        assert_eq!(
+            pick_exoskeleton_intent(&mut rng, None, 2),
+            ExoskeletonIntent::Mandibles
+        );
+        assert_eq!(
+            pick_exoskeleton_intent(&mut rng, None, 3),
+            ExoskeletonIntent::Enrage
+        );
+        // Slot 4 routes to RandomBranch — must be one of Skitter | Mandibles.
+        let s4 = pick_exoskeleton_intent(&mut rng, None, 4);
+        assert!(matches!(
+            s4,
+            ExoskeletonIntent::Skitter | ExoskeletonIntent::Mandibles
+        ));
+    }
+
+    #[test]
+    fn exoskeleton_mandibles_always_to_enrage() {
+        let mut rng = Rng::new(1, 0);
+        for _ in 0..10 {
+            assert_eq!(
+                pick_exoskeleton_intent(
+                    &mut rng,
+                    Some(ExoskeletonIntent::Mandibles),
+                    1
+                ),
+                ExoskeletonIntent::Enrage
+            );
+        }
+    }
+
+    #[test]
+    fn exoskeleton_skitter_cannot_repeat_into_skitter() {
+        // After Skitter → RandomBranch with CannotRepeat: must yield
+        // Mandibles every time.
+        let mut rng = Rng::new(42, 0);
+        for _ in 0..20 {
+            assert_eq!(
+                pick_exoskeleton_intent(
+                    &mut rng,
+                    Some(ExoskeletonIntent::Skitter),
+                    1
+                ),
+                ExoskeletonIntent::Mandibles
+            );
+        }
+    }
+
+    #[test]
+    fn exoskeleton_enrage_random_branch_picks_skitter_or_mandibles() {
+        let mut rng = Rng::new(1, 0);
+        for _ in 0..20 {
+            let next = pick_exoskeleton_intent(
+                &mut rng,
+                Some(ExoskeletonIntent::Enrage),
+                1,
+            );
+            assert!(matches!(
+                next,
+                ExoskeletonIntent::Skitter | ExoskeletonIntent::Mandibles
+            ));
+        }
+    }
+
+    #[test]
+    fn exoskeleton_spawn_applies_hard_to_kill_nine() {
+        let mut cs = ironclad_combat();
+        exoskeleton_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "HardToKillPower"),
+            9
+        );
+    }
+
+    #[test]
+    fn exoskeleton_skitter_3x1() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_exoskeleton_move(&mut cs, 0, 0, ExoskeletonIntent::Skitter);
+        assert_eq!(cs.allies[0].current_hp, hp - 3);
+    }
+
+    #[test]
+    fn exoskeleton_mandibles_eight() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_exoskeleton_move(&mut cs, 0, 0, ExoskeletonIntent::Mandibles);
+        assert_eq!(cs.allies[0].current_hp, hp - 8);
+    }
+
+    #[test]
+    fn exoskeleton_enrage_strengths_two() {
+        let mut cs = ironclad_combat();
+        execute_exoskeleton_move(&mut cs, 0, 0, ExoskeletonIntent::Enrage);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn hard_to_kill_caps_per_hit_damage() {
+        // Enemy with HardToKill(9) takes a 50-damage hit. After cap: 9.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "HardToKillPower", 9);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            50,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 9);
+    }
+
+    #[test]
+    fn hard_to_kill_does_not_increase_small_hits() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "HardToKillPower", 9);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            3,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 3);
     }
 
     #[test]
