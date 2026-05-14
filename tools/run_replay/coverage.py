@@ -52,6 +52,7 @@ PORTED_INTENT_MACHINES = {
     "BowlbugRock",
     "SludgeSpinner",
     "FuzzyWurmCrawler",
+    "CalcifiedCultist",
 }
 
 

@@ -650,11 +650,21 @@ impl CombatState {
     /// IsOwnerDoomed check + DoomKill effect; simplified to direct
     /// HP zero-out since we don't model Hook.AfterDiedToDoom or the
     /// special-monster ShouldDie filter yet.
-    /// TerritorialPower.AfterTurnEnd: on owner-side turn end, apply
-    /// `Amount` Strength to owner. Permanent — does not undo. Walks
-    /// every creature on `side`; snapshot-then-act so the Strength
-    /// apply doesn't disrupt iteration.
+    /// AfterTurnEnd-on-owner-side Strength-ramp powers. On the side
+    /// that just ended, each known power applies its `Amount` of
+    /// Strength to its owner. Permanent — does not undo.
+    ///
+    /// Known users:
+    ///   - TerritorialPower (Byrdonis spawn): pure ramp.
+    ///   - RitualPower (CalcifiedCultist spawn): same shape. C# also
+    ///     has a per-instance "skip-first-turn-if-enemy-applied" flag
+    ///     (WasJustAppliedByEnemy) — not modeled here, so our Ritual
+    ///     fires every turn including the first. Net effect: +1
+    ///     Strength tick compared to C# in the worst case. Acceptable
+    ///     simplification; reopen if combat-replay diffs surface it.
     fn tick_territorial_powers(&mut self, side: CombatSide) {
+        const STRENGTH_RAMP_POWERS: &[&str] =
+            &["TerritorialPower", "RitualPower"];
         let list = match side {
             CombatSide::Player => &self.allies,
             CombatSide::Enemy => &self.enemies,
@@ -665,9 +675,11 @@ impl CombatState {
             if creature.current_hp == 0 {
                 continue;
             }
-            if let Some(p) = creature.powers.iter().find(|p| p.id == "TerritorialPower") {
-                if p.amount > 0 {
-                    grants.push((idx, p.amount));
+            for power in &creature.powers {
+                if STRENGTH_RAMP_POWERS.contains(&power.id.as_str())
+                    && power.amount > 0
+                {
+                    grants.push((idx, power.amount));
                 }
             }
         }
@@ -3390,6 +3402,82 @@ pub fn execute_flail_knight_move(
                 attacker,
                 player,
                 FLAIL_KNIGHT_RAM_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: CalcifiedCultist ---------------------------
+//
+// Reflects C# `CalcifiedCultist.GenerateMoveStateMachine`:
+//   Init: INCANTATION_MOVE (applies RitualPower(2) to self).
+//   Cycle: Incantation → DarkStrike → DarkStrike → DarkStrike → …
+//   (Incantation fires once.)
+//
+// RitualPower is wired into tick_territorial_powers — applies
+// Amount Strength to owner each owner-side turn end (with the
+// noted "skip first turn if enemy-applied" simplification).
+//
+// A0 payloads:
+//   - Incantation: apply RitualPower(2) to self
+//   - DarkStrike:  9 damage (DeadlyEnemies: 11)
+
+const CALCIFIED_CULTIST_INCANTATION_AMOUNT: i32 = 2;
+const CALCIFIED_CULTIST_DARK_STRIKE_DAMAGE: i32 = 9;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum CalcifiedCultistIntent {
+    Incantation,
+    DarkStrike,
+}
+
+impl CalcifiedCultistIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            CalcifiedCultistIntent::Incantation => "INCANTATION_MOVE",
+            CalcifiedCultistIntent::DarkStrike => "DARK_STRIKE_MOVE",
+        }
+    }
+}
+
+pub fn pick_calcified_cultist_intent(
+    last_intent: Option<CalcifiedCultistIntent>,
+) -> CalcifiedCultistIntent {
+    match last_intent {
+        None => CalcifiedCultistIntent::Incantation,
+        // After Incantation, DarkStrike forever.
+        Some(CalcifiedCultistIntent::Incantation) => {
+            CalcifiedCultistIntent::DarkStrike
+        }
+        Some(CalcifiedCultistIntent::DarkStrike) => {
+            CalcifiedCultistIntent::DarkStrike
+        }
+    }
+}
+
+pub fn execute_calcified_cultist_move(
+    cs: &mut CombatState,
+    cultist_idx: usize,
+    target_player_idx: usize,
+    intent: CalcifiedCultistIntent,
+) {
+    let attacker = (CombatSide::Enemy, cultist_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        CalcifiedCultistIntent::Incantation => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                cultist_idx,
+                "RitualPower",
+                CALCIFIED_CULTIST_INCANTATION_AMOUNT,
+            );
+        }
+        CalcifiedCultistIntent::DarkStrike => {
+            cs.deal_damage(
+                attacker,
+                player,
+                CALCIFIED_CULTIST_DARK_STRIKE_DAMAGE,
                 ValueProp::MOVE,
             );
         }
@@ -9506,6 +9594,71 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- CalcifiedCultist + RitualPower tests ----------------------
+
+    #[test]
+    fn calcified_cultist_chain_incantation_then_dark_strikes_forever() {
+        assert_eq!(
+            pick_calcified_cultist_intent(None),
+            CalcifiedCultistIntent::Incantation
+        );
+        assert_eq!(
+            pick_calcified_cultist_intent(Some(
+                CalcifiedCultistIntent::Incantation
+            )),
+            CalcifiedCultistIntent::DarkStrike
+        );
+        // DarkStrike self-loops.
+        for _ in 0..5 {
+            assert_eq!(
+                pick_calcified_cultist_intent(Some(
+                    CalcifiedCultistIntent::DarkStrike
+                )),
+                CalcifiedCultistIntent::DarkStrike
+            );
+        }
+    }
+
+    #[test]
+    fn calcified_cultist_incantation_applies_ritual_two() {
+        let mut cs = ironclad_combat();
+        execute_calcified_cultist_move(
+            &mut cs,
+            0,
+            0,
+            CalcifiedCultistIntent::Incantation,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "RitualPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn calcified_cultist_dark_strike_deals_nine() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_calcified_cultist_move(
+            &mut cs,
+            0,
+            0,
+            CalcifiedCultistIntent::DarkStrike,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 9);
+    }
+
+    #[test]
+    fn ritual_grants_strength_on_owner_side_turn_end() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "RitualPower", 2);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
         );
     }
 
