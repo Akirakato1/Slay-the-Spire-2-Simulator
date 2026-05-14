@@ -1410,7 +1410,30 @@ impl CombatState {
         raw: i32,
         props: ValueProp,
     ) -> i32 {
+        self.modify_block_with_enchantment(gainer, raw, props, None)
+    }
+
+    /// Enchantment-aware block-modifier pipeline. Mirrors C#
+    /// `Hook.ModifyBlock` (Hook.cs:1294-1324):
+    /// 1. Enchantment additive then multiplicative (pre-power).
+    /// 2. Full additive sweep over listener powers (Dexterity).
+    /// 3. Full multiplicative sweep over listener powers (Frail).
+    /// 4. Clamp at 0.
+    ///
+    /// Audit fix #6: was missing the enchantment phase, so Nimble /
+    /// Goopy and any future block-enchantment didn't participate.
+    pub fn modify_block_with_enchantment(
+        &self,
+        gainer: (CombatSide, usize),
+        raw: i32,
+        props: ValueProp,
+        enchantment: Option<&EnchantmentInstance>,
+    ) -> i32 {
         let mut num = raw as f64;
+        if let Some(ench) = enchantment {
+            num += enchantment_block_additive(&ench.id, ench.amount, props);
+            num *= enchantment_block_multiplicative(&ench.id, ench.amount, props);
+        }
         let powers = creature_powers(self, gainer);
         for power in powers {
             num += power_block_additive(power, props);
@@ -1450,6 +1473,16 @@ impl CombatState {
         power_id: &str,
         amount: i32,
     ) -> i32 {
+        // C# spec (PowerCmd.cs:90): `if (amount == 0) return;`. We
+        // skip the inner mutation entirely on amount=0 to match.
+        if amount == 0 {
+            return self.get_power_amount(side, target_idx, power_id);
+        }
+        // Audit fix #5: BeforePowerAmountChanged hook fires once before
+        // the apply mutates the stack. Currently a no-op — ArtifactPower
+        // and similar modifier-pipeline relics will register here when
+        // ported.
+        self.fire_before_power_amount_changed(side, target_idx, power_id, amount);
         let result = self.apply_power_inner(side, target_idx, power_id, amount);
         // Mirror C# PowerCmd.cs:129-132 — after the actual stack
         // mutation, if a Debuff lands on a player, flag the next
@@ -1468,6 +1501,10 @@ impl CombatState {
                 }
             }
         }
+        // Audit fix #5: AfterPowerAmountChanged hook fires once after
+        // mutation. Currently a no-op — placeholder for future power
+        // lifecycle hooks (Outbreak.AfterPowerAmountChanged etc.).
+        self.fire_after_power_amount_changed(side, target_idx, power_id, amount);
         if self.log_enabled {
             let round = self.round_number;
             self.combat_log.push(CombatEvent::PowerApplied {
@@ -1480,6 +1517,35 @@ impl CombatState {
             });
         }
         result
+    }
+
+    /// Mirror of C# `Hook.BeforePowerAmountChanged` (Hook.cs around
+    /// line 1783). Fires before `apply_power_inner` mutates the stack.
+    /// Currently a no-op stub. Audit fix #5.
+    pub fn fire_before_power_amount_changed(
+        &mut self,
+        _side: CombatSide,
+        _target_idx: usize,
+        _power_id: &str,
+        _amount: i32,
+    ) {
+        // No registered listeners yet. Future: ArtifactPower's
+        // TryModifyPowerAmountReceived which can return 0 to block
+        // a debuff (consuming an Artifact charge).
+    }
+
+    /// Mirror of C# `Hook.AfterPowerAmountChanged`. Fires after
+    /// mutation. Currently a no-op stub. Audit fix #5.
+    pub fn fire_after_power_amount_changed(
+        &mut self,
+        _side: CombatSide,
+        _target_idx: usize,
+        _power_id: &str,
+        _amount: i32,
+    ) {
+        // No registered listeners yet. Future: Outbreak (mod-N counter
+        // wrap), SwordSage / TempStrength echo-suppression, Shroud
+        // self-cancel.
     }
 
     fn apply_power_inner(
@@ -1707,6 +1773,12 @@ impl CombatState {
         raw: i32,
         props: ValueProp,
     ) -> DamageOutcome {
+        // Audit fix #7: C# returns a zero-damage DamageResult immediately
+        // if the dealer is dead at entry (so dead-dealer multi-hit attacks
+        // halt mid-loop, and Strength etc. don't apply post-mortem).
+        if dealer_is_dead(self, dealer) {
+            return DamageOutcome::default();
+        }
         let modified = self.modify_damage(dealer, target, raw, props);
         let outcome = self.apply_damage(target.0, target.1, modified);
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
@@ -1837,6 +1909,10 @@ impl CombatState {
         props: ValueProp,
         enchantment: Option<&EnchantmentInstance>,
     ) -> DamageOutcome {
+        // Audit fix #7: dead-dealer short-circuit.
+        if dealer_is_dead(self, dealer) {
+            return DamageOutcome::default();
+        }
         let modified =
             self.modify_damage_with_enchantment(dealer, target, raw, props, enchantment);
         let outcome = self.apply_damage(target.0, target.1, modified);
@@ -3461,6 +3537,35 @@ fn enchantment_damage_multiplicative(
         "Corrupted" => 1.5,
         _ => 1.0,
     }
+}
+
+/// Per-enchantment `EnchantBlockAdditive` contribution. Audit fix #6:
+/// previously missing from the block-modifier pipeline. C# spec
+/// (Nimble.cs:28): gates on `IsPoweredCardOrMonsterMoveBlock` (== Move
+/// && !Unpowered — same shape as `is_powered_attack`).
+fn enchantment_block_additive(ench_id: &str, amount: i32, props: ValueProp) -> f64 {
+    if !props.is_powered_attack() {
+        return 0.0;
+    }
+    match ench_id {
+        // Nimble: adds `base.Amount` to block on powered card/move-block.
+        "Nimble" => amount as f64,
+        _ => 0.0,
+    }
+}
+
+/// Per-enchantment `EnchantBlockMultiplicative` contribution. None of
+/// the surveyed C# enchantments use this slot today; placeholder
+/// returning identity matches `enchantment_damage_multiplicative`'s shape.
+fn enchantment_block_multiplicative(
+    _ench_id: &str,
+    _amount: i32,
+    props: ValueProp,
+) -> f64 {
+    if !props.is_powered_attack() {
+        return 1.0;
+    }
+    1.0
 }
 
 // ---------- Monster intent selection (Axebot) ---------------------------
@@ -9978,6 +10083,21 @@ pub struct DamageOutcome {
     pub fatal: bool,
 }
 
+/// Audit fix #7: helper for the dead-dealer short-circuit in
+/// `deal_damage` / `deal_damage_enchanted`. Mirrors C# `Damage(...)`
+/// returning a zero-damage `DamageResult` immediately when the
+/// attacker is dead at entry. Prevents multi-hit attacks from
+/// continuing after the dealer dies mid-loop (e.g., to thorns) and
+/// prevents Strength etc. from applying post-mortem.
+fn dealer_is_dead(cs: &CombatState, dealer: (CombatSide, usize)) -> bool {
+    let creature = match dealer.0 {
+        CombatSide::Player => cs.allies.get(dealer.1),
+        CombatSide::Enemy => cs.enemies.get(dealer.1),
+        CombatSide::None => None,
+    };
+    creature.map(|c| c.current_hp == 0).unwrap_or(true)
+}
+
 fn creature_mut(
     cs: &mut CombatState,
     side: CombatSide,
@@ -11240,6 +11360,69 @@ mod tests {
         assert_eq!(outcome.hp_lost, 4);
         assert_eq!(cs.enemies[0].block, 0);
         assert_eq!(cs.enemies[0].current_hp, max_hp - 4);
+    }
+
+    /// Audit fix #6: enchantment additive participates in modify_block.
+    /// Nimble enchantment adds Amount block on powered card/move-block.
+    #[test]
+    fn modify_block_threads_enchantment_additive() {
+        let cs = ironclad_combat();
+        let raw = 5;
+        let ench = EnchantmentInstance {
+            id: "Nimble".to_string(),
+            amount: 3,
+        };
+        let with = cs.modify_block_with_enchantment(
+            (CombatSide::Player, 0),
+            raw,
+            powered_move(),
+            Some(&ench),
+        );
+        let without = cs.modify_block_with_enchantment(
+            (CombatSide::Player, 0),
+            raw,
+            powered_move(),
+            None,
+        );
+        assert_eq!(with, without + 3);
+    }
+
+    /// Audit fix #7: deal_damage returns zero outcome immediately when
+    /// the dealer is dead at entry, matching C# AttackCommand semantics
+    /// (`if attacker.IsDead return zero result`). Prevents post-mortem
+    /// damage from Strength etc. applying after the dealer dies mid-
+    /// multi-hit (e.g., to thorns).
+    #[test]
+    fn dead_dealer_short_circuits_deal_damage() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 0;
+        let player_hp_before = cs.allies[0].current_hp;
+        let outcome = cs.deal_damage(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(outcome.hp_lost, 0);
+        assert_eq!(outcome.blocked, 0);
+        assert_eq!(cs.allies[0].current_hp, player_hp_before);
+    }
+
+    /// Audit fix #5: BeforePowerAmountChanged / AfterPowerAmountChanged
+    /// hooks fire around the inner apply. No listeners registered yet,
+    /// but the hooks must not crash and must not affect output. Also
+    /// confirms `amount == 0` short-circuits the apply entirely
+    /// (matches C# PowerCmd.cs:90).
+    #[test]
+    fn apply_power_zero_amount_is_no_op() {
+        let mut cs = ironclad_combat();
+        let result = cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 0);
+        assert_eq!(result, 0);
+        // No power instance should be created.
+        assert!(!cs.enemies[0]
+            .powers
+            .iter()
+            .any(|p| p.id == "VulnerablePower"));
     }
 
     /// `DamageOutcome.fatal` is the TRANSITION predicate: true iff this
