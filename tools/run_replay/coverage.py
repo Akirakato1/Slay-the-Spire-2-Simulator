@@ -44,6 +44,7 @@ PORTED_INTENT_MACHINES = {
     "LeafSlimeM",
     "TurretOperator",
     "Chomper",
+    "Byrdonis",
 }
 
 

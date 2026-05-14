@@ -554,6 +554,10 @@ impl CombatState {
         // (TemporaryStrengthDown) flip the sign — none ported yet.
         let side = self.current_side;
         self.tick_temporary_strength_powers(side);
+        // TerritorialPower.AfterTurnEnd: when owner's side ends, apply
+        // StrengthPower(Amount) to owner — permanent ramp. Only known
+        // user is Byrdonis on spawn (TerritorialPower(1)).
+        self.tick_territorial_powers(side);
         if self.log_enabled {
             let round = self.round_number;
             let side = self.current_side;
@@ -566,6 +570,32 @@ impl CombatState {
     /// IsOwnerDoomed check + DoomKill effect; simplified to direct
     /// HP zero-out since we don't model Hook.AfterDiedToDoom or the
     /// special-monster ShouldDie filter yet.
+    /// TerritorialPower.AfterTurnEnd: on owner-side turn end, apply
+    /// `Amount` Strength to owner. Permanent — does not undo. Walks
+    /// every creature on `side`; snapshot-then-act so the Strength
+    /// apply doesn't disrupt iteration.
+    fn tick_territorial_powers(&mut self, side: CombatSide) {
+        let list = match side {
+            CombatSide::Player => &self.allies,
+            CombatSide::Enemy => &self.enemies,
+            CombatSide::None => return,
+        };
+        let mut grants: Vec<(usize, i32)> = Vec::new();
+        for (idx, creature) in list.iter().enumerate() {
+            if creature.current_hp == 0 {
+                continue;
+            }
+            if let Some(p) = creature.powers.iter().find(|p| p.id == "TerritorialPower") {
+                if p.amount > 0 {
+                    grants.push((idx, p.amount));
+                }
+            }
+        }
+        for (idx, amount) in grants {
+            self.apply_power(side, idx, "StrengthPower", amount);
+        }
+    }
+
     fn tick_doom_powers(&mut self, side: CombatSide) {
         let list = match side {
             CombatSide::Player => &self.allies,
@@ -3259,6 +3289,91 @@ pub fn execute_flail_knight_move(
                 attacker,
                 player,
                 FLAIL_KNIGHT_RAM_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+    }
+}
+
+// ---------- Monster intent: Byrdonis -----------------------------------
+//
+// Reflects C# `Byrdonis.GenerateMoveStateMachine`. Two-state strict
+// alternation, init Swoop.
+//   Init: SWOOP_MOVE
+//   Cycle: Swoop ↔ Peck
+//
+// On spawn: applies TerritorialPower(1). Each owner-side turn end
+// then applies StrengthPower(Amount) to itself — permanent ramp
+// wired into end_turn via tick_territorial_powers.
+//
+// A0 payloads:
+//   - Peck:  3 damage × 3 hits (DeadlyEnemies: 4)
+//   - Swoop: 17 damage (DeadlyEnemies: 19)
+
+const BYRDONIS_PECK_DAMAGE: i32 = 3;
+const BYRDONIS_PECK_HITS: i32 = 3;
+const BYRDONIS_SWOOP_DAMAGE: i32 = 17;
+const BYRDONIS_TERRITORIAL_AMOUNT: i32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ByrdonisIntent {
+    Peck,
+    Swoop,
+}
+
+impl ByrdonisIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            ByrdonisIntent::Peck => "PECK_MOVE",
+            ByrdonisIntent::Swoop => "SWOOP_MOVE",
+        }
+    }
+}
+
+/// Byrdonis spawn payload — apply TerritorialPower(1).
+pub fn byrdonis_spawn(cs: &mut CombatState, byrdonis_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        byrdonis_idx,
+        "TerritorialPower",
+        BYRDONIS_TERRITORIAL_AMOUNT,
+    );
+}
+
+pub fn pick_byrdonis_intent(
+    last_intent: Option<ByrdonisIntent>,
+) -> ByrdonisIntent {
+    match last_intent {
+        None => ByrdonisIntent::Swoop,
+        Some(ByrdonisIntent::Swoop) => ByrdonisIntent::Peck,
+        Some(ByrdonisIntent::Peck) => ByrdonisIntent::Swoop,
+    }
+}
+
+pub fn execute_byrdonis_move(
+    cs: &mut CombatState,
+    byrdonis_idx: usize,
+    target_player_idx: usize,
+    intent: ByrdonisIntent,
+) {
+    let attacker = (CombatSide::Enemy, byrdonis_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        ByrdonisIntent::Peck => {
+            for _ in 0..BYRDONIS_PECK_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    BYRDONIS_PECK_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        ByrdonisIntent::Swoop => {
+            cs.deal_damage(
+                attacker,
+                player,
+                BYRDONIS_SWOOP_DAMAGE,
                 ValueProp::MOVE,
             );
         }
@@ -8590,6 +8705,90 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- Byrdonis + TerritorialPower tests -------------------------
+
+    #[test]
+    fn byrdonis_first_turn_is_swoop() {
+        assert_eq!(pick_byrdonis_intent(None), ByrdonisIntent::Swoop);
+    }
+
+    #[test]
+    fn byrdonis_alternates() {
+        assert_eq!(
+            pick_byrdonis_intent(Some(ByrdonisIntent::Swoop)),
+            ByrdonisIntent::Peck
+        );
+        assert_eq!(
+            pick_byrdonis_intent(Some(ByrdonisIntent::Peck)),
+            ByrdonisIntent::Swoop
+        );
+    }
+
+    #[test]
+    fn byrdonis_swoop_deals_seventeen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_byrdonis_move(&mut cs, 0, 0, ByrdonisIntent::Swoop);
+        assert_eq!(cs.allies[0].current_hp, hp - 17);
+    }
+
+    #[test]
+    fn byrdonis_peck_hits_three_times_for_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_byrdonis_move(&mut cs, 0, 0, ByrdonisIntent::Peck);
+        assert_eq!(cs.allies[0].current_hp, hp - 9);
+    }
+
+    #[test]
+    fn byrdonis_spawn_applies_territorial_one() {
+        let mut cs = ironclad_combat();
+        byrdonis_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "TerritorialPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn territorial_grants_strength_on_owner_side_turn_end() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "TerritorialPower", 1);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn territorial_does_not_fire_on_other_side_turn_end() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "TerritorialPower", 1);
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn territorial_compounds_across_turns() {
+        // Three enemy turn ends → Strength ramps to 3.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "TerritorialPower", 1);
+        for _ in 0..3 {
+            cs.current_side = CombatSide::Enemy;
+            cs.end_turn();
+        }
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            3
         );
     }
 
