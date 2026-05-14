@@ -1758,6 +1758,109 @@ pub fn potion_effects(potion_id: &str) -> Option<Vec<Effect>> {
 
         "WeakPotion" => Some(vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::ChosenEnemy }]),
 
+        "AttackPotion" => Some(vec![Effect::AddRandomCardFromPool {
+            pool: CardPoolRef::CharacterAttack,
+            filter: CardFilter::Any,
+            n: AmountSpec::Fixed(3),
+            pile: Pile::Hand,
+            upgrade: 0,
+            free_this_turn: true,
+            distinct: true,
+        }]),
+
+        "SkillPotion" => Some(vec![Effect::AddRandomCardFromPool {
+            pool: CardPoolRef::CharacterSkill,
+            filter: CardFilter::Any,
+            n: AmountSpec::Fixed(3),
+            pile: Pile::Hand,
+            upgrade: 0,
+            free_this_turn: true,
+            distinct: true,
+        }]),
+
+        "PowerPotion" => Some(vec![Effect::AddRandomCardFromPool {
+            pool: CardPoolRef::CharacterPower,
+            filter: CardFilter::Any,
+            n: AmountSpec::Fixed(3),
+            pile: Pile::Hand,
+            upgrade: 0,
+            free_this_turn: true,
+            distinct: true,
+        }]),
+
+        "ColorlessPotion" => Some(vec![Effect::AddRandomCardFromPool {
+            pool: CardPoolRef::Colorless,
+            filter: CardFilter::Any,
+            n: AmountSpec::Fixed(3),
+            pile: Pile::Hand,
+            upgrade: 0,
+            free_this_turn: true,
+            distinct: true,
+        }]),
+
+        "CosmicConcoction" => Some(vec![Effect::AddRandomCardFromPool {
+            pool: CardPoolRef::Colorless,
+            filter: CardFilter::Any,
+            n: AmountSpec::Canonical("Cards".to_string()),
+            pile: Pile::Hand,
+            upgrade: 1,
+            free_this_turn: false,
+            distinct: true,
+        }]),
+
+        "CunningPotion" => Some(vec![Effect::Repeat {
+            count: AmountSpec::Canonical("Cards".to_string()),
+            body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 1, pile: Pile::Hand }],
+        }]),
+
+        "OrobicAcid" => Some(vec![
+            Effect::AddRandomCardFromPool {
+                pool: CardPoolRef::CharacterAttack,
+                filter: CardFilter::Any,
+                n: AmountSpec::Fixed(1),
+                pile: Pile::Hand,
+                upgrade: 0,
+                free_this_turn: true,
+                distinct: true,
+            },
+            Effect::AddRandomCardFromPool {
+                pool: CardPoolRef::CharacterSkill,
+                filter: CardFilter::Any,
+                n: AmountSpec::Fixed(1),
+                pile: Pile::Hand,
+                upgrade: 0,
+                free_this_turn: true,
+                distinct: true,
+            },
+            Effect::AddRandomCardFromPool {
+                pool: CardPoolRef::CharacterPower,
+                filter: CardFilter::Any,
+                n: AmountSpec::Fixed(1),
+                pile: Pile::Hand,
+                upgrade: 0,
+                free_this_turn: true,
+                distinct: true,
+            },
+        ]),
+
+        "PotOfGhouls" => Some(vec![Effect::Repeat {
+            count: AmountSpec::Canonical("Cards".to_string()),
+            body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Hand }],
+        }]),
+
+        "BoneBrew" => Some(vec![Effect::SummonOsty {
+            osty_id: "Default".to_string(),
+            max_hp: Some(AmountSpec::Canonical("Summon".to_string())),
+        }]),
+
+        "Fortifier" => Some(vec![Effect::GainBlock {
+            amount: AmountSpec::Mul {
+                left: Box::new(AmountSpec::TargetBlock),
+                right: Box::new(AmountSpec::Fixed(2)),
+            },
+            target: Target::SelfPlayer,
+        }]),
+
 
         _ => None,
     }
