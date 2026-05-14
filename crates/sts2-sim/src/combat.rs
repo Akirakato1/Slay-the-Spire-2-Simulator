@@ -472,6 +472,35 @@ impl CombatState {
                 }
             }
         }
+        // PlatingPower.BeforeSideTurnStart on Player turn start, round 1:
+        // each enemy-owned Plating grants Amount unpowered block to its
+        // owner. Fires only once per combat — gated on round_number.
+        // C# checks `RoundNumber != 1`; we mirror that. The
+        // round-end-of-owner-turn block grant lives in `end_turn` so
+        // this hook only handles the round-1 prefab.
+        if side == CombatSide::Player && self.round_number == 1 {
+            let n = self.enemies.len();
+            for i in 0..n {
+                let plating = self
+                    .enemies
+                    .get(i)
+                    .and_then(|c| {
+                        c.powers
+                            .iter()
+                            .find(|p| p.id == "PlatingPower")
+                            .map(|p| p.amount)
+                    })
+                    .unwrap_or(0);
+                if plating > 0 {
+                    self.gain_block_with_props(
+                        CombatSide::Enemy,
+                        i,
+                        plating,
+                        ValueProp::UNPOWERED,
+                    );
+                }
+            }
+        }
         // RampartPower fires on Player-side start regardless of owner.
         // Walks enemies and grants block to their TurretOperator allies.
         if side == CombatSide::Player {
@@ -736,6 +765,14 @@ impl CombatState {
         // C#; gameplay-side this just counts down to align with the
         // intent state machine's Escape step.
         self.tick_escape_artist_powers(side);
+        // PlatingPower: at end of owner's turn, gain Amount unpowered
+        // block; at end of enemy turn, decrement Amount by 1 (C#
+        // BeforeTurnEndEarly + AfterTurnEnd). Order: block grant
+        // first (BeforeTurnEndEarly runs earlier), then decrement.
+        // Only enemy-owned Plating is in scope for the corpus today.
+        if self.current_side == CombatSide::Enemy {
+            self.tick_plating_powers();
+        }
         // VigorPower drain: subtract the per-turn snapshot from
         // VigorPower on each enemy. The snapshot was taken at
         // begin_turn(Enemy); Vigor applied DURING the turn is
@@ -823,6 +860,38 @@ impl CombatState {
         }
         for idx in to_dec {
             self.decrement_power(side, idx, "EscapeArtistPower", 1);
+        }
+    }
+
+    /// PlatingPower end-of-enemy-turn tick: every enemy-owned Plating
+    /// grants Amount unpowered block (BeforeTurnEndEarly) then
+    /// decrements Amount by 1 (AfterTurnEnd). Stops contributing
+    /// block when Amount hits 0.
+    fn tick_plating_powers(&mut self) {
+        let n = self.enemies.len();
+        let mut grants: Vec<(usize, i32)> = Vec::new();
+        for i in 0..n {
+            if self.enemies[i].current_hp <= 0 {
+                continue;
+            }
+            let plating = self.enemies[i]
+                .powers
+                .iter()
+                .find(|p| p.id == "PlatingPower")
+                .map(|p| p.amount)
+                .unwrap_or(0);
+            if plating > 0 {
+                grants.push((i, plating));
+            }
+        }
+        for (i, amount) in grants {
+            self.gain_block_with_props(
+                CombatSide::Enemy,
+                i,
+                amount,
+                ValueProp::UNPOWERED,
+            );
+            self.decrement_power(CombatSide::Enemy, i, "PlatingPower", 1);
         }
     }
 
@@ -12624,6 +12693,64 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- PlatingPower tests -----------------------------------------
+
+    #[test]
+    fn plating_round_one_player_start_grants_block_once() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PlatingPower", 6);
+        // Stage current_side=Player so begin_turn(Player) doesn't
+        // bump round_number. Start round_number at 1.
+        cs.current_side = CombatSide::Player;
+        cs.round_number = 1;
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.enemies[0].block, 6);
+        // Round 2 player start — no second one-shot.
+        cs.enemies[0].block = 0;
+        cs.round_number = 2;
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.enemies[0].block, 0);
+    }
+
+    #[test]
+    fn plating_enemy_turn_end_grants_then_decrements() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PlatingPower", 6);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(cs.enemies[0].block, 6);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PlatingPower"),
+            5
+        );
+        // Reset block (begin_turn would clear it), simulate again.
+        cs.enemies[0].block = 0;
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(cs.enemies[0].block, 5);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PlatingPower"),
+            4
+        );
+    }
+
+    #[test]
+    fn plating_stops_granting_at_zero() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PlatingPower", 1);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(cs.enemies[0].block, 1);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PlatingPower"),
+            0
+        );
+        cs.enemies[0].block = 0;
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(cs.enemies[0].block, 0);
     }
 
     // ---------- DecimillipedeSegment tests ---------------------------------

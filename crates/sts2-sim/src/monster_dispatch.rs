@@ -46,6 +46,10 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
             "Byrdonis" => byrdonis_spawn(cs, i),
             "Chomper" => chomper_spawn(cs, i),
             "CorpseSlug" => corpse_slug_spawn(cs, i),
+            "MysteriousKnight" => {
+                cs.apply_power(CombatSide::Enemy, i, "StrengthPower", 6);
+                cs.apply_power(CombatSide::Enemy, i, "PlatingPower", 6);
+            }
             "SkulkingColony" => skulking_colony_spawn(cs, i),
             "LouseProgenitor" => louse_progenitor_spawn(cs, i),
             "TerrorEel" => terror_eel_spawn(cs, i),
@@ -115,6 +119,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "DecimillipedeSegmentFront"
             | "DecimillipedeSegmentMiddle"
             | "DecimillipedeSegmentBack"
+            | "MysteriousKnight"
     )
 }
 
@@ -231,6 +236,24 @@ pub fn dispatch_enemy_turn(
             let is_front = slot_is_front(&slot);
             let intent = pick_nibbit_intent(last, is_alone, is_front);
             execute_nibbit_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "MysteriousKnight" => {
+            // MysteriousKnight is a FlailKnight subclass with an
+            // AfterAddedToRoom that adds Strength(6) + Plating(6).
+            // Its state machine is unchanged — dispatch through the
+            // FlailKnight pipeline. Spawn payload lives in
+            // fire_monster_spawn_hooks.
+            let last = last_ref.and_then(|s| match s {
+                "WAR_CHANT" => Some(FlailKnightIntent::WarChant),
+                "FLAIL_MOVE" => Some(FlailKnightIntent::Flail),
+                "RAM_MOVE" => Some(FlailKnightIntent::Ram),
+                _ => None,
+            });
+            let mut rng = take_rng(cs);
+            let intent = pick_flail_knight_intent(&mut rng, last);
+            put_rng(cs, rng);
+            execute_flail_knight_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "FlailKnight" => {
