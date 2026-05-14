@@ -1365,6 +1365,21 @@ fn dispatch_on_play(
             );
             true
         }
+        // Bloodletting (Ironclad common Skill, 0 cost): lose 3 HP +
+        // gain 2 energy (3 upgraded). C# damage call carries
+        // Unblockable|Unpowered|Move so it bypasses block AND the
+        // modifier pipeline — equivalent to our `lose_hp`. Energy gain
+        // is uncapped (matches StS — can exceed max energy mid-turn).
+        "Bloodletting" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let hp_loss = canonical_int_value(card, "HpLoss", upgrade_level);
+            let energy = canonical_int_value(card, "Energy", upgrade_level);
+            cs.lose_hp(CombatSide::Player, player_idx, hp_loss);
+            if let Some(ps) = cs.allies[player_idx].player.as_mut() {
+                ps.energy += energy;
+            }
+            true
+        }
         // Whirlwind (Ironclad uncommon X-cost Attack): hit ALL enemies
         // X times for 5 damage each (8 upgraded). C# uses
         // `DamageCmd.Attack(...).WithHitCount(num).TargetingAllOpponents`
@@ -3560,6 +3575,77 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Bloodletting tests ---------------------------------------
+
+    #[test]
+    fn bloodletting_loses_hp_and_gains_energy() {
+        let mut cs = ironclad_combat();
+        let energy_before = cs.allies[0].player.as_ref().unwrap().energy;
+        let hp_before = cs.allies[0].current_hp;
+        let card = card_by_id("Bloodletting").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].current_hp, hp_before - 3);
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().energy,
+            energy_before + 2
+        );
+    }
+
+    #[test]
+    fn upgraded_bloodletting_gains_three_energy_same_hp_loss() {
+        let mut cs = ironclad_combat();
+        let energy_before = cs.allies[0].player.as_ref().unwrap().energy;
+        let hp_before = cs.allies[0].current_hp;
+        let card = card_by_id("Bloodletting").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        // Upgrade only bumps Energy by +1; HpLoss stays at 3.
+        assert_eq!(cs.allies[0].current_hp, hp_before - 3);
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().energy,
+            energy_before + 3
+        );
+    }
+
+    #[test]
+    fn bloodletting_bypasses_block() {
+        // Unblockable: HP loss happens even with full block on the
+        // caster. Block remains untouched.
+        let mut cs = ironclad_combat();
+        cs.allies[0].block = 20;
+        let hp_before = cs.allies[0].current_hp;
+        let card = card_by_id("Bloodletting").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, None);
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.allies[0].current_hp, hp_before - 3);
+        assert_eq!(cs.allies[0].block, 20);
     }
 
     // ---------- Whirlwind / X-cost tests ---------------------------------
