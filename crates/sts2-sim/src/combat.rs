@@ -480,25 +480,9 @@ impl CombatState {
                 }
             }
         }
-        // VigorPower snapshot: at start of enemy turn, freeze the
-        // current Vigor.amount per enemy. This is the amount that
-        // gets drained at the end of the turn (see tick_vigor_drain),
-        // so Vigor applied DURING the turn carries to the next turn
-        // without leaking into the consumption. Mirrors C#'s
-        // BeforeAttack/AfterAttack pairing.
-        if side == CombatSide::Enemy {
-            for enemy in self.enemies.iter_mut() {
-                let vigor = enemy
-                    .powers
-                    .iter()
-                    .find(|p| p.id == "VigorPower")
-                    .map(|p| p.amount)
-                    .unwrap_or(0);
-                if let Some(ms) = enemy.monster.as_mut() {
-                    ms.set_counter("vigor_snapshot", vigor);
-                }
-            }
-        }
+        // VigorPower snapshot/drain moved to fire_before_attack /
+        // fire_after_attack (audit fix #178) — matches C# AttackCommand
+        // envelope. Was previously begun_turn → tick_vigor_drain.
         // PlatingPower.BeforeSideTurnStart on Player turn start, round 1:
         // each enemy-owned Plating grants Amount unpowered block to its
         // owner. Fires only once per combat — gated on round_number.
@@ -814,14 +798,8 @@ impl CombatState {
         if self.current_side == CombatSide::Enemy {
             self.tick_asleep_powers();
         }
-        // VigorPower drain: subtract the per-turn snapshot from
-        // VigorPower on each enemy. The snapshot was taken at
-        // begin_turn(Enemy); Vigor applied DURING the turn is
-        // untouched (its addition came AFTER the snapshot). Mirrors
-        // C# AfterAttack: ModifyAmount(-amountWhenAttackStarted).
-        if side == CombatSide::Enemy {
-            self.tick_vigor_drain();
-        }
+        // VigorPower drain moved to fire_after_attack (audit fix #178)
+        // — matches C# AttackCommand envelope, not turn boundary.
         if self.log_enabled {
             let round = self.round_number;
             let side = self.current_side;
@@ -998,40 +976,6 @@ impl CombatState {
         }
     }
 
-    /// Drain VigorPower at end of enemy turn by the amount snapshotted
-    /// at the start of the same turn. See `begin_turn` for the
-    /// snapshot. Clamps Vigor at 0; clears the snapshot counter.
-    fn tick_vigor_drain(&mut self) {
-        let n = self.enemies.len();
-        let mut drains: Vec<(usize, i32)> = Vec::new();
-        for i in 0..n {
-            let has_vigor = self.enemies[i]
-                .powers
-                .iter()
-                .any(|p| p.id == "VigorPower");
-            if !has_vigor {
-                continue;
-            }
-            let snap = self.enemies[i]
-                .monster
-                .as_ref()
-                .map(|m| m.counter("vigor_snapshot"))
-                .unwrap_or(0);
-            if snap > 0 {
-                drains.push((i, snap));
-            }
-        }
-        for (i, snap) in drains {
-            self.decrement_power(CombatSide::Enemy, i, "VigorPower", snap);
-            if let Some(ms) = self
-                .enemies
-                .get_mut(i)
-                .and_then(|c| c.monster.as_mut())
-            {
-                ms.set_counter("vigor_snapshot", 0);
-            }
-        }
-    }
 
     fn tick_doom_powers(&mut self, side: CombatSide) {
         let list = match side {
@@ -1769,6 +1713,117 @@ impl CombatState {
         self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
         self.fire_thorns_hook(dealer, target, props);
         outcome
+    }
+
+    /// Mirror of C# `Hook.BeforeAttack` — called once at the start of
+    /// each AttackCommand (a card OnPlay attack chain or a monster
+    /// attack move). Powers that snapshot per-attack state (VigorPower)
+    /// hook here.
+    ///
+    /// Caller pairs with `fire_after_attack(dealer)` at the end of the
+    /// hit loop. `execute_attack` is the canonical way to bracket a
+    /// multi-hit attack with this envelope.
+    pub fn fire_before_attack(&mut self, dealer: (CombatSide, usize)) {
+        // VigorPower.BeforeAttack: snapshot Amount → counter for the
+        // AfterAttack drain. Only enemy-side for now (no player cards
+        // currently apply Vigor; if/when they do, this needs a
+        // player-side scratch field on Creature).
+        if dealer.0 == CombatSide::Enemy {
+            let amt = self
+                .enemies
+                .get(dealer.1)
+                .and_then(|c| {
+                    c.powers
+                        .iter()
+                        .find(|p| p.id == "VigorPower")
+                        .map(|p| p.amount)
+                })
+                .unwrap_or(0);
+            if amt > 0 {
+                if let Some(ms) = self
+                    .enemies
+                    .get_mut(dealer.1)
+                    .and_then(|c| c.monster.as_mut())
+                {
+                    ms.set_counter("vigor_snapshot", amt);
+                }
+            }
+        }
+    }
+
+    /// Mirror of C# `Hook.AfterAttack` — called once at the end of each
+    /// AttackCommand. Powers that consume per-attack snapshots hook here.
+    pub fn fire_after_attack(&mut self, dealer: (CombatSide, usize)) {
+        // VigorPower.AfterAttack: ModifyAmount(-snapshot). Drain only
+        // the snapshotted amount, not Vigor applied DURING the attack.
+        if dealer.0 == CombatSide::Enemy {
+            let snap = self
+                .enemies
+                .get(dealer.1)
+                .and_then(|c| c.monster.as_ref())
+                .map(|m| m.counter("vigor_snapshot"))
+                .unwrap_or(0);
+            if snap > 0 {
+                self.decrement_power(CombatSide::Enemy, dealer.1, "VigorPower", snap);
+                if let Some(ms) = self
+                    .enemies
+                    .get_mut(dealer.1)
+                    .and_then(|c| c.monster.as_mut())
+                {
+                    ms.set_counter("vigor_snapshot", 0);
+                }
+            }
+        }
+    }
+
+    /// Bracket a multi-hit attack with `fire_before_attack` +
+    /// per-hit `deal_damage_enchanted` + `fire_after_attack`.
+    /// Canonical entry point for any code path that represents one
+    /// C# `AttackCommand`. Card VM dispatches through this; monster
+    /// attack moves should migrate to it.
+    pub fn execute_attack(
+        &mut self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        raw_per_hit: i32,
+        hits: i32,
+        props: ValueProp,
+        enchantment: Option<&EnchantmentInstance>,
+    ) {
+        self.fire_before_attack(dealer);
+        for _ in 0..hits.max(1) {
+            self.deal_damage_enchanted(dealer, target, raw_per_hit, props, enchantment);
+        }
+        self.fire_after_attack(dealer);
+    }
+
+    /// Same as `execute_attack` but the target is re-rolled per hit
+    /// (matches `DamageCmd.Attack(...).TargetingRandomOpponents(...,
+    /// reroll_dead=true)` — SwordBoomerang).
+    pub fn execute_attack_random_target(
+        &mut self,
+        dealer: (CombatSide, usize),
+        raw_per_hit: i32,
+        hits: i32,
+        props: ValueProp,
+        enchantment: Option<&EnchantmentInstance>,
+    ) {
+        self.fire_before_attack(dealer);
+        for _ in 0..hits.max(1) {
+            let alive: Vec<usize> = self
+                .enemies
+                .iter()
+                .enumerate()
+                .filter_map(|(i, e)| if e.current_hp > 0 { Some(i) } else { None })
+                .collect();
+            if alive.is_empty() {
+                break;
+            }
+            let pick = self.rng.next_int_range(0, alive.len() as i32) as usize;
+            let target = (CombatSide::Enemy, alive[pick]);
+            self.deal_damage_enchanted(dealer, target, raw_per_hit, props, enchantment);
+        }
+        self.fire_after_attack(dealer);
     }
 
     /// Enchantment-aware variant. Card OnPlay handlers route through this
@@ -6661,22 +6716,32 @@ pub fn execute_terror_eel_move(
     let player = (CombatSide::Player, target_player_idx);
     match intent {
         TerrorEelIntent::Crash => {
-            cs.deal_damage(
+            // Audit #178: route attack through execute_attack so
+            // Vigor snapshot/drain fires per-AttackCommand instead of
+            // per-turn-boundary.
+            cs.execute_attack(
                 attacker,
                 player,
                 TERROR_EEL_CRASH_DAMAGE,
+                1,
                 ValueProp::MOVE,
+                None,
             );
         }
         TerrorEelIntent::Thrash => {
-            for _ in 0..TERROR_EEL_THRASH_HITS {
-                cs.deal_damage(
-                    attacker,
-                    player,
-                    TERROR_EEL_THRASH_DAMAGE,
-                    ValueProp::MOVE,
-                );
-            }
+            // Multi-hit attack as one AttackCommand. Vigor snapshot
+            // taken before the first hit; Amount stays constant across
+            // all hits (matches C# ModifyDamageAdditive reading live
+            // Amount, but the AfterAttack drain only takes the
+            // snapshot — so Vigor applied AFTER (next line) is preserved).
+            cs.execute_attack(
+                attacker,
+                player,
+                TERROR_EEL_THRASH_DAMAGE,
+                TERROR_EEL_THRASH_HITS,
+                ValueProp::MOVE,
+                None,
+            );
             cs.apply_power(
                 CombatSide::Enemy,
                 eel_idx,
@@ -16673,14 +16738,67 @@ mod tests {
     }
 
     #[test]
-    fn vigor_drains_after_being_used_full_turn() {
-        // Setup: Vigor=6 at start of enemy turn (already applied).
+    fn vigor_drains_after_attack() {
+        // Audit fix #178: Vigor drains per-AttackCommand, not per-turn.
+        // C# AttackCommand.Execute envelope: BeforeAttack snapshots Amount,
+        // AfterAttack drains by snapshot. An enemy turn that contains
+        // no attacks doesn't drain Vigor.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VigorPower", 6);
+        // Run one attack — fire_before/after wrap deal_damage.
+        cs.execute_attack(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            10,
+            1,
+            ValueProp::MOVE,
+            None,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VigorPower"),
+            0,
+            "Vigor drains after the attack completes"
+        );
+    }
+
+    #[test]
+    fn vigor_does_not_drain_on_turn_boundary_without_attack() {
+        // Audit fix #178: with the envelope-based fix, a turn that
+        // contains no attacks leaves Vigor untouched. Matches C#:
+        // AfterAttack only fires when an AttackCommand happens.
         let mut cs = ironclad_combat();
         cs.apply_power(CombatSide::Enemy, 0, "VigorPower", 6);
         cs.current_side = CombatSide::Player;
         cs.begin_turn(CombatSide::Enemy);
-        // Snapshot now 6. End turn — Vigor drains to 0.
         cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "VigorPower"),
+            6,
+            "no attack happened — Vigor persists"
+        );
+    }
+
+    #[test]
+    fn vigor_buffs_all_hits_of_a_multi_hit_attack() {
+        // Audit fix #178: ModifyDamageAdditive reads live Amount, but
+        // since Vigor isn't modified during the hits, all hits get the
+        // same +Amount boost. C# VigorPower.ModifyDamageAdditive
+        // returns base.Amount; AfterAttack drains the SNAPSHOT amount.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VigorPower", 4);
+        let hp_before = cs.allies[0].current_hp;
+        // 3-hit attack of base 2 damage. Each hit: 2+4=6. Total = 18.
+        cs.execute_attack(
+            (CombatSide::Enemy, 0),
+            (CombatSide::Player, 0),
+            2,
+            3,
+            ValueProp::MOVE,
+            None,
+        );
+        // Block defaults to 0, no Frail/Dex; raw 18 damage hits HP.
+        assert_eq!(cs.allies[0].current_hp, hp_before - 18);
+        // Vigor drains by 4 after the attack.
         assert_eq!(
             cs.get_power_amount(CombatSide::Enemy, 0, "VigorPower"),
             0

@@ -738,9 +738,21 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             hits,
         } => {
             let amt = amount.resolve(ctx);
+            // Bracket the hit loop with fire_before_attack /
+            // fire_after_attack so VigorPower (and future per-attack
+            // hooks: PainfulStabs, Skittish, Suck, Gigantification,
+            // Hellraiser) snapshot at the right boundary. Mirrors C#
+            // AttackCommand.Execute.
+            //
+            // For Target::AllEnemies / RandomEnemy the envelope still
+            // wraps the whole multi-hit; matches C# (one AttackCommand
+            // per .Targeting* call).
+            let dealer = ctx.actor;
+            cs.fire_before_attack(dealer);
             for _ in 0..(*hits).max(1) {
                 deal_damage_to(cs, ctx, *target, amt);
             }
+            cs.fire_after_attack(dealer);
         }
         Effect::GainBlock { amount, target } => {
             let amt = amount.resolve(ctx);
