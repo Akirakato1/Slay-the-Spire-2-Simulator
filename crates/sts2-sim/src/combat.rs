@@ -9887,6 +9887,7 @@ fn damage_creature(
     if amount <= 0 {
         return DamageOutcome::default();
     }
+    let pre_hit_hp = target.current_hp;
     let blocked = amount.min(target.block);
     target.block -= blocked;
     let mut hp_lost = amount - blocked;
@@ -9897,10 +9898,16 @@ fn damage_creature(
         hp_lost = target.current_hp;
     }
     target.current_hp -= hp_lost;
+    // C# `WasTargetKilled = (CurrentHp > 0 && amount >= CurrentHp)` —
+    // the transition predicate. True iff THIS hit took HP from positive
+    // to zero. Hits on an already-dead creature, or hits that don't
+    // reach 0, return false. Feed / HandOfGreed / Reaper-style cards
+    // gate on this; using post-state "is dead" instead would let an
+    // already-dead corpse re-trigger the kill effect on every hit.
     DamageOutcome {
         blocked,
         hp_lost,
-        fatal: target.current_hp == 0,
+        fatal: pre_hit_hp > 0 && target.current_hp == 0,
     }
 }
 
@@ -11033,6 +11040,52 @@ mod tests {
         assert_eq!(outcome.hp_lost, 4);
         assert_eq!(cs.enemies[0].block, 0);
         assert_eq!(cs.enemies[0].current_hp, max_hp - 4);
+    }
+
+    /// `DamageOutcome.fatal` is the TRANSITION predicate: true iff this
+    /// hit took the target from HP>0 to HP=0. C# spec
+    /// `WasTargetKilled = (CurrentHp > 0 && amount >= CurrentHp)`.
+    ///
+    /// Audit 2026-05-14: prior implementation used post-state (`current_hp == 0`)
+    /// which would re-fire kill triggers (Feed / HandOfGreed / Reaper) every
+    /// time a corpse got hit by a multi-hit card.
+    #[test]
+    fn fatal_is_transition_not_post_state() {
+        // Case 1: hit that brings HP from positive to 0 → fatal=true.
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 5;
+        let outcome = cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert!(outcome.fatal, "kill hit must report fatal=true");
+        assert_eq!(cs.enemies[0].current_hp, 0);
+
+        // Case 2: subsequent hit on the now-dead corpse → fatal=false
+        // (no second kill-trigger).
+        let outcome2 = cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert!(
+            !outcome2.fatal,
+            "post-mortem hit must report fatal=false (no re-trigger)"
+        );
+
+        // Case 3: hit that doesn't kill → fatal=false.
+        let mut cs2 = ironclad_combat();
+        let outcome3 = cs2.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            1,
+            ValueProp::MOVE,
+        );
+        assert!(!outcome3.fatal, "non-killing hit must report fatal=false");
+        assert!(cs2.enemies[0].current_hp > 0);
     }
 
     // ---------- Card-play action tests -----------------------------------
