@@ -1594,6 +1594,47 @@ fn dispatch_on_play(
             );
             true
         }
+        // Defile (Necrobinder common Ethereal Attack, 1E, AnyEnemy):
+        // 13 damage (17 upgraded). Ethereal handling deferred.
+        "Defile" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            true
+        }
+        // Defy (Necrobinder common Ethereal Skill, 1E, AnyEnemy): 6
+        // block (9 upgraded) + 1 Weak (unchanged on upgrade — only
+        // Block upgrades). Block reaches the caster, Weak the target.
+        "Defy" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            let weak = canonical_int_value(card, "Weak", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            cs.apply_power(target.0, target.1, "WeakPower", weak);
+            true
+        }
+        // GraveWarden (Necrobinder common Skill, 1E, Self): 8 block
+        // (11 upgraded) + add N Soul tokens to draw pile (N=1; Cards
+        // var doesn't upgrade — only Block does). Soul is a Token-pool
+        // 0-cost Skill with Exhaust keyword.
+        "GraveWarden" => {
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let block = canonical_int_value(card, "Block", upgrade_level);
+            let souls = canonical_int_value(card, "Cards", upgrade_level);
+            cs.gain_block(CombatSide::Player, player_idx, block);
+            for _ in 0..souls {
+                cs.add_card_to_pile(player_idx, "Soul", 0, PileType::Draw);
+            }
+            true
+        }
         // BlightStrike (Necrobinder common Strike-tagged Attack, 1E,
         // AnyEnemy): 8 damage (10 upgraded) + apply DoomPower equal to
         // damage dealt (modify_damage output, pre-block-split — matches
@@ -4612,6 +4653,68 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Defile + Defy + GraveWarden tests ------------------------
+
+    #[test]
+    fn defile_deals_thirteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "Defile",
+            0,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 13);
+    }
+
+    #[test]
+    fn upgraded_defile_deals_seventeen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.enemies[0].current_hp;
+        inject_card_and_play(
+            &mut cs,
+            "Defile",
+            1,
+            Some((CombatSide::Enemy, 0)),
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 17);
+    }
+
+    #[test]
+    fn defy_grants_six_block_and_one_weak() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "Defy", 0, Some((CombatSide::Enemy, 0)));
+        assert_eq!(cs.allies[0].block, 6);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "WeakPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn upgraded_defy_grants_nine_block_still_one_weak() {
+        let mut cs = ironclad_combat();
+        inject_card_and_play(&mut cs, "Defy", 1, Some((CombatSide::Enemy, 0)));
+        assert_eq!(cs.allies[0].block, 9);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "WeakPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn grave_warden_grants_eight_block_and_adds_soul_to_draw() {
+        let mut cs = ironclad_combat();
+        let draw_before = cs.allies[0].player.as_ref().unwrap().draw.len();
+        inject_card_and_play(&mut cs, "GraveWarden", 0, None);
+        assert_eq!(cs.allies[0].block, 8);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        // Soul appended to draw pile.
+        assert_eq!(ps.draw.len(), draw_before + 1);
+        assert!(ps.draw.cards.iter().any(|c| c.id == "Soul"));
     }
 
     // ---------- BlightStrike + Doom + simple-block ports -----------------
