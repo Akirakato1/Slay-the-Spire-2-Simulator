@@ -30,6 +30,7 @@
 
 use crate::combat::{
     CombatResult, CombatRewards, CombatSide, CombatState, PlayResult, PlayerSetup,
+    INITIAL_HAND_SIZE,
 };
 use crate::rng::Rng;
 use serde::{Deserialize, Serialize};
@@ -122,6 +123,17 @@ impl CombatEnv {
         // part of opening combat; we run it eagerly so the agent's
         // first `observation()` reflects post-hook state.
         state.fire_before_combat_start_hooks();
+        // Initial draw: every player starts the first turn with 5 cards
+        // in hand. C# CombatManager.BeginCombat triggers this. Without
+        // this, agents see an empty hand on the first observation and
+        // can only EndTurn.
+        let n_players = state.allies.len();
+        for player_idx in 0..n_players {
+            let mut rng_taken =
+                std::mem::replace(&mut state.rng, Rng::new(0, 0));
+            state.draw_cards(player_idx, INITIAL_HAND_SIZE, &mut rng_taken);
+            state.rng = rng_taken;
+        }
         Self {
             state,
             rng: Rng::new(rng_seed, 0),
@@ -165,6 +177,22 @@ impl CombatEnv {
                 self.state.begin_turn(CombatSide::Enemy);
                 self.state.end_turn();
                 self.state.begin_turn(CombatSide::Player);
+                // Per-turn 5-card draw at the start of the player's
+                // turn. C# CombatManager triggers this via the
+                // Hook.ModifyDraw pipeline; without it the player
+                // can't refill their hand between turns. Run after
+                // begin_turn so block clears + start-of-turn power
+                // ticks (DemonForm/Poison) sequence first.
+                let n_players = self.state.allies.len();
+                for player_idx in 0..n_players {
+                    let mut rng_taken = std::mem::replace(
+                        &mut self.state.rng,
+                        Rng::new(0, 0),
+                    );
+                    self.state
+                        .draw_cards(player_idx, INITIAL_HAND_SIZE, &mut rng_taken);
+                    self.state.rng = rng_taken;
+                }
                 let mut outcome = StepOutcome::default();
                 self.detect_terminal(&mut outcome);
                 outcome
@@ -348,7 +376,16 @@ mod tests {
     #[test]
     fn legal_actions_includes_strikes_and_end_turn() {
         let mut env = fresh_env();
-        // Move some Strikes into hand.
+        // env.reset triggers an initial 5-card draw. Empty the hand
+        // first so we can assert about a controlled single-Strike setup.
+        env.state.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .clear();
+        // Move one Strike into hand.
         let strike = card_by_id("StrikeIronclad").unwrap();
         env.state.allies[0]
             .player

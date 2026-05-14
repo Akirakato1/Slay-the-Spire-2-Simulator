@@ -32,6 +32,11 @@ use serde::{Deserialize, Serialize};
 /// the behavior port will apply.)
 pub const DEFAULT_TURN_ENERGY: i32 = 3;
 
+/// Cards drawn at the start of combat (and every turn-start in C#'s
+/// `Hook.ModifyDraw` default). 5 for every character — relics that
+/// modify this aren't ported yet.
+pub const INITIAL_HAND_SIZE: i32 = 5;
+
 /// C# `CombatSide`. `None` is a sentinel — combat is always Player or Enemy.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum CombatSide {

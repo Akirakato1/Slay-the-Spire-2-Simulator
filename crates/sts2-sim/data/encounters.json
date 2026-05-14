@@ -63,7 +63,12 @@
     "id": "BygoneEffigyElite",
     "room_type": "Elite",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "BygoneEffigy",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "BygoneEffigy"
     ]
@@ -72,7 +77,12 @@
     "id": "ByrdonisElite",
     "room_type": "Elite",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Byrdonis",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Byrdonis"
     ]
@@ -81,7 +91,12 @@
     "id": "CeremonialBeastBoss",
     "room_type": "Boss",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "CeremonialBeast",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "CeremonialBeast"
     ]
@@ -90,7 +105,16 @@
     "id": "ChompersNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Chomper",
+        "slot": ""
+      },
+      {
+        "monster": "Chomper",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Chomper"
     ]
@@ -99,7 +123,20 @@
     "id": "ConstructMenagerieNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "PunchConstruct",
+        "slot": ""
+      },
+      {
+        "monster": "CubexConstruct",
+        "slot": ""
+      },
+      {
+        "monster": "CubexConstruct",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "CubexConstruct",
       "PunchConstruct"
@@ -109,7 +146,20 @@
     "id": "CorpseSlugsNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "CorpseSlug",
+        "slot": ""
+      },
+      {
+        "monster": "CorpseSlug",
+        "slot": ""
+      },
+      {
+        "monster": "CorpseSlug",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "CorpseSlug"
     ]
@@ -118,7 +168,16 @@
     "id": "CorpseSlugsWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "CorpseSlug",
+        "slot": ""
+      },
+      {
+        "monster": "CorpseSlug",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "CorpseSlug"
     ]
@@ -127,7 +186,12 @@
     "id": "CubexConstructNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "CubexConstruct",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "CubexConstruct"
     ]
@@ -136,7 +200,16 @@
     "id": "CultistsNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "CalcifiedCultist",
+        "slot": ""
+      },
+      {
+        "monster": "DampCultist",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "CalcifiedCultist",
       "DampCultist"
@@ -150,7 +223,20 @@
       "segment2",
       "segment3"
     ],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "DecimillipedeSegmentFront",
+        "slot": ""
+      },
+      {
+        "monster": "DecimillipedeSegmentMiddle",
+        "slot": ""
+      },
+      {
+        "monster": "DecimillipedeSegmentBack",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "DecimillipedeSegmentBack",
       "DecimillipedeSegmentFront",
@@ -166,7 +252,12 @@
       "wriggler3",
       "wriggler4"
     ],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Wriggler",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Wriggler"
     ]
@@ -182,7 +273,12 @@
     "id": "DevotedSculptorWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "DevotedSculptor",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "DevotedSculptor"
     ]
@@ -191,7 +287,12 @@
     "id": "DoormakerBoss",
     "room_type": "Boss",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Doormaker",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Doormaker"
     ]
@@ -200,7 +301,12 @@
     "id": "EntomancerElite",
     "room_type": "Elite",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Entomancer",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Entomancer"
     ]
@@ -302,7 +408,12 @@
     "id": "FlyconidNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Flyconid",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Flyconid",
       "LeafSlimeM",
@@ -331,7 +442,12 @@
     "id": "FossilStalkerNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "FossilStalker",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "FossilStalker"
     ]
@@ -340,7 +456,12 @@
     "id": "FrogKnightNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "FrogKnight",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "FrogKnight"
     ]
@@ -349,7 +470,12 @@
     "id": "FuzzyWurmCrawlerWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "FuzzyWurmCrawler",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "FuzzyWurmCrawler"
     ]
@@ -358,7 +484,12 @@
     "id": "GlobeHeadNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "GlobeHead",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "GlobeHead"
     ]
@@ -383,7 +514,12 @@
     "id": "HauntedShipNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "HauntedShip",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "HauntedShip"
     ]
@@ -392,7 +528,12 @@
     "id": "HunterKillerNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "HunterKiller",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "HunterKiller"
     ]
@@ -401,7 +542,12 @@
     "id": "InfestedPrismsElite",
     "room_type": "Elite",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "InfestedPrism",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "InfestedPrism"
     ]
@@ -410,7 +556,20 @@
     "id": "InkletsNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Inklet",
+        "slot": ""
+      },
+      {
+        "monster": "Inklet",
+        "slot": ""
+      },
+      {
+        "monster": "Inklet",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Inklet"
     ]
@@ -465,7 +624,12 @@
     "id": "KnowledgeDemonBoss",
     "room_type": "Boss",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "KnowledgeDemon",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "KnowledgeDemon"
     ]
@@ -474,7 +638,12 @@
     "id": "LagavulinMatriarchBoss",
     "room_type": "Boss",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "LagavulinMatriarch",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "LagavulinMatriarch"
     ]
@@ -505,7 +674,12 @@
     "id": "LouseProgenitorNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "LouseProgenitor",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "LouseProgenitor"
     ]
@@ -514,7 +688,12 @@
     "id": "MawlerNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Mawler",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Mawler"
     ]
@@ -523,7 +702,12 @@
     "id": "MechaKnightElite",
     "room_type": "Elite",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "MechaKnight",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "MechaKnight"
     ]
@@ -532,7 +716,12 @@
     "id": "MysteriousKnightEventEncounter",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "MysteriousKnight",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "MysteriousKnight"
     ]
@@ -579,7 +768,12 @@
     "id": "NibbitsWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Nibbit",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Nibbit"
     ]
@@ -588,7 +782,16 @@
     "id": "OvergrowthCrawlers",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "ShrinkerBeetle",
+        "slot": ""
+      },
+      {
+        "monster": "FuzzyWurmCrawler",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "FuzzyWurmCrawler",
       "ShrinkerBeetle"
@@ -620,7 +823,12 @@
     "id": "OwlMagistrateNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "OwlMagistrate",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "OwlMagistrate"
     ]
@@ -681,7 +889,12 @@
     "id": "PunchConstructNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "PunchConstruct",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "PunchConstruct"
     ]
@@ -690,7 +903,16 @@
     "id": "PunchOffEventEncounter",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "PunchConstruct",
+        "slot": ""
+      },
+      {
+        "monster": "PunchConstruct",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "PunchConstruct"
     ]
@@ -734,7 +956,24 @@
     "id": "ScrollsOfBitingNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "ScrollOfBiting",
+        "slot": ""
+      },
+      {
+        "monster": "ScrollOfBiting",
+        "slot": ""
+      },
+      {
+        "monster": "ScrollOfBiting",
+        "slot": ""
+      },
+      {
+        "monster": "ScrollOfBiting",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "ScrollOfBiting"
     ]
@@ -743,7 +982,20 @@
     "id": "ScrollsOfBitingWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "ScrollOfBiting",
+        "slot": ""
+      },
+      {
+        "monster": "ScrollOfBiting",
+        "slot": ""
+      },
+      {
+        "monster": "ScrollOfBiting",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "ScrollOfBiting"
     ]
@@ -752,7 +1004,16 @@
     "id": "SeapunkNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "CalcifiedCultist",
+        "slot": ""
+      },
+      {
+        "monster": "Seapunk",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "CalcifiedCultist",
       "Seapunk"
@@ -762,7 +1023,12 @@
     "id": "SeapunkWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Seapunk",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Seapunk"
     ]
@@ -771,7 +1037,12 @@
     "id": "SewerClamNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "SewerClam",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "SewerClam"
     ]
@@ -780,7 +1051,12 @@
     "id": "ShrinkerBeetleWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "ShrinkerBeetle",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "ShrinkerBeetle"
     ]
@@ -789,7 +1065,12 @@
     "id": "SkulkingColonyElite",
     "room_type": "Elite",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "SkulkingColony",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "SkulkingColony"
     ]
@@ -798,7 +1079,12 @@
     "id": "SlimedBerserkerNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "SlimedBerserker",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "SlimedBerserker"
     ]
@@ -807,7 +1093,16 @@
     "id": "SlimesNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "TwigSlimeM",
+        "slot": ""
+      },
+      {
+        "monster": "LeafSlimeM",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "LeafSlimeM",
       "LeafSlimeS",
@@ -845,7 +1140,12 @@
     "id": "SludgeSpinnerWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "SludgeSpinner",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "SludgeSpinner"
     ]
@@ -878,7 +1178,16 @@
     "id": "SnappingJaxfruitNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "SnappingJaxfruit",
+        "slot": ""
+      },
+      {
+        "monster": "Flyconid",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Flyconid",
       "SnappingJaxfruit"
@@ -888,7 +1197,12 @@
     "id": "SoulFyshBoss",
     "room_type": "Boss",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "SoulFysh",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "SoulFysh"
     ]
@@ -897,7 +1211,12 @@
     "id": "SoulNexusElite",
     "room_type": "Elite",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "SoulNexus",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "SoulNexus"
     ]
@@ -906,7 +1225,12 @@
     "id": "SpinyToadNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "SpinyToad",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "SpinyToad"
     ]
@@ -915,7 +1239,12 @@
     "id": "TerrorEelElite",
     "room_type": "Elite",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "TerrorEel",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "TerrorEel"
     ]
@@ -924,7 +1253,12 @@
     "id": "TestSubjectBoss",
     "room_type": "Boss",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "TestSubject",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "TestSubject"
     ]
@@ -933,7 +1267,12 @@
     "id": "TheArchitectEventEncounter",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Architect",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Architect"
     ]
@@ -942,7 +1281,12 @@
     "id": "TheInsatiableBoss",
     "room_type": "Boss",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "TheInsatiable",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "TheInsatiable"
     ]
@@ -974,7 +1318,16 @@
     "id": "TheLostAndForgottenNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "TheLost",
+        "slot": ""
+      },
+      {
+        "monster": "TheForgotten",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "TheForgotten",
       "TheLost"
@@ -1001,7 +1354,12 @@
     "id": "ThievingHopperWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "ThievingHopper",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "ThievingHopper"
     ]
@@ -1010,7 +1368,16 @@
     "id": "ToadpolesWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Toadpole",
+        "slot": ""
+      },
+      {
+        "monster": "Toadpole",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Toadpole"
     ]
@@ -1019,7 +1386,12 @@
     "id": "TunnelerNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Tunneler",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Chomper",
       "Tunneler"
@@ -1029,7 +1401,12 @@
     "id": "TunnelerWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Tunneler",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Tunneler"
     ]
@@ -1038,7 +1415,16 @@
     "id": "TurretOperatorWeak",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "LivingShield",
+        "slot": ""
+      },
+      {
+        "monster": "TurretOperator",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "LivingShield",
       "TurretOperator"
@@ -1054,7 +1440,20 @@
       "fourth",
       "fifth"
     ],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "TwoTailedRat",
+        "slot": ""
+      },
+      {
+        "monster": "TwoTailedRat",
+        "slot": ""
+      },
+      {
+        "monster": "TwoTailedRat",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "TwoTailedRat"
     ]
@@ -1063,7 +1462,12 @@
     "id": "VantomBoss",
     "room_type": "Boss",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "Vantom",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "Vantom"
     ]
@@ -1072,7 +1476,12 @@
     "id": "VineShamblerNormal",
     "room_type": "Monster",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "VineShambler",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "VineShambler"
     ]
@@ -1081,7 +1490,12 @@
     "id": "WaterfallGiantBoss",
     "room_type": "Boss",
     "slots": [],
-    "canonical_monsters": [],
+    "canonical_monsters": [
+      {
+        "monster": "WaterfallGiant",
+        "slot": ""
+      }
+    ],
     "possible_monsters": [
       "WaterfallGiant"
     ]

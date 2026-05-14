@@ -105,13 +105,46 @@ fn parse_canonical_monsters(source: &str) -> Vec<MonsterSpawn> {
     let Some(body) = extract_method_body(source, "GenerateMonsters") else {
         return Vec::new();
     };
-    // `new ValueTuple<MonsterModel, string>(ModelDb.Monster<X>().ToMutable(), "slot")`
-    let rx =
-        Regex::new(r#"ModelDb\.Monster<(\w+)>\(\)[^,]*,\s*"(\w+)""#).unwrap();
-    rx.captures_iter(&body)
+    // Two construction shapes both end with the ValueTuple<…> ctor:
+    //   new ValueTuple<MonsterModel, string>(
+    //       ModelDb.Monster<X>().ToMutable(), "slot")
+    //   new ValueTuple<MonsterModel, string>(
+    //       ModelDb.Monster<X>().ToMutable(), null)
+    // and a third where the monster is built into a local first:
+    //   X x = (X)ModelDb.Monster<X>().ToMutable();
+    //   x.IsFront = true;
+    //   new ValueTuple<MonsterModel, string>(x, null)
+    //
+    // For the third shape we don't have a way to know `x`'s underlying
+    // type without parsing the local-decl. We do a two-stage approach:
+    //   1. Direct ctor: regex over `ModelDb.Monster<X>()...,(slot|null)`.
+    //   2. If direct ctor yielded nothing, walk locals: each `X y = (X)
+    //      ModelDb.Monster<X>().ToMutable();` is a Monster<X> slot; the
+    //      ordering in the body matches the spawn order in the returned
+    //      array. Null slots only — IsFront / similar properties aren't
+    //      passed through (the simulator derives that from slot index).
+    let direct =
+        Regex::new(r#"ModelDb\.Monster<(\w+)>\(\)[^,]*,\s*(?:"(\w+)"|null)"#)
+            .unwrap();
+    let direct_hits: Vec<MonsterSpawn> = direct
+        .captures_iter(&body)
         .map(|c| MonsterSpawn {
             monster: c[1].to_string(),
-            slot: c[2].to_string(),
+            slot: c.get(2).map(|m| m.as_str().to_string()).unwrap_or_default(),
+        })
+        .collect();
+    if !direct_hits.is_empty() {
+        return direct_hits;
+    }
+    // Fallback: per-local pattern.
+    let local =
+        Regex::new(r#"(?:[A-Z]\w*)\s+\w+\s*=\s*\(\w+\)\s*ModelDb\.Monster<(\w+)>\(\)"#)
+            .unwrap();
+    local
+        .captures_iter(&body)
+        .map(|c| MonsterSpawn {
+            monster: c[1].to_string(),
+            slot: String::new(),
         })
         .collect()
 }
