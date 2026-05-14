@@ -491,16 +491,20 @@ impl CombatState {
                 .iter()
                 .any(|p| BLOCK_PRESERVE_POWERS.contains(&p.id.as_str()))
         };
+        // Track whether any owner-side creature had non-zero block at
+        // the boundary — fires AfterBlockCleared if so (mirrors C# block
+        // clear → fire AfterBlockCleared hook).
+        let mut block_cleared_player = false;
+        let mut block_cleared_enemy = false;
         match side {
             CombatSide::Player => {
                 for ally in self.allies.iter_mut() {
                     if !preserves(ally) {
+                        if ally.block > 0 {
+                            block_cleared_player = true;
+                        }
                         ally.block = 0;
                     }
-                    // Energy refresh: fill to per-turn allotment. C# routes
-                    // this through Hook.ModifyEnergyGain which lets relics
-                    // (Velvet Choker, etc.) tweak the amount; until those
-                    // hooks land, refill directly to turn_energy.
                     if let Some(ps) = ally.player.as_mut() {
                         ps.energy = ps.turn_energy;
                     }
@@ -509,12 +513,27 @@ impl CombatState {
             CombatSide::Enemy => {
                 for enemy in self.enemies.iter_mut() {
                     if !preserves(enemy) {
+                        if enemy.block > 0 {
+                            block_cleared_enemy = true;
+                        }
                         enemy.block = 0;
                     }
                 }
             }
             CombatSide::None => {}
         }
+        // AfterBlockCleared relic hooks — owner-side firing only (player
+        // relics fire on player-side block clear; we don't yet model
+        // enemy-owned block-cleared relic equivalents). Captains Wheel
+        // is a self-block hook so this matches.
+        if block_cleared_player {
+            crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::AfterBlockCleared,
+                CombatSide::Player,
+            );
+        }
+        let _ = block_cleared_enemy;
         // AfterSideTurnStart hook pass.
         // Hook firing order proper will land in #70; for now powers
         // (Poison / DemonForm) fire first, then relic AfterSideTurnStart
@@ -901,17 +920,18 @@ impl CombatState {
             // CardModel.OnTurnEndInHand iteration in PlayerCombatState
             // before the keyword-routing flush.
             self.fire_turn_end_in_hand_effects();
-            for ally in self.allies.iter_mut() {
+            // Collect per-player routing decisions so the
+            // history-event push + relic-hook fire can happen after
+            // the &mut self.allies borrow drops.
+            let mut all_exhausted: Vec<(usize, String)> = Vec::new();
+            let mut all_discarded: Vec<(usize, String)> = Vec::new();
+            for (player_idx, ally) in self.allies.iter_mut().enumerate() {
                 let Some(ps) = ally.player.as_mut() else {
                     continue;
                 };
                 // Per-card routing at end of player turn (C# Flush
-                // sequence). For each card in hand:
-                //   - Ethereal → auto-exhaust
-                //   - Retain   → stays in hand for the next turn
-                //   - otherwise → discard
-                // Mirrors C# `Hook.BeforeFlush` + per-card keyword
-                // dispatch in PlayerCombatState.Flush.
+                // sequence). Ethereal → auto-exhaust; Retain → keep;
+                // otherwise → discard.
                 let mut keep_in_hand: Vec<CardInstance> = Vec::new();
                 let drained: Vec<CardInstance> =
                     std::mem::take(&mut ps.hand.cards);
@@ -921,14 +941,49 @@ impl CombatState {
                     let is_ethereal = keywords.iter().any(|k| k == "Ethereal");
                     let is_retain = keywords.iter().any(|k| k == "Retain");
                     if is_ethereal {
+                        all_exhausted.push((player_idx, card.id.clone()));
                         ps.exhaust.cards.push(card);
                     } else if is_retain {
                         keep_in_hand.push(card);
                     } else {
+                        all_discarded.push((player_idx, card.id.clone()));
                         ps.discard.cards.push(card);
                     }
                 }
                 ps.hand.cards = keep_in_hand;
+            }
+            // History emission + AfterCardExhausted/Discarded relic
+            // hooks. C# fires these per-card; we emit the events per-
+            // card and fire the hooks once at the end (idempotent — the
+            // relic body itself is what reads the per-card history).
+            let round = self.round_number;
+            for (pid, cid) in &all_exhausted {
+                self.combat_log.push(CombatEvent::CardExhausted {
+                    round,
+                    player_idx: *pid,
+                    card_id: cid.clone(),
+                });
+            }
+            for (pid, cid) in &all_discarded {
+                self.combat_log.push(CombatEvent::CardDiscarded {
+                    round,
+                    player_idx: *pid,
+                    card_id: cid.clone(),
+                });
+            }
+            if !all_exhausted.is_empty() {
+                crate::effects::fire_relic_hooks(
+                    self,
+                    crate::effects::RelicHookKind::AfterCardExhausted,
+                    CombatSide::Player,
+                );
+            }
+            if !all_discarded.is_empty() {
+                crate::effects::fire_relic_hooks(
+                    self,
+                    crate::effects::RelicHookKind::AfterCardDiscarded,
+                    CombatSide::Player,
+                );
             }
         }
         if self.current_side == CombatSide::Enemy {
@@ -2925,6 +2980,23 @@ impl CombatState {
             &card_data.keywords,
             &card_data.tags,
         );
+        // AfterCardExhausted / AfterCardDiscarded relic hooks — fire
+        // after the routing event so the relic body sees the post-route
+        // state (matches C# AfterCardExhausted / AfterCardDiscarded
+        // ordering — fires after the card has moved piles).
+        match dest {
+            PileType::Discard => crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::AfterCardDiscarded,
+                CombatSide::Player,
+            ),
+            PileType::Exhaust => crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::AfterCardExhausted,
+                CombatSide::Player,
+            ),
+            _ => {}
+        }
 
         if handled {
             PlayResult::Ok

@@ -1494,6 +1494,14 @@ pub enum RelicHook {
     AfterDamageGiven,
     /// C# `AfterDamageReceived(...)`. Owner took damage.
     AfterDamageReceived,
+    /// C# `AfterCardExhausted(card)`. Any card the owner exhausts.
+    /// CharonsAshes / JossPaper / ForgottenSoul / DarkstonePeriapt.
+    AfterCardExhausted,
+    /// C# `AfterCardDiscarded(card)`. Tingsha / ToughBandages.
+    AfterCardDiscarded,
+    /// C# `AfterBlockCleared(creature)`. Owner's block dropped to 0.
+    /// CaptainsWheel / HornCleat.
+    AfterBlockCleared,
 }
 
 /// Discriminant for matching `RelicHook` entries against a firing point.
@@ -1513,6 +1521,9 @@ pub enum RelicHookKind {
     BeforeTurnEnd,
     AfterDamageGiven,
     AfterDamageReceived,
+    AfterCardExhausted,
+    AfterCardDiscarded,
+    AfterBlockCleared,
 }
 
 impl RelicHook {
@@ -1531,6 +1542,9 @@ impl RelicHook {
             RelicHook::BeforeTurnEnd { .. } => RelicHookKind::BeforeTurnEnd,
             RelicHook::AfterDamageGiven => RelicHookKind::AfterDamageGiven,
             RelicHook::AfterDamageReceived => RelicHookKind::AfterDamageReceived,
+            RelicHook::AfterCardExhausted => RelicHookKind::AfterCardExhausted,
+            RelicHook::AfterCardDiscarded => RelicHookKind::AfterCardDiscarded,
+            RelicHook::AfterBlockCleared => RelicHookKind::AfterBlockCleared,
         }
     }
 
@@ -1550,7 +1564,10 @@ impl RelicHook {
             | RelicHook::AfterPlayerTurnEnd
             | RelicHook::AfterCardPlayed { .. }
             | RelicHook::AfterDamageGiven
-            | RelicHook::AfterDamageReceived => true,
+            | RelicHook::AfterDamageReceived
+            | RelicHook::AfterCardExhausted
+            | RelicHook::AfterCardDiscarded
+            | RelicHook::AfterBlockCleared => true,
             RelicHook::AfterSideTurnStart { owner_side_only, first_turn_only }
             | RelicHook::BeforeSideTurnStart { owner_side_only, first_turn_only } => {
                 (!owner_side_only || current_side == owner_side)
@@ -2528,6 +2545,44 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
 
         "LavaLamp" => Some(vec![
             (RelicHook::AfterDamageReceived, vec![]),
+        ]),
+
+        "CharonsAshes" => Some(vec![
+            (RelicHook::AfterCardExhausted,
+             vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+        ]),
+
+        "ForgottenSoul" => Some(vec![
+            (RelicHook::AfterCardExhausted,
+             vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }]),
+        ]),
+
+        "Tingsha" => Some(vec![
+            (RelicHook::AfterCardDiscarded,
+             vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }]),
+        ]),
+
+        "ToughBandages" => Some(vec![
+            (RelicHook::AfterCardDiscarded,
+             vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        ]),
+
+        "CaptainsWheel" => Some(vec![
+            (RelicHook::AfterBlockCleared,
+             vec![Effect::Conditional {
+                condition: Condition::RoundEquals { n: 3 },
+                then_branch: vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }],
+                else_branch: vec![],
+             }]),
+        ]),
+
+        "HornCleat" => Some(vec![
+            (RelicHook::AfterBlockCleared,
+             vec![Effect::Conditional {
+                condition: Condition::RoundEquals { n: 2 },
+                then_branch: vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }],
+                else_branch: vec![],
+             }]),
         ]),
 
 
@@ -3851,20 +3906,47 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             let mut sorted = picks;
             sorted.sort_unstable_by(|a, b| b.cmp(a));
+            let mut exhausted_ids: Vec<String> = Vec::new();
             for idx in sorted {
                 if let Some(card) = remove_card_from_pile(cs, ctx.player_idx, *from, idx) {
+                    exhausted_ids.push(card.id.clone());
                     push_card_to_pile(cs, ctx.player_idx, Pile::Exhaust, card);
                 }
+            }
+            // History emission + AfterCardExhausted relic-hook firing.
+            let round = cs.round_number;
+            for cid in &exhausted_ids {
+                cs.combat_log.push(crate::combat::CombatEvent::CardExhausted {
+                    round,
+                    player_idx: ctx.player_idx,
+                    card_id: cid.clone(),
+                });
+            }
+            if !exhausted_ids.is_empty() {
+                fire_relic_hooks(cs, RelicHookKind::AfterCardExhausted, CombatSide::Player);
             }
         }
         Effect::DiscardCards { from, selector } => {
             let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             let mut sorted = picks;
             sorted.sort_unstable_by(|a, b| b.cmp(a));
+            let mut discarded_ids: Vec<String> = Vec::new();
             for idx in sorted {
                 if let Some(card) = remove_card_from_pile(cs, ctx.player_idx, *from, idx) {
+                    discarded_ids.push(card.id.clone());
                     push_card_to_pile(cs, ctx.player_idx, Pile::Discard, card);
                 }
+            }
+            let round = cs.round_number;
+            for cid in &discarded_ids {
+                cs.combat_log.push(crate::combat::CombatEvent::CardDiscarded {
+                    round,
+                    player_idx: ctx.player_idx,
+                    card_id: cid.clone(),
+                });
+            }
+            if !discarded_ids.is_empty() {
+                fire_relic_hooks(cs, RelicHookKind::AfterCardDiscarded, CombatSide::Player);
             }
         }
         Effect::UpgradeCards { from, selector } => {

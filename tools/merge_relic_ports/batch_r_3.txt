@@ -1,0 +1,49 @@
+// batch_r_3.txt — relics using the new card-lifecycle hooks
+// (AfterCardExhausted / AfterCardDiscarded / AfterBlockCleared).
+// Verified one-for-one against C# Models/Relics/.
+
+// CharonsAshes.cs L38-47: AfterCardExhausted (owner-played) -> Damage(3 Unpowered) to all enemies.
+"CharonsAshes" => Some(vec![
+    (RelicHook::AfterCardExhausted,
+     vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+]),
+
+// ForgottenSoul.cs L39-52: AfterCardExhausted -> Damage(1 Unpowered) to a random alive enemy.
+"ForgottenSoul" => Some(vec![
+    (RelicHook::AfterCardExhausted,
+     vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }]),
+]),
+
+// Tingsha.cs L39-55: AfterCardDiscarded, owner-side -> Damage(3 Unpowered) to a random alive enemy.
+"Tingsha" => Some(vec![
+    (RelicHook::AfterCardDiscarded,
+     vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }]),
+]),
+
+// ToughBandages.cs L49-60: AfterCardDiscarded, owner-side -> GainBlock(3 Unpowered) self.
+// (Owner-side gate is implicit at AfterCardDiscarded firing point: hooks
+// fire on the player side only.)
+"ToughBandages" => Some(vec![
+    (RelicHook::AfterCardDiscarded,
+     vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// CaptainsWheel.cs L49-60: AfterBlockCleared on owner, RoundNumber == 3 -> GainBlock(18 Unpowered) self.
+"CaptainsWheel" => Some(vec![
+    (RelicHook::AfterBlockCleared,
+     vec![Effect::Conditional {
+        condition: Condition::RoundEquals { n: 3 },
+        then_branch: vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }],
+        else_branch: vec![],
+     }]),
+]),
+
+// HornCleat.cs L49-60: AfterBlockCleared on owner, RoundNumber == 2 -> GainBlock(14 Unpowered) self.
+"HornCleat" => Some(vec![
+    (RelicHook::AfterBlockCleared,
+     vec![Effect::Conditional {
+        condition: Condition::RoundEquals { n: 2 },
+        then_branch: vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }],
+        else_branch: vec![],
+     }]),
+]),
