@@ -453,6 +453,10 @@ impl CombatState {
             self.combat_log
                 .push(CombatEvent::TurnBegan { round, side });
         }
+        // BeforeSideTurnStart relic hooks: fire before block-clear /
+        // energy-refresh / power ticks. Data-driven only (no legacy
+        // match-arm dispatcher at this phase).
+        self.fire_before_side_turn_start_hooks(side);
         // Block survives one creature's *own* turn end → wipe at the start
         // of that side's next turn. This matches StS rules: block from
         // Defend persists through enemy attacks, then resets when you play
@@ -633,6 +637,43 @@ impl CombatState {
             self.log_relic_hook("AfterSideTurnStart", player_idx, &relic_id);
             dispatch_relic_after_side_turn_start(self, player_idx, &relic_id, side);
         }
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterSideTurnStart,
+            side,
+        );
+        // AfterPlayerTurnStart fires on the Player side of begin_turn.
+        // Distinct from AfterSideTurnStart only in C# ordering; we
+        // co-locate them here.
+        if side == CombatSide::Player {
+            crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::AfterPlayerTurnStart,
+                side,
+            );
+        }
+    }
+
+    /// Fire each player's relic `BeforeSideTurnStart` hooks. New firing
+    /// point — invoked at the top of `begin_turn`, before block-clear /
+    /// energy-refresh / power ticks. C# BagOfMarbles / RedMask /
+    /// TwistedFunnel / CrackedCore land here.
+    pub fn fire_before_side_turn_start_hooks(&mut self, side: CombatSide) {
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::BeforeSideTurnStart,
+            side,
+        );
+    }
+
+    /// Fire each player's relic `AfterPlayerTurnEnd` hooks. New firing
+    /// point — invoked at the end of player-side `end_turn`.
+    pub fn fire_after_player_turn_end_hooks(&mut self) {
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterPlayerTurnEnd,
+            CombatSide::Player,
+        );
     }
 
     /// Generate the rewards earned by clearing this combat. Caller invokes
@@ -684,6 +725,15 @@ impl CombatState {
             self.log_relic_hook("BeforeCombatStart", player_idx, &relic_id);
             dispatch_relic_before_combat_start(self, player_idx, &relic_id);
         }
+        // Data-driven relic-effect VM dispatch — runs alongside the
+        // legacy per-relic match arms above. Relics encoded in
+        // `relic_effects` fire here; relics in dispatch_relic_*
+        // (Anchor/BurningBlood/Brimstone) keep their hand-coded path.
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::BeforeCombatStart,
+            CombatSide::Player,
+        );
     }
 
     /// Fire each player's relic AfterCombatVictory hooks. Caller invokes
@@ -699,6 +749,11 @@ impl CombatState {
             self.log_relic_hook("AfterCombatVictory", player_idx, &relic_id);
             dispatch_relic_after_combat_victory(self, player_idx, &relic_id);
         }
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterCombatVictory,
+            CombatSide::Player,
+        );
     }
 
     /// Snapshot (player_idx, relic_id) pairs so hook dispatchers can mutate
@@ -880,6 +935,11 @@ impl CombatState {
         // duration debuffs, etc.) will fold in here as they port.
         let ended_side = side;
         crate::effects::fire_power_hooks_after_turn_end(self, ended_side);
+        // AfterPlayerTurnEnd relic hooks — fire at end of player-side
+        // turn only. Data-driven via relic_effects table.
+        if ended_side == CombatSide::Player {
+            self.fire_after_player_turn_end_hooks();
+        }
         if self.log_enabled {
             let round = self.round_number;
             let side = self.current_side;
@@ -14143,6 +14203,82 @@ mod tests {
             cs.get_power_amount(CombatSide::Player, 0, "StrengthPower"),
             4
         );
+    }
+
+    // ---------- Relic VM (data-driven hook dispatch) tests ----------------
+
+    #[test]
+    fn akabeko_grants_vigor_on_first_player_turn() {
+        let mut cs = ironclad_combat_with_relic("Akabeko");
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "VigorPower"),
+            8
+        );
+    }
+
+    #[test]
+    fn akabeko_does_not_fire_on_enemy_side() {
+        let mut cs = ironclad_combat_with_relic("Akabeko");
+        cs.begin_turn(CombatSide::Enemy);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "VigorPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn akabeko_does_not_fire_on_round_two() {
+        let mut cs = ironclad_combat_with_relic("Akabeko");
+        cs.begin_turn(CombatSide::Player);
+        cs.begin_turn(CombatSide::Enemy);
+        // Strip the round-1 grant so we can distinguish round-2 firing.
+        cs.allies[0].powers.retain(|p| p.id != "VigorPower");
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "VigorPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn bag_of_marbles_applies_vulnerable_to_all_enemies() {
+        let mut cs = ironclad_combat_with_relic("BagOfMarbles");
+        cs.begin_turn(CombatSide::Player);
+        for i in 0..cs.enemies.len() {
+            assert_eq!(
+                cs.get_power_amount(CombatSide::Enemy, i, "VulnerablePower"),
+                1,
+                "enemy {i} should have 1 Vulnerable"
+            );
+        }
+    }
+
+    #[test]
+    fn lantern_grants_one_extra_energy_round_one() {
+        let mut cs = ironclad_combat_with_relic("Lantern");
+        let starting = cs.allies[0].player.as_ref().unwrap().energy;
+        cs.begin_turn(CombatSide::Player);
+        let after = cs.allies[0].player.as_ref().unwrap().energy;
+        // Energy refresh happens before AfterSideTurnStart in begin_turn,
+        // so Lantern adds on top of the refilled turn_energy.
+        let turn_energy = cs.allies[0].player.as_ref().unwrap().turn_energy;
+        assert_eq!(after, turn_energy + 1, "starting was {starting}");
+    }
+
+    #[test]
+    fn black_blood_heals_on_victory() {
+        let mut cs = ironclad_combat();
+        // Swap BurningBlood (default starter) for BlackBlood.
+        cs.allies[0].player.as_mut().unwrap().relics =
+            vec!["BlackBlood".to_string()];
+        // Damage the player so we can verify the heal.
+        cs.allies[0].current_hp = cs.allies[0].max_hp - 20;
+        let before = cs.allies[0].current_hp;
+        cs.fire_after_combat_victory_hooks();
+        let after = cs.allies[0].current_hp;
+        // BlackBlood's HealVar(12) — same shape as BurningBlood's 6.
+        assert_eq!(after - before, 12);
     }
 
     // ---------- DemonForm tests ------------------------------------------

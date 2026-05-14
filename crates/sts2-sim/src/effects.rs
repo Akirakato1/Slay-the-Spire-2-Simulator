@@ -37,6 +37,31 @@ use crate::card::by_id as card_by_id;
 use crate::combat::{
     canonical_int_value, CombatSide, CombatState, EnchantmentInstance, PileType, ValueProp,
 };
+use crate::relic::by_id as relic_by_id;
+
+/// Resolve a relic's canonical-var integer value by key. Relic vars
+/// don't upgrade, so this is a flat lookup against the `canonical_vars`
+/// table. Matches by `kind` first, then `generic`, then suffix-stripped
+/// `generic` (e.g. "VigorPower" matches a generic "Vigor"). Returns 0
+/// if no match.
+fn relic_canonical_int_value(relic_id: &str, var_kind: &str) -> i32 {
+    let Some(relic) = relic_by_id(relic_id) else {
+        return 0;
+    };
+    for v in &relic.canonical_vars {
+        if v.kind == var_kind
+            || v.generic.as_deref() == Some(var_kind)
+            || v
+                .generic
+                .as_deref()
+                .and_then(|g| g.strip_suffix("Power"))
+                == Some(var_kind)
+        {
+            return v.base_value.unwrap_or(0.0) as i32;
+        }
+    }
+    0
+}
 
 /// How a numeric argument is computed at execution time.
 ///
@@ -560,6 +585,10 @@ pub struct EffectContext<'a> {
     /// dispatcher sets it before invoking the body. 0 outside power
     /// contexts.
     pub actor_amount: i32,
+    /// Relic id that owns this effect list. Read by `Canonical` when
+    /// `source_card_id` is None — relic hooks share the same Effect
+    /// vocabulary but their canonical-var table lives on `RelicData`.
+    pub source_relic_id: Option<&'a str>,
 }
 
 impl<'a> EffectContext<'a> {
@@ -581,6 +610,7 @@ impl<'a> EffectContext<'a> {
             x_value,
             actor: (CombatSide::Player, player_idx),
             actor_amount: 0,
+            source_relic_id: None,
         }
     }
 
@@ -601,6 +631,7 @@ impl<'a> EffectContext<'a> {
             x_value: 0,
             actor: (CombatSide::Enemy, actor_idx),
             actor_amount: 0,
+            source_relic_id: None,
         }
     }
 
@@ -620,6 +651,24 @@ impl<'a> EffectContext<'a> {
             x_value: 0,
             actor,
             actor_amount: host_power_amount,
+            source_relic_id: None,
+        }
+    }
+
+    /// Convenience builder for relic-hook bodies. The actor is the
+    /// owning player; `Canonical` amounts resolve through the relic's
+    /// `canonical_vars` table.
+    pub fn for_relic_hook(player_idx: usize, relic_id: &'a str) -> Self {
+        Self {
+            player_idx,
+            target: None,
+            source_card_id: None,
+            upgrade_level: 0,
+            enchantment: None,
+            x_value: 0,
+            actor: (CombatSide::Player, player_idx),
+            actor_amount: 0,
+            source_relic_id: Some(relic_id),
         }
     }
 }
@@ -634,13 +683,15 @@ impl AmountSpec {
         match self {
             AmountSpec::Fixed(n) => *n,
             AmountSpec::Canonical(var_kind) => {
-                let Some(card_id) = ctx.source_card_id else {
-                    return 0;
-                };
-                let Some(card) = card_by_id(card_id) else {
-                    return 0;
-                };
-                canonical_int_value(card, var_kind, ctx.upgrade_level)
+                if let Some(card_id) = ctx.source_card_id {
+                    if let Some(card) = card_by_id(card_id) {
+                        return canonical_int_value(card, var_kind, ctx.upgrade_level);
+                    }
+                }
+                if let Some(relic_id) = ctx.source_relic_id {
+                    return relic_canonical_int_value(relic_id, var_kind);
+                }
+                0
             }
             AmountSpec::BranchedOnUpgrade { base, upgraded } => {
                 if ctx.upgrade_level > 0 {
@@ -903,6 +954,278 @@ where
             let body_owned: Vec<Effect> = body.to_vec();
             execute_effects(cs, &body_owned, &ctx);
         }
+    }
+}
+
+// ========================================================================
+// Relic VM — per-relic data table parallel to power_effects / card_effects.
+// ========================================================================
+
+/// Closed enum of relic-lifecycle trigger points. Each variant carries
+/// its own gate (owner-side-only / first-turn-only / etc.) so the data
+/// layer fully describes "when does this relic body fire".
+///
+/// Hook coverage is intentionally a subset of the C# relic surface —
+/// the dominant 7 hooks across the 294 relics that we wire fire points
+/// for. The rest (AfterRoomEntered, AfterCardPlayed, ModifyHandDraw,
+/// etc.) need infrastructure that hasn't landed yet; relics that depend
+/// on them stay SKIPPED in `relic_effects`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelicHook {
+    /// C# `BeforeCombatStart()`. Once, before any draws / turn begins.
+    BeforeCombatStart,
+    /// C# `AfterCombatVictory()`. Once, after combat ends in victory.
+    AfterCombatVictory,
+    /// C# `AfterCombatLoss()` / `AfterCombatEnd()` for the loss path.
+    AfterCombatLoss,
+    /// C# `AfterSideTurnStart(side)`. Fires once each side's turn begins.
+    /// `owner_side_only` gates on the typical `side == base.Owner.Side`.
+    /// `first_turn_only` gates on `combatState.RoundNumber <= 1`.
+    AfterSideTurnStart {
+        owner_side_only: bool,
+        first_turn_only: bool,
+    },
+    /// C# `BeforeSideTurnStart(side)`. Same gates as AfterSideTurnStart;
+    /// distinct firing point (before draws / energy refresh).
+    BeforeSideTurnStart {
+        owner_side_only: bool,
+        first_turn_only: bool,
+    },
+    /// C# `AfterPlayerTurnStart(player)`. Always owner-only (implicit).
+    AfterPlayerTurnStart { first_turn_only: bool },
+    /// C# `AfterPlayerTurnEnd(player)`.
+    AfterPlayerTurnEnd,
+}
+
+/// Discriminant for matching `RelicHook` entries against a firing point.
+/// The fire-point passes the kind; the data entry's guards (`owner_side_only`
+/// / `first_turn_only`) are checked separately.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum RelicHookKind {
+    BeforeCombatStart,
+    AfterCombatVictory,
+    AfterCombatLoss,
+    AfterSideTurnStart,
+    BeforeSideTurnStart,
+    AfterPlayerTurnStart,
+    AfterPlayerTurnEnd,
+}
+
+impl RelicHook {
+    /// The variant discriminant.
+    pub fn kind(&self) -> RelicHookKind {
+        match self {
+            RelicHook::BeforeCombatStart => RelicHookKind::BeforeCombatStart,
+            RelicHook::AfterCombatVictory => RelicHookKind::AfterCombatVictory,
+            RelicHook::AfterCombatLoss => RelicHookKind::AfterCombatLoss,
+            RelicHook::AfterSideTurnStart { .. } => RelicHookKind::AfterSideTurnStart,
+            RelicHook::BeforeSideTurnStart { .. } => RelicHookKind::BeforeSideTurnStart,
+            RelicHook::AfterPlayerTurnStart { .. } => RelicHookKind::AfterPlayerTurnStart,
+            RelicHook::AfterPlayerTurnEnd => RelicHookKind::AfterPlayerTurnEnd,
+        }
+    }
+
+    /// Check the entry's per-variant guards against runtime context.
+    /// Returns true if the guarded body should fire.
+    pub fn allows(
+        &self,
+        current_side: CombatSide,
+        owner_side: CombatSide,
+        round_number: i32,
+    ) -> bool {
+        match self {
+            RelicHook::BeforeCombatStart
+            | RelicHook::AfterCombatVictory
+            | RelicHook::AfterCombatLoss
+            | RelicHook::AfterPlayerTurnEnd => true,
+            RelicHook::AfterSideTurnStart { owner_side_only, first_turn_only }
+            | RelicHook::BeforeSideTurnStart { owner_side_only, first_turn_only } => {
+                (!owner_side_only || current_side == owner_side)
+                    && (!first_turn_only || round_number <= 1)
+            }
+            RelicHook::AfterPlayerTurnStart { first_turn_only } => {
+                !first_turn_only || round_number <= 1
+            }
+        }
+    }
+}
+
+/// Walk each player's relics and fire any matching hook bodies through
+/// the Effect VM. Call sites are in `CombatState::{begin_turn, end_turn,
+/// fire_before_combat_start_hooks, fire_after_combat_victory_hooks}`.
+pub fn fire_relic_hooks(
+    cs: &mut CombatState,
+    kind: RelicHookKind,
+    current_side: CombatSide,
+) {
+    // Snapshot (player_idx, relic_id) so the loop can mutate freely
+    // without iterator invalidation; mirrors the existing
+    // `collect_player_relics` pattern.
+    let mut pairs: Vec<(usize, String)> = Vec::new();
+    for (i, c) in cs.allies.iter().enumerate() {
+        if let Some(ps) = c.player.as_ref() {
+            for r in &ps.relics {
+                pairs.push((i, r.clone()));
+            }
+        }
+    }
+    let round = cs.round_number;
+    for (player_idx, relic_id) in pairs {
+        let Some(arms) = relic_effects(&relic_id) else {
+            continue;
+        };
+        for (hook, body) in arms {
+            if hook.kind() != kind {
+                continue;
+            }
+            if !hook.allows(current_side, CombatSide::Player, round) {
+                continue;
+            }
+            let ctx = EffectContext::for_relic_hook(player_idx, relic_id.as_str());
+            execute_effects(cs, &body, &ctx);
+        }
+    }
+}
+
+/// Per-relic registry of hook bodies, parallel to `card_effects` /
+/// `power_effects`. Each entry is `(RelicHook, Vec<Effect>)`: the hook
+/// names the trigger + guards; the Vec<Effect> is the body executed by
+/// `fire_relic_hooks` when guards pass.
+///
+/// Survey: `tools/merge_relic_ports/batch_r_1.txt`. 22 relics encoded;
+/// the rest depend on hooks/infrastructure not yet wired (AfterRoomEntered,
+/// AfterCardPlayed, ModifyHandDraw, counter-state, etc.) and SKIP there.
+pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
+    match relic_id {
+        // ===== Manual relic ports (batch_r_1) =====
+        // 22 hand-curated arms. Source: tools/merge_relic_ports/batch_r_1.txt.
+
+
+        "Akabeko" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::ApplyPower { power_id: "VigorPower".to_string(), amount: AmountSpec::Canonical("VigorPower".to_string()), target: Target::SelfPlayer }]),
+        ]),
+
+        "BagOfMarbles" => Some(vec![
+            (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::AllEnemies }]),
+        ]),
+
+        "Bellows" => Some(vec![
+            (RelicHook::AfterPlayerTurnStart { first_turn_only: true },
+             vec![Effect::UpgradeCards { from: Pile::Hand, selector: Selector::All }]),
+        ]),
+
+        "BlackBlood" => Some(vec![
+            (RelicHook::AfterCombatVictory,
+             vec![Effect::Heal { amount: AmountSpec::Canonical("Heal".to_string()), target: Target::SelfPlayer }]),
+        ]),
+
+        "Bread" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::LoseEnergy { amount: AmountSpec::Canonical("LoseEnergy".to_string()) }]),
+        ]),
+
+        "CrackedCore" => Some(vec![
+            (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::ChannelOrb { orb_id: "LightningOrb".to_string() }]),
+        ]),
+
+        "DivineDestiny" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+        ]),
+
+        "FakeAnchor" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        ]),
+
+        "FakeSneckoEye" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::ApplyPower { power_id: "ConfusedPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+        ]),
+
+        "FencingManual" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }]),
+        ]),
+
+        "FuneraryMask" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::Repeat {
+                 count: AmountSpec::Canonical("Cards".to_string()),
+                 body: vec![Effect::AddCardToPile {
+                     card_id: "Soul".to_string(),
+                     upgrade: 0,
+                     pile: Pile::Draw,
+                 }],
+             }]),
+        ]),
+
+        "InfusedCore" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::Repeat {
+                 count: AmountSpec::Canonical("Lightning".to_string()),
+                 body: vec![Effect::ChannelOrb { orb_id: "LightningOrb".to_string() }],
+             }]),
+        ]),
+
+        "Lantern" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+        ]),
+
+        "MercuryHourglass" => Some(vec![
+            (RelicHook::AfterPlayerTurnStart { first_turn_only: false },
+             vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+        ]),
+
+        "RedMask" => Some(vec![
+            (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::AllEnemies }]),
+        ]),
+
+        "RoyalPoison" => Some(vec![
+            (RelicHook::AfterPlayerTurnStart { first_turn_only: true },
+             vec![Effect::LoseHp { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::SelfPlayer }]),
+        ]),
+
+        "RunicCapacitor" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::ChangeOrbSlots { delta: AmountSpec::Canonical("Repeat".to_string()) }]),
+        ]),
+
+        "Sai" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        ]),
+
+        "SneckoEye" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::ApplyPower { power_id: "ConfusedPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+        ]),
+
+        "SymbioticVirus" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::Repeat {
+                 count: AmountSpec::Canonical("Dark".to_string()),
+                 body: vec![Effect::ChannelOrb { orb_id: "DarkOrb".to_string() }],
+             }]),
+        ]),
+
+        "TwistedFunnel" => Some(vec![
+            (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("PoisonPower".to_string()), target: Target::AllEnemies }]),
+        ]),
+
+        "VeryHotCocoa" => Some(vec![
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+             vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+        ]),
+
+
+        _ => None,
     }
 }
 

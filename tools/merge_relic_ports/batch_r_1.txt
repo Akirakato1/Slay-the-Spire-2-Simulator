@@ -1,0 +1,457 @@
+// Relic-effect data table — batch_r_1
+//
+// Survey of 294 relic .cs files in
+//   sts2_decompiled/.../Core/Models/Relics/
+// against the RelicHook enum:
+//   BeforeCombatStart | AfterCombatVictory | AfterCombatLoss
+//   AfterSideTurnStart { owner_side_only, first_turn_only }
+//   BeforeSideTurnStart { owner_side_only, first_turn_only }
+//   AfterPlayerTurnStart { first_turn_only }
+//   AfterPlayerTurnEnd
+//
+// Encoded = single-Cmd body whose primitive already exists in the Effect VM
+// vocabulary (effects.rs ~lines 47-535) AND uses only one of the above hooks.
+//
+// Conventions used here:
+// * `owner_side_only: true` when guard is `side == base.Owner.Creature.Side`
+//   (and `false` when guard is `side == CombatSide.Player` literal, which the
+//   C# uses interchangeably for player-owned relics — same semantics here).
+// * `first_turn_only: true` when guard is `combatState.RoundNumber <= 1` or
+//   `== 1` (the most common idiom; <=1 vs ==1 difference is cosmetic
+//   pre-turn-1).
+// * `RoundNumber > 1`, `RoundNumber == 2`, `RoundNumber == N` for fixed N>1,
+//   or `RoundNumber >= N` for N>1 are NOT covered by `first_turn_only`
+//   — those go to SKIP with a "needs Round=N gate" reason.
+// * GainBlock on `Owner.Creature` uses `BlockVar(...,Unpowered)` in many
+//   relics. We encode it as a plain `Effect::GainBlock` (Unpowered prop
+//   lost; matches cookbook guidance).
+// * Already-in-dispatcher relics (Anchor, BurningBlood, Brimstone) are NOT
+//   re-emitted here; they live as match-arm code in combat.rs.
+
+// ---------- ENCODED ARMS ----------
+
+// Akabeko.cs L50-60: AfterSideTurnStart, owner-side, RoundNumber<=1 → Apply VigorPower(8) self.
+"Akabeko" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::ApplyPower { power_id: "VigorPower".to_string(), amount: AmountSpec::Canonical("VigorPower".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// BagOfMarbles.cs L51-61: BeforeSideTurnStart, owner-side, RoundNumber<=1 → Apply VulnerablePower(1) to all enemies.
+"BagOfMarbles" => Some(vec![
+    (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::AllEnemies }]),
+]),
+
+// Bellows.cs L28-41: AfterPlayerTurnStart, RoundNumber<=1 → Upgrade every card in hand.
+"Bellows" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: true },
+     vec![Effect::UpgradeCards { from: Pile::Hand, selector: Selector::All }]),
+]),
+
+// BlackBlood.cs L38-45: AfterCombatVictory, owner alive → Heal HealVar(12) self.
+// (IsDead guard mirrors BurningBlood; dispatcher gates on current_hp > 0.)
+"BlackBlood" => Some(vec![
+    (RelicHook::AfterCombatVictory,
+     vec![Effect::Heal { amount: AmountSpec::Canonical("Heal".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// Bread.cs L69-78: AfterSideTurnStart, owner-side, RoundNumber==1 → LoseEnergy("LoseEnergy", 2).
+// (ModifyMaxEnergy hook for the +1 from-round-2 boost is separate and SKIPped — modifier hook.)
+"Bread" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::LoseEnergy { amount: AmountSpec::Canonical("LoseEnergy".to_string()) }]),
+]),
+
+// CrackedCore.cs L55-69: BeforeSideTurnStart, owner-side, RoundNumber<=1 → Channel 1 Lightning orb.
+// (DynamicVars["Lightning"].BaseValue == 1; loop only runs once.)
+"CrackedCore" => Some(vec![
+    (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::ChannelOrb { orb_id: "LightningOrb".to_string() }]),
+]),
+
+// DivineDestiny.cs L38-47: AfterSideTurnStart, owner-side, RoundNumber<=1 → GainStars(6).
+"DivineDestiny" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+]),
+
+// FakeAnchor.cs L59-63: BeforeCombatStart → GainBlock(4). Unpowered prop lost in encoding.
+"FakeAnchor" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// FakeSneckoEye.cs L59-69: BeforeCombatStart → Apply ConfusedPower(1) self.
+// (Amount is the literal 1m, encoded as Fixed(1) — no CanonicalVar for ConfusedPower.)
+"FakeSneckoEye" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::ApplyPower { power_id: "ConfusedPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+]),
+
+// FencingManual.cs L49-58: AfterSideTurnStart, owner-side, RoundNumber<=1 → Forge(10).
+// (Forge is STUB in current Effect VM but in vocab.)
+"FencingManual" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }]),
+]),
+
+// FuneraryMask.cs L52-70: AfterSideTurnStart, Player side, RoundNumber<=1 →
+// Add CardsVar(3) Soul cards to Draw pile at random positions.
+// Body is a "for i in 0..Cards" loop; encode as Repeat over AddCardToPile.
+"FuneraryMask" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::Repeat {
+         count: AmountSpec::Canonical("Cards".to_string()),
+         body: vec![Effect::AddCardToPile {
+             card_id: "Soul".to_string(),
+             upgrade: 0,
+             pile: Pile::Draw,
+         }],
+     }]),
+]),
+
+// InfusedCore.cs L55-69: AfterSideTurnStart, owner-side, RoundNumber<=1 → Channel 3 Lightning orbs.
+"InfusedCore" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::Repeat {
+         count: AmountSpec::Canonical("Lightning".to_string()),
+         body: vec![Effect::ChannelOrb { orb_id: "LightningOrb".to_string() }],
+     }]),
+]),
+
+// Lantern.cs L49-59: AfterSideTurnStart, owner-side, RoundNumber<=1 → GainEnergy(1).
+"Lantern" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+]),
+
+// MercuryHourglass.cs L40-47: AfterPlayerTurnStart (every player turn) → Damage(3,Unpowered) to all enemies.
+"MercuryHourglass" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: false },
+     vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+]),
+
+// RedMask.cs L51-61: BeforeSideTurnStart, owner-side, RoundNumber<=1 → Apply WeakPower(1) to all enemies.
+"RedMask" => Some(vec![
+    (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::AllEnemies }]),
+]),
+
+// RoyalPoison.cs L40-50: AfterPlayerTurnStart, RoundNumber<=1 → Self-damage 4 (Unblockable|Unpowered).
+// Unblockable+Unpowered self-Damage maps to LoseHp in our Effect VM (bypasses block and modifier pipeline).
+"RoyalPoison" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: true },
+     vec![Effect::LoseHp { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// RunicCapacitor.cs L38-48: AfterSideTurnStart, owner-side, RoundNumber<=1 → +3 orb slots.
+// (ChangeOrbSlots is STUB but in vocab.)
+"RunicCapacitor" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::ChangeOrbSlots { delta: AmountSpec::Canonical("Repeat".to_string()) }]),
+]),
+
+// Sai.cs L39-46: AfterSideTurnStart on EVERY player-side turn (no RoundNumber guard) → GainBlock(7).
+"Sai" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+     vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// SneckoEye.cs L61-64: BeforeCombatStart → Apply ConfusedPower(1) self.
+// (Hand-draw boost is via ModifyHandDraw — SKIP that, modifier hook.)
+"SneckoEye" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::ApplyPower { power_id: "ConfusedPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+]),
+
+// SymbioticVirus.cs L55-68: AfterSideTurnStart, owner-side, RoundNumber<=1 → Channel 1 Dark orb.
+"SymbioticVirus" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::Repeat {
+         count: AmountSpec::Canonical("Dark".to_string()),
+         body: vec![Effect::ChannelOrb { orb_id: "DarkOrb".to_string() }],
+     }]),
+]),
+
+// TwistedFunnel.cs L56-78: BeforeSideTurnStart, owner-side, RoundNumber<=1 → Apply PoisonPower(4) to all enemies.
+"TwistedFunnel" => Some(vec![
+    (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("PoisonPower".to_string()), target: Target::AllEnemies }]),
+]),
+
+// VeryHotCocoa.cs L49-58: AfterSideTurnStart, owner-side, RoundNumber<=1 → GainEnergy(4).
+"VeryHotCocoa" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+]),
+
+// ---------- ALREADY-IN-DISPATCHER (NOT re-emitted as data) ----------
+// SKIP Anchor: already encoded in dispatch_relic_before_combat_start (uses Unpowered block, not directly expressible).
+// SKIP BurningBlood: already encoded in dispatch_relic_after_combat_victory (HealVar(6) with IsDead guard).
+// SKIP Brimstone: already encoded in dispatch_relic_after_side_turn_start (multi-target multi-power apply — needs two ApplyPower steps with split var keys; encodable but already handcoded).
+
+// ---------- SKIPS BY HOOK INFRASTRUCTURE NEEDED ----------
+
+// SKIP AlchemicalCoffer: AfterObtained hook only — out-of-combat relic pickup. Needs run-state VM.
+// SKIP ArcaneScroll: AfterObtained — run-state.
+// SKIP ArchaicTooth: AfterObtained — run-state.
+// SKIP ArtOfWar: AfterEnergyReset + AfterCardPlayed + AfterTurnEnd + AfterCombatEnd — needs AfterEnergyReset hook + AfterCardPlayed hook + stateful tracking of attacks-played.
+// SKIP Astrolabe: AfterObtained — run-state.
+// SKIP AmethystAubergine: TryModifyRewards + AfterModifyingRewards — reward-pipeline modifier hook.
+// SKIP BagOfPreparation: ModifyHandDraw — modifier hook (adjusts draw count).
+// SKIP BeatingRemnant: AfterDamageReceived + BeforeSideTurnStart (state reset) + ModifyHpLostAfterOsty — damage-receive + Osty-modifier hooks.
+// SKIP BeautifulBracelet: AfterObtained — run-state.
+// SKIP BeltBuckle: AfterObtained + BeforeCombatStart + AfterPotionProcured/Discarded/Used + AfterCombatVictory — multi-hook potion-belt-aware state machine.
+// SKIP BigHat: AfterSideTurnStart owner+first → CardFactory pool query (random Ethereal cards). Needs card-pool + factory plumbing.
+// SKIP BigMushroom: AfterObtained + AfterRoomEntered — run-state + room hook.
+// SKIP BiiigHug: AfterObtained + AfterShuffle — needs AfterShuffle hook.
+// SKIP BingBong: AfterCardChangedPiles — needs pile-mutation event hook.
+// SKIP BlackStar: TryModifyRewards — reward-pipeline modifier.
+// SKIP BlessedAntler: BeforeHandDraw + ModifyMaxEnergy — needs BeforeHandDraw hook + energy modifier.
+// SKIP BloodSoakedRose: AfterObtained + ModifyMaxEnergy — run-state + energy modifier.
+// SKIP BloodVial: AfterPlayerTurnStartLate — needs Late variant of AfterPlayerTurnStart hook (ordering layer).
+// SKIP BoneFlute: AfterAttack — needs AfterAttack hook.
+// SKIP BoneTea: AfterSideTurnStart owner+first → Upgrade all in hand, BUT body has stateful CombatsLeft-- with disable-when-zero semantics. Needs counter-state-on-relic infrastructure.
+// SKIP BookOfFiveRings: AfterCardChangedPiles — pile-mutation hook.
+// SKIP BookRepairKnife: AfterDiedToDoom — death/doom hook.
+// SKIP BoomingConch: ModifyHandDraw — modifier.
+// SKIP BoundPhylactery: BeforeCombatStart + AfterEnergyResetLate → Osty summon — Osty/companion system is STUB.
+// SKIP BowlerHat: AfterGoldGained — needs AfterGoldGained hook.
+// SKIP BrilliantScarf: TryModifyEnergyCostInCombat + TryModifyStarCost + BeforeSideTurnStart + AfterCardPlayed + AfterCombatEnd — multi-modifier hooks + card-cost override.
+// SKIP Byrdpip: AfterObtained + BeforeCombatStart + AddPet — pet/companion system STUB.
+// SKIP CallingBell: AfterObtained — run-state.
+// SKIP CaptainsWheel: AfterBlockCleared — needs AfterBlockCleared hook.
+// SKIP Cauldron: AfterObtained — run-state.
+// SKIP Candelabra: AfterSideTurnStart owner with RoundNumber==2 — Round==N (N>1) gate not in current hook variants. Needs RoundEquals(N) selector or per-round counter.
+// SKIP CentennialPuzzle: AfterDamageReceived + AfterCombatEnd — damage-receive hook.
+// SKIP Chandelier: AfterSideTurnStart owner with RoundNumber==3 — same Round==N gate problem as Candelabra.
+// SKIP CharonsAshes: AfterCardExhausted — needs AfterCardExhausted hook.
+// SKIP ChemicalX: ModifyXValue + BeforeCardPlayed — X-cost modifier hook.
+// SKIP ChoicesParadox: AfterPlayerTurnStart first_turn → CardFactory random + interactive multi-select. Needs CardFactory + multi-step select.
+// SKIP ChosenCheese: AfterCombatEnd → GainMaxHp. Needs AfterCombatEnd hook (distinct from AfterCombatVictory) AND run-state max-HP gain (not in-combat).
+// SKIP Circlet: no async hook overrides — pure run-state cosmetic / counter relic.
+// SKIP Claws: AfterObtained — run-state.
+// SKIP CloakClasp: BeforeTurnEnd — needs BeforeTurnEnd hook.
+// SKIP Crossbow: AfterSideTurnStart owner → CardFactory random attack. Needs CardFactory.
+// SKIP CursedPearl: AfterObtained — run-state.
+// SKIP DarkstonePeriapt: AfterCardChangedPiles — pile-mutation hook.
+// SKIP DataDisk: AfterRoomEntered — needs AfterRoomEntered hook.
+// SKIP DaughterOfTheWind: AfterCardPlayed — needs AfterCardPlayed hook.
+// SKIP DelicateFrond: BeforeCombatStart → fill potion belt. Needs potion-belt system.
+// SKIP DemonTongue: AfterDamageReceived + BeforeSideTurnStart (state reset only) — damage-receive hook.
+// SKIP DeprecatedRelic: no behavioral hooks (legacy stub).
+// SKIP DiamondDiadem: AfterCardPlayed + BeforeTurnEnd + AfterSideTurnStart (counter reset) — multi-hook with state.
+// SKIP DingyRug: no async hook overrides — passive / display-only.
+// SKIP DistinguishedCape: AfterObtained — run-state.
+// SKIP DivineRight: AfterRoomEntered — room hook.
+// SKIP DollysMirror: AfterObtained — run-state.
+// SKIP DragonFruit: AfterGoldGained — gold hook.
+// SKIP DreamCatcher: TryModifyRestSiteHealRewards — rest-site modifier hook.
+// SKIP Driftwood: TryModifyRewardsLate — reward modifier.
+// SKIP DustyTome: AfterObtained — run-state.
+// SKIP Ectoplasm: ModifyMaxEnergy — energy modifier.
+// SKIP ElectricShrymp: AfterObtained — run-state.
+// SKIP EmberTea: AfterRoomEntered — room hook.
+// SKIP EmotionChip: AfterDamageReceived + AfterPlayerTurnStart (uses orb queue) — damage-receive hook + complex orb-iteration.
+// SKIP EmptyCage: AfterObtained — run-state.
+// SKIP EternalFeather: AfterRoomEntered — room hook.
+// SKIP FakeBloodVial: AfterPlayerTurnStartLate — Late variant needed.
+// SKIP FakeHappyFlower: AfterSideTurnStart with TurnsSeen counter state.
+// SKIP FakeLeesWaffle: AfterObtained — run-state.
+// SKIP FakeMango: AfterObtained — run-state.
+// SKIP FakeMerchantsRug: no async hooks — passive merchant-rug variant.
+// SKIP FakeOrichalcum: BeforeTurnEnd + BeforeTurnEndVeryEarly + BeforeSideTurnStart — needs BeforeTurnEnd hook variants + conditional state flag.
+// SKIP FakeStrikeDummy: ModifyDamageAdditive — damage modifier.
+// SKIP FakeVenerableTeaSet: AfterEnergyReset + AfterRoomEntered — energy-reset hook + room hook.
+// SKIP Fiddle: ModifyHandDrawLate + AfterPreventingDraw — modifier-late hook.
+// SKIP ForgottenSoul: AfterCardExhausted — exhaust hook.
+// SKIP FragrantMushroom: AfterObtained — run-state.
+// SKIP FresnelLens: TryModifyCardRewardOptionsLate + TryModifyCardBeingAddedToDeck — card-reward + deck-add modifier hooks.
+// SKIP FrozenEgg: TryModifyCardRewardOptionsLate + TryModifyCardBeingAddedToDeck — same hooks as FresnelLens.
+// SKIP FurCoat: BeforeCombatStart + AfterCreatureAddedToCombat + ModifyGeneratedMapLate — map-quest mechanic, complex.
+// SKIP GalacticDust: AfterStarsSpent — needs star-spend hook.
+// SKIP GamblingChip: AfterPlayerTurnStart first_turn → interactive discard-and-draw. Needs multi-step UI / card-select.
+// SKIP GamePiece: AfterCardPlayed — card-played hook.
+// SKIP GhostSeed: AfterCardEnteredCombat + AfterRoomEntered.
+// SKIP Girya: AfterRoomEntered + TryModifyRestSiteOptions — room + rest-site modifier.
+// SKIP GlassEye: AfterObtained — run-state.
+// SKIP Glitter: TryModifyCardRewardOptionsLate — card-reward modifier.
+// SKIP GnarledHammer: AfterObtained — run-state.
+// SKIP GoldPlatedCables: ModifyOrbPassiveTriggerCounts + AfterModifyingOrbPassiveTriggerCount — orb-trigger modifier.
+// SKIP GoldenCompass: AfterObtained — run-state.
+// SKIP GoldenPearl: AfterObtained — run-state.
+// SKIP Gorget: AfterRoomEntered — room hook.
+// SKIP GremlinHorn: AfterDeath — death hook.
+// SKIP HandDrill: AfterDamageGiven — damage-given hook.
+// SKIP HappyFlower: AfterSideTurnStart with TurnsSeen counter.
+// SKIP HeftyTablet: AfterObtained — run-state.
+// SKIP HelicalDart: AfterCardPlayed — card-played hook.
+// SKIP HistoryCourse: BeforePlayPhaseStart — needs BeforePlayPhaseStart hook.
+// SKIP HornCleat: AfterBlockCleared — block-cleared hook.
+// SKIP IceCream: no async hooks — passive energy-banking (likely synchronous flush hooks).
+// SKIP IntimidatingHelmet: BeforeCardPlayed — before-card-played hook.
+// SKIP IronClub: AfterCardPlayed — card-played hook.
+// SKIP IvoryTile: AfterCardPlayed — card-played hook.
+// SKIP JeweledMask: BeforeHandDraw — needs BeforeHandDraw hook.
+// SKIP JewelryBox: AfterObtained — run-state.
+// SKIP JossPaper: AfterCardExhausted + AfterTurnEnd + AfterCombatEnd — exhaust hook + complex state.
+// SKIP JuzuBracelet: no async hooks — should-flush / passive (likely ShouldGenerateTreasure or similar).
+// SKIP Kifuda: AfterObtained — run-state.
+// SKIP Kunai: BeforeSideTurnStart (reset) + AfterCardPlayed (counter) — needs counter state + card-played hook.
+// SKIP Kusarigama: BeforeCombatStart (reset) + AfterTurnEnd (reset) + AfterCardPlayed (counter) — counter state.
+// SKIP LargeCapsule: AfterObtained — run-state.
+// SKIP LastingCandy: TryModifyCardRewardOptions + AfterCombatEnd — card-reward modifier.
+// SKIP LavaLamp: AfterRoomEntered + AfterDamageReceived + TryModifyCardRewardOptionsLate — multi-hook.
+// SKIP LavaRock: TryModifyRewards — reward modifier.
+// SKIP LeadPaperweight: AfterObtained — run-state.
+// SKIP LeafyPoultice: AfterObtained — run-state.
+// SKIP LeesWaffle: AfterObtained — run-state.
+// SKIP LetterOpener: BeforeCombatStart + AfterSideTurnStart + AfterCardPlayed (counter) + AfterCombatEnd — counter state.
+// SKIP LizardTail: AfterPreventingDeath — death-prevention hook.
+// SKIP LoomingFruit: AfterObtained — run-state.
+// SKIP LordsParasol: AfterRoomEntered — room hook.
+// SKIP LostCoffer: AfterObtained — run-state.
+// SKIP LostWisp: AfterCardPlayed — card-played hook.
+// SKIP LuckyFysh: AfterCardChangedPiles — pile-mutation hook.
+// SKIP LunarPastry: AfterTurnEnd — turn-end hook (player-only encoding needs side gate).
+// SKIP Mango: AfterObtained — run-state.
+// SKIP MassiveScroll: AfterObtained — run-state.
+// SKIP MawBank: AfterRoomEntered + AfterItemPurchased — shop hooks.
+// SKIP MealTicket: AfterRoomEntered — room hook.
+// SKIP MeatCleaver: TryModifyRestSiteOptions — rest-site modifier.
+// SKIP MeatOnTheBone: AfterCombatVictoryEarly + AfterCurrentHpChanged + BeforeCombatStart — HP-threshold conditional (HpThreshold% check inside hook body).
+// SKIP MembershipCard: ModifyMerchantPrice — merchant modifier.
+// SKIP Metronome: AfterOrbChanneled + AfterRoomEntered + AfterCombatEnd — orb-channel hook.
+// SKIP MiniRegent: AfterStarsSpent + BeforeSideTurnStart (state reset only) — star-spend hook.
+// SKIP MiniatureCannon: ModifyDamageAdditive — damage modifier.
+// SKIP MiniatureTent: no async hooks — passive map-affecting.
+// SKIP MoltenEgg: TryModifyCardRewardOptionsLate + TryModifyCardBeingAddedToDeck — card-reward modifier.
+// SKIP MrStruggles: AfterPlayerTurnStart → Damage(RoundNumber, Unpowered). Needs Amount=RoundNumber Effect variant.
+// SKIP MummifiedHand: AfterCardPlayed — card-played hook.
+// SKIP MusicBox: BeforeCardPlayed + AfterCardPlayed + BeforeSideTurnStart — card-played hook + clone-card mutation.
+// SKIP MysticLighter: ModifyDamageAdditive — damage modifier.
+// SKIP NeowsBones: AfterObtained — run-state.
+// SKIP NeowsTalisman: AfterObtained — run-state.
+// SKIP NeowsTorment: AfterObtained — run-state.
+// SKIP NewLeaf: AfterObtained — run-state.
+// SKIP NinjaScroll: BeforeHandDraw — hand-draw hook.
+// SKIP Nunchaku: AfterCardPlayed — card-played hook.
+// SKIP NutritiousOyster: AfterObtained — run-state.
+// SKIP NutritiousSoup: AfterObtained — run-state.
+// SKIP OddlySmoothStone: AfterRoomEntered — room hook.
+// SKIP OldCoin: AfterObtained — run-state.
+// SKIP OrangeDough: AfterSideTurnStart owner+first → CardFactory random Colorless. Needs CardFactory.
+// SKIP Orichalcum: BeforeTurnEnd + BeforeTurnEndVeryEarly + BeforeSideTurnStart — needs BeforeTurnEnd hook + conditional state (Block>0).
+// SKIP OrnamentalFan: BeforeSideTurnStart (reset) + AfterCardPlayed (counter) — counter state + card-played hook.
+// SKIP Orrery: AfterObtained — run-state.
+// SKIP PaelsBlood: ModifyHandDraw — modifier hook.
+// SKIP PaelsClaw: AfterObtained — run-state.
+// SKIP PaelsEye: AfterObtained + BeforeCardPlayed + AfterSideTurnStart + AfterTakingExtraTurn + BeforeTurnEndEarly + AfterCombatEnd — extra-turn-system hooks.
+// SKIP PaelsFlesh: AfterSideTurnStart owner with RoundNumber>=3 — Round>=N (N>1) gate not in hook variants.
+// SKIP PaelsGrowth: AfterObtained + TryModifyRestSiteOptions — rest-site modifier.
+// SKIP PaelsHorn: AfterObtained — run-state.
+// SKIP PaelsLegion: AfterObtained + BeforeCombatStart + AfterCardPlayed + AfterSideTurnStart + AfterCombatEnd + ModifyBlockMultiplicative + AfterModifyingBlockAmount — multi-hook block-modifier pet.
+// SKIP PaelsTears: BeforeTurnEnd (set HadLeftoverEnergy) + AfterSideTurnStart (conditional on flag) + AfterCombatEnd — cross-turn state.
+// SKIP PaelsTooth: AfterObtained + AfterCombatEnd — run-state.
+// SKIP PaelsWing: TryModifyCardRewardAlternatives — card-reward modifier.
+// SKIP PandorasBox: AfterObtained — run-state (deck transformation).
+// SKIP Pantograph: AfterRoomEntered — room hook.
+// SKIP PaperKrane: no async hooks — passive damage-modifier (likely Modify hook).
+// SKIP PaperPhrog: no async hooks — passive damage-modifier.
+// SKIP ParryingShield: AfterTurnEnd — turn-end hook + state-of-block check.
+// SKIP Pear: AfterObtained — run-state.
+// SKIP Pendulum: AfterPlayerTurnStart with TurnsSeen counter (every 3 turns) — counter state.
+// SKIP PenNib: ModifyDamageMultiplicative + BeforeCardPlayed + AfterCardPlayed — damage modifier + card-played counter.
+// SKIP Permafrost: AfterCardPlayed + AfterRoomEntered — card-played hook.
+// SKIP PetrifiedToad: BeforeCombatStartLate → procure potion. Needs potion-belt system + Late ordering layer.
+// SKIP PhialHolster: AfterObtained — run-state.
+// SKIP PhilosophersStone: AfterRoomEntered + ModifyMaxEnergy + AfterCreatureAddedToCombat — energy modifier + room hook.
+// SKIP PhylacteryUnbound: BeforeCombatStart + AfterSideTurnStart → Osty summon. Osty STUB.
+// SKIP Planisphere: AfterRoomEntered — room hook.
+// SKIP Pocketwatch: AfterCardPlayed + ModifyHandDraw + AfterModifyingHandDraw + BeforeSideTurnStart + AfterSideTurnStart + AfterCombatEnd — modifier + counter.
+// SKIP PollinousCore: BeforeSideTurnStart (counter inc) + ModifyHandDraw + AfterModifyingHandDraw + AfterCombatEnd — counter + modifier.
+// SKIP Pomander: AfterObtained — run-state.
+// SKIP PotionBelt: AfterObtained — run-state.
+// SKIP PowerCell: BeforeSideTurnStart owner+first → Move 2 random 0-cost non-X cards from Draw to Hand. Encodable in principle as MoveCard with FirstMatching/Random + cost filter, but CardFilter currently has no "EnergyCost==0 && !CostsX" predicate.
+// SKIP PrayerWheel: TryModifyRewards — reward modifier.
+// SKIP PrecariousShears: AfterObtained — run-state.
+// SKIP PreciseScissors: AfterObtained — run-state.
+// SKIP PreservedFog: AfterObtained — run-state.
+// SKIP PrismaticGem: ModifyMaxEnergy — energy modifier.
+// SKIP PumpkinCandle: ModifyMaxEnergy + AfterObtained + AfterRoomEntered.
+// SKIP PunchDagger: AfterObtained — run-state.
+// SKIP RadiantPearl: BeforeHandDraw — hand-draw hook.
+// SKIP RainbowRing: BeforeSideTurnStart (reset) + AfterCardPlayed (cross-type counter) + AfterCombatEnd — counter state.
+// SKIP RazorTooth: AfterCardPlayed — card-played hook.
+// SKIP RedSkull: AfterRoomEntered + AfterCurrentHpChanged + AfterCombatEnd — HP-threshold modifier.
+// SKIP Regalite: AfterCardEnteredCombat — needs AfterCardEnteredCombat hook.
+// SKIP RegalPillow: ModifyRestSiteHealAmount + AfterRestSiteHeal + AfterRoomEntered — rest-site.
+// SKIP ReptileTrinket: AfterPotionUsed — potion hook.
+// SKIP RingOfTheDrake: ModifyHandDraw — modifier.
+// SKIP RingOfTheSnake: ModifyHandDraw — modifier.
+// SKIP RingingTriangle: no async hooks — passive.
+// SKIP RippleBasin: BeforeTurnEnd + AfterCardPlayed (state set/clear) + BeforeSideTurnStart + AfterCombatEnd — needs BeforeTurnEnd hook + history-scan condition (no Attack played).
+// SKIP RoyalStamp: AfterObtained — run-state.
+// SKIP RuinedHelmet: TryModifyPowerAmountReceived + AfterModifyingPowerAmountReceived + AfterCombatEnd — power-amount modifier.
+// SKIP RunicPyramid: no async hooks — Should* gate (likely ShouldDiscardHandAtTurnEnd).
+// SKIP SandCastle: AfterObtained — run-state.
+// SKIP ScreamingFlagon: BeforeTurnEnd — turn-end hook.
+// SKIP ScrollBoxes: AfterObtained — run-state.
+// SKIP SeaGlass: AfterObtained — run-state.
+// SKIP SealOfGold: AfterSideTurnStart owner-side with Gold>=N condition + LoseGold side-effect — needs Conditional with run-state-gold check + LoseGold STUB.
+// SKIP SelfFormingClay: AfterDamageReceived — damage-receive hook.
+// SKIP SereTalon: AfterObtained — run-state.
+// SKIP Shovel: TryModifyRestSiteOptions — rest-site modifier.
+// SKIP Shuriken: BeforeSideTurnStart (reset) + AfterCardPlayed (counter) + AfterCombatEnd — counter state.
+// SKIP SignetRing: AfterObtained — run-state.
+// SKIP SilverCrucible: TryModifyCardRewardOptionsLate + AfterModifyingCardRewardOptions + AfterRoomEntered — card-reward modifier.
+// SKIP SlingOfCourage: AfterRoomEntered — room hook.
+// SKIP SmallCapsule: AfterObtained — run-state.
+// SKIP SneckoSkull: ModifyPowerAmountGiven + AfterModifyingPowerAmountGiven — power-given modifier.
+// SKIP Sozu: ModifyMaxEnergy — energy modifier.
+// SKIP SparklingRouge: AfterBlockCleared — block-cleared hook.
+// SKIP SpikedGauntlets: ModifyMaxEnergy + TryModifyEnergyCostInCombat — energy modifier + cost-override.
+// SKIP StoneCalendar: AfterSideTurnStart (state-only RoundNumber==N detection) + BeforeTurnEnd (round-N trigger) + AfterRoomEntered + AfterCombatEnd — needs BeforeTurnEnd + Round==N gate (N>1).
+// SKIP StoneCracker: AfterRoomEntered — room hook.
+// SKIP StoneHumidifier: AfterRestSiteHeal — rest-site hook.
+// SKIP Storybook: AfterObtained — run-state.
+// SKIP Strawberry: AfterObtained — run-state.
+// SKIP StrikeDummy: ModifyDamageAdditive — damage modifier.
+// SKIP SturdyClamp: AfterPreventingBlockClear — block-clear-prevention hook.
+// SKIP SwordOfJade: AfterRoomEntered — room hook.
+// SKIP SwordOfStone: AfterCombatVictory but gated on RoomType==Elite — needs room-type predicate (out of scope for combat-only effect VM) AND triggers a relic-swap (LoseRelic + GainRelic) which is run-state.
+// SKIP TanxsWhistle: AfterObtained — run-state.
+// SKIP TeaOfDiscourtesy: BeforeCombatStart with CombatsLeft counter state.
+// SKIP TheAbacus: AfterShuffle — shuffle hook.
+// SKIP TheBoot: ModifyHpLostBeforeOsty + AfterModifyingHpLostBeforeOsty — hp-loss modifier.
+// SKIP TheCourier: ModifyMerchantPrice — merchant modifier.
+// SKIP ThrowingAxe: ModifyCardPlayCount + AfterModifyingCardPlayCount + AfterRoomEntered + AfterCombatEnd — play-count modifier.
+// SKIP Tingsha: AfterCardDiscarded — discard hook.
+// SKIP TinyMailbox: TryModifyRestSiteHealRewards — rest-site modifier.
+// SKIP ToastyMittens: BeforeHandDraw — hand-draw hook.
+// SKIP Toolbox: BeforeHandDraw — hand-draw hook.
+// SKIP TouchOfOrobas: AfterObtained — run-state.
+// SKIP ToughBandages: AfterCardDiscarded — discard hook.
+// SKIP ToxicEgg: TryModifyCardRewardOptionsLate + TryModifyCardBeingAddedToDeck — card-reward modifier.
+// SKIP ToyBox: AfterObtained + AfterCombatEnd — run-state relic-grant.
+// SKIP TriBoomerang: AfterObtained — run-state.
+// SKIP TungstenRod: ModifyHpLostAfterOsty + AfterModifyingHpLostAfterOsty — hp-loss modifier.
+// SKIP TuningFork: AfterCardPlayed — card-played hook.
+// SKIP UnceasingTop: AfterHandEmptied — needs AfterHandEmptied hook.
+// SKIP UndyingSigil: ModifyDamageMultiplicative — damage modifier.
+// SKIP UnsettlingLamp: BeforeCombatStart + BeforePowerAmountChanged + ModifyPowerAmountGiven + AfterCardPlayed + AfterCombatEnd — power-modifier hooks.
+// SKIP Vajra: AfterRoomEntered — room hook.
+// SKIP VakuuCardSelector: no async hooks — passive/test relic.
+// SKIP Vambrace: BeforeCombatStart + AfterCardPlayed + AfterCombatEnd + ModifyBlockMultiplicative + AfterModifyingBlockAmount — block modifier.
+// SKIP VelvetChoker: BeforeSideTurnStart (reset) + AfterCardPlayed (counter) + AfterRoomEntered + AfterCombatEnd + ModifyMaxEnergy + ShouldPlay — multi-hook play-prevention.
+// SKIP VenerableTeaSet: AfterEnergyReset + AfterRoomEntered — energy-reset hook + room hook.
+// SKIP VitruvianMinion: ModifyDamageMultiplicative + ModifyBlockMultiplicative — damage/block modifier.
+// SKIP WhisperingEarring: BeforePlayPhaseStartLate + ModifyMaxEnergy — play-phase hook + energy modifier.
+// SKIP WhiteBeastStatue: no async hooks — passive (potion-related).
+// SKIP WhiteStar: TryModifyRewards — reward modifier.
+// SKIP Whetstone: AfterObtained — run-state.
+// SKIP WingCharm: TryModifyCardRewardOptionsLate — card-reward modifier.
+// SKIP WingedBoots: AfterRoomEntered — room hook.
+// SKIP WongoCustomerAppreciationBadge: no async hooks — passive shop relic.
+// SKIP WongosMysteryTicket: TryModifyRewards + AfterModifyingRewards + AfterCombatEnd — reward modifier.
+// SKIP YummyCookie: AfterObtained — run-state.
