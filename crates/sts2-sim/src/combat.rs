@@ -3952,6 +3952,81 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: PhrogParasite ------------------------------
+//
+// Reflects C# `PhrogParasite.GenerateMoveStateMachine`. Although the
+// C# state list also constructs a RandomBranchState, no transition
+// leads to it — the actual chain is the simple alternation
+// Infect ↔ Lash (moveState.FollowUpState = moveState2 and vice
+// versa). Init: Infect.
+//
+// A0 payloads:
+//   - Infect: add 3 Infection status cards to player's discard
+//   - Lash:   4 damage × 4 hits (DeadlyEnemies: 5)
+//
+// No new powers needed.
+
+const PHROG_PARASITE_INFECT_COUNT: i32 = 3;
+const PHROG_PARASITE_LASH_DAMAGE: i32 = 4;
+const PHROG_PARASITE_LASH_HITS: i32 = 4;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PhrogParasiteIntent {
+    Infect,
+    Lash,
+}
+
+impl PhrogParasiteIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            PhrogParasiteIntent::Infect => "INFECT_MOVE",
+            PhrogParasiteIntent::Lash => "LASH_MOVE",
+        }
+    }
+}
+
+pub fn pick_phrog_parasite_intent(
+    last_intent: Option<PhrogParasiteIntent>,
+) -> PhrogParasiteIntent {
+    match last_intent {
+        None => PhrogParasiteIntent::Infect,
+        Some(PhrogParasiteIntent::Infect) => PhrogParasiteIntent::Lash,
+        Some(PhrogParasiteIntent::Lash) => PhrogParasiteIntent::Infect,
+    }
+}
+
+pub fn execute_phrog_parasite_move(
+    cs: &mut CombatState,
+    parasite_idx: usize,
+    target_player_idx: usize,
+    intent: PhrogParasiteIntent,
+) {
+    let attacker = (CombatSide::Enemy, parasite_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        PhrogParasiteIntent::Infect => {
+            for _ in 0..PHROG_PARASITE_INFECT_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Infection",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+        PhrogParasiteIntent::Lash => {
+            for _ in 0..PHROG_PARASITE_LASH_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    PHROG_PARASITE_LASH_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: InfestedPrism (elite) ----------------------
 //
 // Reflects C# `InfestedPrism.GenerateMoveStateMachine`:
@@ -12224,6 +12299,50 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- PhrogParasite tests ----------------------------------------
+
+    #[test]
+    fn phrog_parasite_alternates_infect_lash() {
+        assert_eq!(
+            pick_phrog_parasite_intent(None),
+            PhrogParasiteIntent::Infect
+        );
+        assert_eq!(
+            pick_phrog_parasite_intent(Some(PhrogParasiteIntent::Infect)),
+            PhrogParasiteIntent::Lash
+        );
+        assert_eq!(
+            pick_phrog_parasite_intent(Some(PhrogParasiteIntent::Lash)),
+            PhrogParasiteIntent::Infect
+        );
+    }
+
+    #[test]
+    fn phrog_parasite_infect_adds_three_infections() {
+        let mut cs = ironclad_combat();
+        execute_phrog_parasite_move(&mut cs, 0, 0, PhrogParasiteIntent::Infect);
+        let infections = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| {
+                p.discard
+                    .cards
+                    .iter()
+                    .filter(|c| c.id == "Infection")
+                    .count()
+            })
+            .unwrap_or(0);
+        assert_eq!(infections, 3);
+    }
+
+    #[test]
+    fn phrog_parasite_lash_four_times_four() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_phrog_parasite_move(&mut cs, 0, 0, PhrogParasiteIntent::Lash);
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
     }
 
     // ---------- InfestedPrism + VitalSparkPower tests ----------------------

@@ -109,6 +109,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "TerrorEel"
             | "PhantasmalGardener"
             | "InfestedPrism"
+            | "PhrogParasite"
     )
 }
 
@@ -682,6 +683,16 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_infested_prism_intent(last);
             execute_infested_prism_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "PhrogParasite" => {
+            let last = last_ref.and_then(|s| match s {
+                "INFECT_MOVE" => Some(PhrogParasiteIntent::Infect),
+                "LASH_MOVE" => Some(PhrogParasiteIntent::Lash),
+                _ => None,
+            });
+            let intent = pick_phrog_parasite_intent(last);
+            execute_phrog_parasite_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {
