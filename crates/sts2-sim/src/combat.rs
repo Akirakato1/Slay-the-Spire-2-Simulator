@@ -3222,6 +3222,77 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: BowlbugSilk --------------------------------
+//
+// Reflects C# `BowlbugSilk.GenerateMoveStateMachine`. Two-state
+// alternating cycle starting at ToxicSpit:
+//   ToxicSpit ↔ Trash (forever)
+//
+// A0 payloads:
+//   - Trash: 4 damage × 2 hits (DeadlyEnemies: 5 per hit)
+//   - ToxicSpit: apply 1 Weak to target
+
+const BOWLBUG_SILK_TRASH_DAMAGE: i32 = 4;
+const BOWLBUG_SILK_TRASH_HITS: i32 = 2;
+const BOWLBUG_SILK_WEAK: i32 = 1;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BowlbugSilkIntent {
+    Trash,
+    ToxicSpit,
+}
+
+impl BowlbugSilkIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            BowlbugSilkIntent::Trash => "TRASH_MOVE",
+            BowlbugSilkIntent::ToxicSpit => "TOXIC_SPIT_MOVE",
+        }
+    }
+}
+
+/// Pick BowlbugSilk's next intent. Init = ToxicSpit, then alternate.
+pub fn pick_bowlbug_silk_intent(
+    last_intent: Option<BowlbugSilkIntent>,
+) -> BowlbugSilkIntent {
+    match last_intent {
+        None => BowlbugSilkIntent::ToxicSpit,
+        Some(BowlbugSilkIntent::ToxicSpit) => BowlbugSilkIntent::Trash,
+        Some(BowlbugSilkIntent::Trash) => BowlbugSilkIntent::ToxicSpit,
+    }
+}
+
+/// Execute BowlbugSilk's move payload.
+pub fn execute_bowlbug_silk_move(
+    cs: &mut CombatState,
+    silk_idx: usize,
+    target_player_idx: usize,
+    intent: BowlbugSilkIntent,
+) {
+    let attacker = (CombatSide::Enemy, silk_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        BowlbugSilkIntent::Trash => {
+            for _ in 0..BOWLBUG_SILK_TRASH_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    BOWLBUG_SILK_TRASH_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        BowlbugSilkIntent::ToxicSpit => {
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                BOWLBUG_SILK_WEAK,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: BowlbugNectar ------------------------------
 //
 // Reflects C# `BowlbugNectar.GenerateMoveStateMachine`. Deterministic
@@ -7690,6 +7761,45 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- BowlbugSilk intent + move payload tests -------------------
+
+    #[test]
+    fn bowlbug_silk_first_turn_is_toxic_spit() {
+        assert_eq!(
+            pick_bowlbug_silk_intent(None),
+            BowlbugSilkIntent::ToxicSpit
+        );
+    }
+
+    #[test]
+    fn bowlbug_silk_alternates_forever() {
+        let mut last = pick_bowlbug_silk_intent(None);
+        assert_eq!(last, BowlbugSilkIntent::ToxicSpit);
+        for _ in 0..10 {
+            let next = pick_bowlbug_silk_intent(Some(last));
+            assert_ne!(next, last);
+            last = next;
+        }
+    }
+
+    #[test]
+    fn bowlbug_silk_trash_hits_twice_for_four() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_bowlbug_silk_move(&mut cs, 0, 0, BowlbugSilkIntent::Trash);
+        assert_eq!(cs.allies[0].current_hp, hp - 8);
+    }
+
+    #[test]
+    fn bowlbug_silk_toxic_spit_applies_one_weak() {
+        let mut cs = ironclad_combat();
+        execute_bowlbug_silk_move(&mut cs, 0, 0, BowlbugSilkIntent::ToxicSpit);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            1
         );
     }
 
