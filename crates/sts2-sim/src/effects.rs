@@ -147,6 +147,16 @@ pub enum Effect {
     /// cards. Bypasses damage modifiers and on-damage hooks; death
     /// detection runs on the next combat-state check.
     Kill { target: Target },
+    /// Take `amount` energy from the player (clamped at 0). Debt /
+    /// over-energy relics use this.
+    LoseEnergy { amount: AmountSpec },
+    /// Strip a power from `target` entirely. Cleanse-style.
+    RemovePower { power_id: String, target: Target },
+    /// Reshuffle `pile` in place using the combat RNG. Recycle.
+    Shuffle { pile: Pile },
+    /// Move every card in the player's hand to discard. End-of-turn
+    /// helpers and discard-your-hand effects.
+    DiscardHand,
 }
 
 /// Per-invocation context. Holds everything the dispatcher needs to
@@ -315,6 +325,44 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 }
             }
         }
+        Effect::LoseEnergy { amount } => {
+            let amt = amount.resolve(ctx);
+            if let Some(creature) = cs.allies.get_mut(ctx.player_idx) {
+                if let Some(ps) = creature.player.as_mut() {
+                    ps.energy = (ps.energy - amt).max(0);
+                }
+            }
+        }
+        Effect::RemovePower { power_id, target } => match target {
+            Target::SelfPlayer => {
+                cs.remove_power(CombatSide::Player, ctx.player_idx, power_id);
+            }
+            Target::ChosenEnemy => {
+                if let Some((side, idx)) = ctx.target {
+                    cs.remove_power(side, idx, power_id);
+                }
+            }
+            Target::AllEnemies => {
+                let n = cs.enemies.len();
+                for i in 0..n {
+                    if cs.enemies[i].current_hp == 0 {
+                        continue;
+                    }
+                    cs.remove_power(CombatSide::Enemy, i, power_id);
+                }
+            }
+            Target::RandomEnemy => {
+                if let Some(idx) = pick_random_alive_enemy(cs) {
+                    cs.remove_power(CombatSide::Enemy, idx, power_id);
+                }
+            }
+        },
+        Effect::Shuffle { pile } => {
+            shuffle_pile(cs, ctx.player_idx, *pile);
+        }
+        Effect::DiscardHand => {
+            cs.discard_hand(ctx.player_idx);
+        }
         Effect::Kill { target } => {
             match target {
                 Target::ChosenEnemy => {
@@ -342,6 +390,24 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             }
         }
     }
+}
+
+fn shuffle_pile(cs: &mut CombatState, player_idx: usize, pile: Pile) {
+    // Mirror the temp-swap trick used elsewhere so the combat RNG can
+    // be borrowed alongside `cs.allies`.
+    let mut rng = std::mem::replace(&mut cs.rng, crate::rng::Rng::new(0, 0));
+    if let Some(creature) = cs.allies.get_mut(player_idx) {
+        if let Some(ps) = creature.player.as_mut() {
+            let cards = match pile {
+                Pile::Hand => &mut ps.hand.cards,
+                Pile::Discard => &mut ps.discard.cards,
+                Pile::Draw => &mut ps.draw.cards,
+                Pile::Exhaust => &mut ps.exhaust.cards,
+            };
+            rng.shuffle(cards);
+        }
+    }
+    cs.rng = rng;
 }
 
 fn pick_random_alive_enemy(cs: &mut CombatState) -> Option<usize> {
@@ -737,6 +803,103 @@ mod tests {
         );
         execute_effects(&mut cs, &effects, &ctx);
         assert_eq!(cs.enemies[0].current_hp, 0);
+    }
+
+    /// LoseEnergy decrements by amount, clamps at 0.
+    #[test]
+    fn lose_energy_clamps_at_zero() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 2;
+        let effects = vec![Effect::LoseEnergy {
+            amount: AmountSpec::Fixed(5),
+        }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 0);
+    }
+
+    /// RemovePower strips an applied power from the target.
+    #[test]
+    fn remove_power_strips_target_power() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 3);
+        assert!(cs.enemies[0]
+            .powers
+            .iter()
+            .any(|p| p.id == "VulnerablePower"));
+
+        let effects = vec![Effect::RemovePower {
+            power_id: "VulnerablePower".to_string(),
+            target: Target::ChosenEnemy,
+        }];
+        let ctx = EffectContext::for_card(
+            0,
+            Some((CombatSide::Enemy, 0)),
+            "StrikeIronclad",
+            0,
+            None,
+            0,
+        );
+        execute_effects(&mut cs, &effects, &ctx);
+        assert!(!cs.enemies[0]
+            .powers
+            .iter()
+            .any(|p| p.id == "VulnerablePower"));
+    }
+
+    /// Shuffle permutes the pile via combat RNG. Two runs from the same
+    /// state must produce the same permutation (determinism).
+    #[test]
+    fn shuffle_pile_is_deterministic() {
+        let mut a = ironclad_combat();
+        let mut b = ironclad_combat();
+        let effects = vec![Effect::Shuffle { pile: Pile::Draw }];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut a, &effects, &ctx);
+        execute_effects(&mut b, &effects, &ctx);
+        let a_ids: Vec<String> = a.allies[0]
+            .player
+            .as_ref()
+            .unwrap()
+            .draw
+            .cards
+            .iter()
+            .map(|c| c.id.clone())
+            .collect();
+        let b_ids: Vec<String> = b.allies[0]
+            .player
+            .as_ref()
+            .unwrap()
+            .draw
+            .cards
+            .iter()
+            .map(|c| c.id.clone())
+            .collect();
+        assert_eq!(a_ids, b_ids);
+    }
+
+    /// DiscardHand moves every card in hand to discard.
+    #[test]
+    fn discard_hand_moves_all_cards() {
+        let mut cs = ironclad_combat();
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        let drawn_id = "StrikeIronclad";
+        if let Some(card) = crate::card::by_id(drawn_id) {
+            ps.hand
+                .cards
+                .push(crate::combat::CardInstance::from_card(card, 0));
+            ps.hand
+                .cards
+                .push(crate::combat::CardInstance::from_card(card, 0));
+        }
+        let hand_size = cs.allies[0].player.as_ref().unwrap().hand.cards.len();
+        assert!(hand_size > 0);
+
+        let effects = vec![Effect::DiscardHand];
+        let ctx = EffectContext::for_card(0, None, "StrikeIronclad", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().hand.cards.len(), 0);
+        assert!(cs.allies[0].player.as_ref().unwrap().discard.cards.len() >= hand_size);
     }
 
     /// RandomEnemy target picks a live enemy via combat RNG. Two runs

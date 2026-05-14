@@ -58,7 +58,7 @@ underlying primitive vocabulary is small.
 |---|---|---:|---|
 | `ApplyPower<T> { target, amount }` (generic, T = Power id) | ✅ | 269 | `combat.rs::apply_power`. Single primitive — `T` is data. |
 | `ModifyPowerAmount<T> { target, delta }` (direct mutate) | ❌ | 2 | Adrenaline-style. |
-| `RemovePower<T> { target }` | ❌ | 1 | Cleanse-style. |
+| `RemovePower<T> { target }` | ✅ | 1 | `Effect::RemovePower`. Cleanse-style. Also used by monster phase swaps (Doormaker). |
 
 ### 1.4 Pile / card-flow primitives
 
@@ -70,7 +70,7 @@ underlying primitive vocabulary is small.
 | `MoveCard { card_ref, to_pile, position }` (existing card, not generated) | ❌ | 23 | Anointed, Headbutt. Different from AddCardToPile. |
 | `RemoveFromDeck { card_ref }` | ❌ | 3 | Dismantle. |
 | `AutoPlayFromDrawPile { card_ref }` | ❌ | 3 | Mayhem-adjacent. |
-| `Shuffle { pile }` | ❌ | 1 | Recycle. |
+| `Shuffle { pile }` | ✅ | 1 | `Effect::Shuffle`. Recycle. Routes through combat RNG. |
 | `Exhaust { card_ref }` | 🟡 | 14 | `exhaust_random_card_in_hand` for random; need targeted form. |
 | `ExhaustRandomInHand { n }` | ✅ | rare | Cinder, TrueGrit. |
 | `Discard { card_ref }` | ❌ | 8 | Acrobatics. |
