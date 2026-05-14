@@ -9,25 +9,49 @@ post-hoc `.run`-file analysis without running the Godot client.
 Phase 0 (simulator port) is well underway. Concrete state today:
 
 - **Effect VM** (`crates/sts2-sim/src/effects.rs`) — closed primitive
-  vocabulary (~50 `Effect` variants). Cards / relics / potions / monster
-  moves / events all encodable as `Vec<Effect>` over the same vocabulary.
-  Includes control flow (`Conditional`, `Repeat`), `Condition` AST for
-  predicates, `AmountSpec` for amount sources (Canonical / XEnergy /
-  OwnerPowerAmount / BranchedOnUpgrade / Multiplied), `Target` enum
-  (SelfPlayer / SelfActor / ChosenEnemy / AllEnemies / RandomEnemy),
-  `Selector` for card-ref operations (All / Random / Top / Bottom /
-  FirstMatching / PlayerInteractive).
+  vocabulary (~70 `Effect` variants, ~25 `AmountSpec` variants, ~20
+  `Condition` variants). Cards / relics / potions / monster moves /
+  events all encodable as `Vec<Effect>` over the same vocabulary.
+  Includes control flow (`Conditional`, `Repeat`); history-scan amount
+  specs (`CardsPlayedThisTurn`, `CardsDiscardedThisTurn`,
+  `EnergySpentThisTurn`, `OrbsChanneledThisCombat`,
+  `StarsGainedThisTurnPositive`, `DistinctOrbTypesInQueue`); target
+  reads (`TargetMaxHp`, `TargetBlock`, `TargetDebuffCount`); per-relic
+  counter state with `Modify/SetRelicCounter` + `RelicCounterGe/ModEq`;
+  CardFactory random pool plumbing (`AddRandomCardFromPool`); Osty
+  primitives with HP arg (`SummonOsty.max_hp`, `HealOsty`, `KillOsty`,
+  `Condition::IsOstyMissing`).
 - **Power VM** scaffold — same composition pattern applied to power
   lifecycle. `PowerHook::AfterTurnEnd { filter, body }` with
   `power_effects` registry mirroring `card_effects`. RegenPower is the
   first migration (heal + decrement at owner turn end as effect list).
-- **326 / 577 cards** data-driven via effect lists (24 hand-migrated +
-  302 auto-encoded from `cards.json` by `tools/merge_card_ports/autogen.py`).
-  Remaining ~250 are mostly cards needing primitives that the
-  vocabulary doesn't yet cover (orb subsystem, calc-var amount specs
-  like SelfBlock / CardCountInPile / TargetPowerAmount, Osty companion,
-  Forge mechanic) or have richer match-arm bodies the auto-shape would
-  oversimplify. Each skip is annotated with a one-line reason.
+- **Relic VM** — parallel pattern for relic OnTrigger bodies.
+  `RelicHook` enum with guards baked in (`owner_side_only`,
+  `first_turn_only`) covers BeforeCombatStart / AfterCombatVictory /
+  AfterCombatLoss / AfterCombatEnd / AfterSideTurnStart /
+  BeforeSideTurnStart / AfterPlayerTurnStart / AfterPlayerTurnEnd /
+  AfterCardPlayed{filter} / BeforeTurnEnd / AfterDamageGiven /
+  AfterDamageReceived. Five firing points wired in `combat.rs`.
+- **Potion VM** — `potion_effects(potion_id)` registry, dispatched via
+  `CombatState::use_potion(...)`.
+- **Data-driven coverage (post-vocabulary-expansion)**:
+  - **505 / 577 cards** handled (87.5%): 476 via `card_effects` data
+    table + 29 still on the legacy `combat.rs::dispatch_on_play`
+    match-arm path (kept for cards with bespoke runtime needs not
+    expressible as pure data yet). 72 cards still unimplemented — full
+    list + per-card blocker in `tools/coverage_audit.txt`.
+  - **78 / 294 relics** data-driven via `relic_effects` (26.5%). 216
+    relics gap, dominated by AfterObtained run-state hooks (~80
+    relics), Modify* modifier hooks (~45), AfterRoomEntered (~34),
+    counter-state body relics needing per-instance state Reads, and
+    several smaller subsystems.
+  - **55 / 64 potions** data-driven via `potion_effects` (85.9%). 9
+    gap: BloodPotion / Fortifier (target-MaxHp-percent),
+    FairyInABottle (AfterPreventingDeath hook), EssenceOfDarkness
+    (EmptyOrbSlots amount), GamblersBrew (PickedCardCount amount),
+    SneckoOil / SoldiersStew (per-card RNG mutation), FoulPotion
+    (room-type branch), DeprecatedPotion (no OnUse override),
+    TouchOfInsanity (SetCardCost runtime is STUB).
 - **63 monster types** with full intent state machines + dispatcher
 - **30+ powers** with their hooks wired (Strength/Vulnerable/Weak/Frail/Dex,
   Poison, Intangible, Barricade, Burrowed, Plating, Slumber, Asleep, Curl Up,
@@ -35,9 +59,11 @@ Phase 0 (simulator port) is well underway. Concrete state today:
   Rampart, Territorial, Ritual, Imbalanced, Paper Cuts, Thorns, Hard To Kill,
   Escape Artist, Doom, Demon Form, Setup Strike / temp-Strength family,
   Regen via Power VM, …)
-- **Relic combat hooks**: BeforeCombatStart, AfterCombatVictory,
-  AfterSideTurnStart (Anchor, Burning Blood, Brimstone)
-- **744 spec-derived unit tests** passing
+- **Combat history tracking** — `CombatEvent::CardPlayed{type,cost,ethereal}`,
+  `CardDrawn`, `CardDiscarded`, `CardExhausted`, `OrbChanneled`,
+  `StarsChanged` emit unconditionally (independent of verbose-log
+  toggle) so history-scan AmountSpecs work in every test.
+- **771 spec-derived unit tests** passing
 - **Replay harness**: 90%+ of corpus combat rooms run end-to-end with the
   enemy turn dispatcher exchanging real damage. Remaining gaps are mostly
   bosses needing summon system, multi-phase HP, or per-card affliction state.
@@ -141,7 +167,7 @@ Re-extract any table with `cargo run -p extract-<thing>`.
 ```powershell
 # Rust workspace
 cargo check
-cargo test                       # 744 unit + integration tests
+cargo test                       # 771 unit + integration tests
 
 # C# oracle host (only needed for the bit-exact diff tests)
 dotnet build oracle-host -c Release
@@ -281,28 +307,103 @@ Until that lands, every behavior commit message carries the line
 
 ## What's next
 
-Roadmap of unfinished work (see `project_pipeline_audit_2026_05_14.md`
-for the prioritized list):
+Coverage gap (audit: `tools/coverage_audit.txt`). 72 cards + 216
+relics + 9 potions remain unimplemented. Categorized by blocking
+subsystem:
 
-1. **Calc-var AmountSpec extensions** — add `SelfBlock`,
-   `CardCountInPile { pile, filter }`, `TargetPowerAmount { power_id }`,
-   `HistoryCount { event, scope }`. Unblocks ~40 currently-skipped
-   cards (BodySlam, PerfectedStrike, Conflagration, Bully, MindBlast,
-   Mirage, etc.).
-2. **Orb subsystem** — `PlayerState.orb_queue: Vec<OrbInstance>` plus
-   per-orb passive/evoke effects (LightningOrb damage, FrostOrb block,
-   DarkOrb damage-on-evoke, PlasmaOrb energy). Unblocks ~30 Defect
-   cards.
-3. **Power VM expansion** — port the next 10 powers (Strength, Dex,
+### Unimplemented-card blockers (72 cards)
+
+| Subsystem | # cards | Examples |
+|---|---|---|
+| Multi-step interactive `CardSelectCmd` (cross-pile filtered pick that mutates the picked card's state) | ~12 | Dredge, DualWield, Glimmer, Headbutt, HiddenDaggers, HiddenGem, Hologram, Nightmare, PhotonCut, SecretTechnique, SecretWeapon, Snap |
+| CardFactory random-pool with bespoke filters (rarity, transform-with-specific-target) | ~7 | AllForOne (zero-cost-non-X filter), Anointed (Rare-filtered), Apotheosis (every-upgradable cross-pile), Begone, Charge, Guards, PrimalForce |
+| Working `SetCardCost` runtime (per-card-cost override) | ~5 | BulletTime, Discovery (cost-override rider), Enlightenment, Modded, TouchOfInsanity |
+| Per-card-instance self-mutation / clone primitive | ~6 | AdaptiveStrike, GeneticAlgorithm, HuddleUp, Maul, Rampage, Undeath |
+| `AnyAlly` / `ChosenAlly` target (multiplayer-only) | ~5 | Coordinate, DemonicShield, GlimpseBeyond, Largesse, Mimic |
+| Realized-damage-as-amount / Move-flag damage | ~4 | CaptureSpirit, Fisticuffs, FlakCannon, ToricToughness (Block-side already encoded via SetPowerStateField) |
+| `max(...)` / `floor(...)` / nested DynamicVar mutation in AmountSpec | ~5 | Hang, HeavenlyDrill, Misery, Monologue, NoEscape |
+| `BeforeHandDraw` / `AutoPlayFromExhaust` hooks | ~3 | Bolas, Bombardment, Pillage |
+| Random-Attack-from-Hand auto-play / Quest-on-discard / cascade-X | ~6 | Cascade, Chaos, Chill, Claw, Cleanse, Darkness |
+| Misc bespoke (Soul/Wound factories with mid-combat ID alloc, per-card replay count, etc.) | ~19 | Bombardment, CrimsonMantle, DeathsDoor, DecisionsDecisions, Dirge, DodgeAndRoll, DoubleEnergy, Eidolon, EscapePlan, Ftl, GangUp, Jackpot, Mirage, Omnislice, PullFromBelow, Rattle, RightHandHand, Severance, Stoke, StormOfSteel, SummonForth |
+
+### Unimplemented-relic blockers (216 relics)
+
+| Subsystem | # relics | Why |
+|---|---|---|
+| **Run-state effect VM** | ~80 | `AfterObtained()` hook — out-of-combat pickup effects (Mango, Pear, Strawberry, AlchemicalCoffer, CallingBell, …). Needs `&mut RunState` handle threaded into the VM. |
+| **`AfterRoomEntered`** | ~34 | Room-level hook (Planisphere, Pantograph, DataDisk, WingedBoots, MawBank, …). Combat-room subset already encodes under `BeforeCombatStart` via the BronzeScales trick. |
+| **`Modify*` modifier hooks** | ~45 | `ModifyHandDraw` (9), `ModifyMaxEnergy` (11), `ModifyDamage*` / `ModifyBlock*` (9), `TryModifyRewards*` (10), `TryModifyRestSiteOptions` (8). Need a separate modifier-hook layer wired into the value-flow pipeline. |
+| **Counter-gated body** | ~15 | Body fires "every Nth attack" / "every Nth turn" — Kunai, Shuriken, Nunchaku, IronClub, LetterOpener, OrnamentalFan, Pendulum, HappyFlower, Pocketwatch, CentennialPuzzle, MiniRegent, MusicBox, VelvetChoker, Permafrost-once-per-combat. *State slot landed; primitive to inc/read it landed. Per-relic encoding still needs each body's specific counter logic encoded.* |
+| **Card lifecycle hooks** | ~10 | `AfterCardExhausted` (ForgottenSoul, CharonsAshes, JossPaper), `AfterCardDiscarded` (Tingsha, ToughBandages), `AfterCardChangedPiles` (BingBong, BookOfFiveRings, LuckyFysh), `AfterBlockCleared` (CaptainsWheel, HornCleat). |
+| **Damage-pipeline hooks** | ~5 | `AfterDeath` (GremlinHorn), `AfterDiedToDoom` (BookRepairKnife), `AfterPreventingDeath` (FairyInABottle, LizardTail), `AfterAttack` (BoneFlute). |
+| **`BeforeHandDraw` / `BeforePlayPhaseStart`** | ~5 | BlessedAntler, JeweledMask, NinjaScroll, RadiantPearl, ToastyMittens, Toolbox, HistoryCourse. |
+| **Misc** | ~22 | Card-factory + multi-step choice (ChoicesParadox, VexingPuzzlebox, GamblingChip), Round-N-conditional with N>1 not covered by `RoundEquals` (StoneCalendar=7), shop hooks (BowlerHat AfterGoldGained, MawBank AfterItemPurchased), pet/companion-specific (Byrdpip's AddPet vs SummonOsty), shuffle hooks (BiiigHug AfterShuffle), `AfterEnergyReset` (ArtOfWar, FakeVenerableTeaSet, BoundPhylactery), star-spend (GalacticDust), `Hex` / affliction subsystem (KnowledgeDemon-side). |
+
+### Unimplemented-potion blockers (9 potions)
+
+| Potion | Blocker |
+|---|---|
+| BloodPotion / Fortifier | `AmountSpec::Div` or percent-aware variant (`target.MaxHp * pct / 100`) |
+| FairyInABottle | Same percent issue + `AfterPreventingDeath` hook (relic-style) |
+| EssenceOfDarkness | `AmountSpec::EmptyOrbSlots` |
+| GamblersBrew | `AmountSpec::PickedCardCount` (snapshot-and-rebind from interactive pick) |
+| SneckoOil / SoldiersStew | Per-card-instance RNG / counter mutation (no primitive) |
+| FoulPotion | Multi-branch on `RunState.CurrentRoom` (combat / merchant / event divergence) |
+| TouchOfInsanity | `SetCardCost` exists but runtime dispatcher is STUB |
+| DeprecatedPotion | No `OnUse` override in C# |
+
+### Subsystems still pending
+
+Ordered by leverage:
+
+1. **Modifier-hook layer** (`ModifyHandDraw`, `ModifyMaxEnergy`,
+   `ModifyDamage*`, `ModifyBlock*`, `TryModifyRewards*`,
+   `TryModifyRestSiteOptions`). Unblocks ~45 relics and threads
+   relic-driven value modifications into the existing
+   damage / block / draw pipelines.
+2. **Run-state effect VM** (`AfterObtained`, `AfterRoomEntered`,
+   `GainRelic` / `GainPotionToBelt` / `LoseRunStateHp` /
+   `GainRunStateMaxHp` / `GainRunStateGold` dispatchers). Currently
+   these effects encode but no-op at runtime — need a `&mut RunState`
+   handle in `EffectContext` and a dispatcher firing point in the
+   strategic-layer state machine. Unblocks ~80 relics + the run-state
+   tail of card / potion effects.
+3. **Card lifecycle hooks** (`AfterCardExhausted`,
+   `AfterCardDiscarded`, `AfterCardChangedPiles`, `AfterBlockCleared`).
+   Unblocks ~10 relics.
+4. **Counter-gated relic bodies** — the *state slot + primitives*
+   (`Modify/SetRelicCounter` + `RelicCounterGe/ModEq`) are done. The
+   ~15 affected relics need each body's specific Inc-Check-Reset
+   sequence hand-encoded in `batch_r_3.txt`. Low risk, mostly mechanical.
+5. **Interactive multi-step `CardSelectCmd` surface** —
+   `Selector::PlayerInteractive` currently resolves to `Random`; a real
+   modal-pick surface would unlock ~12 cards. Architecturally needs a
+   "pending player choice" frame in the env-step machine.
+6. **CardFactory plumbing + bespoke filters** — `AddRandomCardFromPool`
+   covers the common case; rarity-filtered / per-instance-bound-target
+   transforms still SKIP. Unblocks ~7 cards.
+7. **AnyAlly / ChosenAlly target** (multiplayer-only). Single-player
+   collapse is fine for the agent today; full support is a multiplayer
+   feature.
+8. **Working `SetCardCost` runtime** — per-card cost override at
+   `this turn` / `this combat` / `until played` scopes. Variant exists
+   in `Effect`; dispatcher is STUB. Unblocks ~5 cards.
+9. **`max(...)` / `floor(...)` AmountSpec composition** — needs new
+   `AmountSpec::Max{a,b} / Min{a,b} / FloorDiv{a,b}` variants and
+   resolvers. ~5 cards.
+10. **Hook dispatcher (#70)** — needs IL re-decompile of
+   `IterateHookListeners.MoveNext` (compiler-generated state machine
+   was stripped from current decompile).
+11. **Monster move VM routing** — migrate `monster_dispatch.rs` match
+   arms to data-driven effect lists with `Target::SelfActor`.
+12. **Power VM expansion** — port the next 10 powers (Strength, Dex,
    Weak, Vulnerable, Frail, Poison, DemonForm, Ritual, Barricade as
    `power_effects` entries; remove their hardcoded behavior from
    `combat.rs`).
-4. **Hook dispatcher (#70)** — needs IL re-decompile of
-   `IterateHookListeners.MoveNext` (compiler-generated state machine
-   was stripped from current decompile).
-5. **Monster move VM routing** — migrate `monster_dispatch.rs` match
-   arms to data-driven effect lists with `Target::SelfActor`.
-6. **Run-state dispatcher** — events / relic-pickup effects encode but
-   don't fire (no `&mut RunState` handle in combat VM).
-7. **Osty companion + Forge** — separate companion creature with HP/
-   intent + smith-forge mechanic (smaller leverage; defer).
+13. **Osty companion + Forge runtime** — Osty primitives are now
+   in vocabulary; full HP/intent/companion lifecycle still partial.
+   Forge accumulates `pending_forge` but no card-upgrade UI / choice
+   surface fires yet.
+
+See `tools/coverage_audit.txt` for the per-id list of unimplemented
+items.
