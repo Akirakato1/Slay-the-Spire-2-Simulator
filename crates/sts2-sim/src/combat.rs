@@ -3222,6 +3222,64 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: BowlbugEgg ---------------------------------
+//
+// Reflects C# `BowlbugEgg.GenerateMoveStateMachine`: a single move
+// (Bite) whose FollowUpState points back to itself. No state branching,
+// no RNG. Always plays Bite every turn.
+//
+// A0 payloads:
+//   - Bite: 7 damage + 7 self-block (DeadlyEnemies: 8 / 8)
+
+const BOWLBUG_EGG_BITE_DAMAGE: i32 = 7;
+const BOWLBUG_EGG_PROTECT_BLOCK: i32 = 7;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BowlbugEggIntent {
+    Bite,
+}
+
+impl BowlbugEggIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            BowlbugEggIntent::Bite => "BITE_MOVE",
+        }
+    }
+}
+
+/// Pick BowlbugEgg's next intent. Trivial: always Bite.
+pub fn pick_bowlbug_egg_intent(
+    _last_intent: Option<BowlbugEggIntent>,
+) -> BowlbugEggIntent {
+    BowlbugEggIntent::Bite
+}
+
+/// Execute BowlbugEgg's move payload. Bite: deal damage + gain block.
+pub fn execute_bowlbug_egg_move(
+    cs: &mut CombatState,
+    egg_idx: usize,
+    target_player_idx: usize,
+    intent: BowlbugEggIntent,
+) {
+    let attacker = (CombatSide::Enemy, egg_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        BowlbugEggIntent::Bite => {
+            cs.deal_damage(
+                attacker,
+                player,
+                BOWLBUG_EGG_BITE_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.gain_block(
+                CombatSide::Enemy,
+                egg_idx,
+                BOWLBUG_EGG_PROTECT_BLOCK,
+            );
+        }
+    }
+}
+
 /// Result of a resolved combat. Reported by [`CombatState::is_combat_over`]
 /// when the combat ends.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -7552,6 +7610,26 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- BowlbugEgg intent + move payload tests --------------------
+
+    #[test]
+    fn bowlbug_egg_always_bites() {
+        assert_eq!(pick_bowlbug_egg_intent(None), BowlbugEggIntent::Bite);
+        assert_eq!(
+            pick_bowlbug_egg_intent(Some(BowlbugEggIntent::Bite)),
+            BowlbugEggIntent::Bite
+        );
+    }
+
+    #[test]
+    fn bowlbug_egg_bite_does_damage_and_block() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_bowlbug_egg_move(&mut cs, 0, 0, BowlbugEggIntent::Bite);
+        assert_eq!(cs.allies[0].current_hp, hp - 7);
+        assert_eq!(cs.enemies[0].block, 7);
     }
 
     // ---------- FlailKnight intent + move payload tests -------------------
