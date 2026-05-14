@@ -122,6 +122,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "DecimillipedeSegmentBack"
             | "MysteriousKnight"
             | "SlumberingBeetle"
+            | "TheInsatiable"
     )
 }
 
@@ -736,6 +737,19 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "TheInsatiable" => {
+            let last = last_ref.and_then(|s| match s {
+                "LIQUIFY_GROUND_MOVE" => Some(TheInsatiableIntent::Liquify),
+                "THRASH_MOVE_1" => Some(TheInsatiableIntent::Thrash1),
+                "LUNGING_BITE_MOVE" => Some(TheInsatiableIntent::Bite),
+                "SALIVATE_MOVE" => Some(TheInsatiableIntent::Salivate),
+                "THRASH_MOVE_2" => Some(TheInsatiableIntent::Thrash2),
+                _ => None,
+            });
+            let intent = pick_the_insatiable_intent(last);
+            execute_the_insatiable_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "SlumberingBeetle" => {

@@ -4073,6 +4073,120 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: TheInsatiable (boss) -----------------------
+//
+// Reflects C# `TheInsatiable.GenerateMoveStateMachine`:
+//   Init: Liquify.
+//   Chain: Liquify → Thrash1 → Bite → Salivate → Thrash2 →
+//          Thrash1 → Bite → Salivate → Thrash2 → … (4-state loop).
+//
+// A0 payloads:
+//   - Liquify:  add 3 FranticEscape to player's draw pile +
+//               3 FranticEscape to discard pile. Skip SandpitPower
+//               (per-target-tracked, deferred).
+//   - Thrash1/Thrash2: 8 damage × 2 hits (DeadlyEnemies: 9)
+//   - Bite:     28 damage (DeadlyEnemies: 31)
+//   - Salivate: +2 self-Strength (DeadlyEnemies: 3)
+
+const INSATIABLE_LIQUIFY_DRAW_COUNT: i32 = 3;
+const INSATIABLE_LIQUIFY_DISCARD_COUNT: i32 = 3;
+const INSATIABLE_THRASH_DAMAGE: i32 = 8;
+const INSATIABLE_THRASH_HITS: i32 = 2;
+const INSATIABLE_BITE_DAMAGE: i32 = 28;
+const INSATIABLE_SALIVATE_STRENGTH: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum TheInsatiableIntent {
+    Liquify,
+    Thrash1,
+    Bite,
+    Salivate,
+    Thrash2,
+}
+
+impl TheInsatiableIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            TheInsatiableIntent::Liquify => "LIQUIFY_GROUND_MOVE",
+            TheInsatiableIntent::Thrash1 => "THRASH_MOVE_1",
+            TheInsatiableIntent::Bite => "LUNGING_BITE_MOVE",
+            TheInsatiableIntent::Salivate => "SALIVATE_MOVE",
+            TheInsatiableIntent::Thrash2 => "THRASH_MOVE_2",
+        }
+    }
+}
+
+pub fn pick_the_insatiable_intent(
+    last_intent: Option<TheInsatiableIntent>,
+) -> TheInsatiableIntent {
+    match last_intent {
+        None => TheInsatiableIntent::Liquify,
+        Some(TheInsatiableIntent::Liquify) => TheInsatiableIntent::Thrash1,
+        Some(TheInsatiableIntent::Thrash1) => TheInsatiableIntent::Bite,
+        Some(TheInsatiableIntent::Bite) => TheInsatiableIntent::Salivate,
+        Some(TheInsatiableIntent::Salivate) => TheInsatiableIntent::Thrash2,
+        Some(TheInsatiableIntent::Thrash2) => TheInsatiableIntent::Thrash1,
+    }
+}
+
+pub fn execute_the_insatiable_move(
+    cs: &mut CombatState,
+    insatiable_idx: usize,
+    target_player_idx: usize,
+    intent: TheInsatiableIntent,
+) {
+    let attacker = (CombatSide::Enemy, insatiable_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        TheInsatiableIntent::Liquify => {
+            // SandpitPower skipped (per-target tracking, deferred).
+            // 3 FranticEscape into draw pile + 3 into discard pile.
+            for _ in 0..INSATIABLE_LIQUIFY_DRAW_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "FranticEscape",
+                    0,
+                    PileType::Draw,
+                );
+            }
+            for _ in 0..INSATIABLE_LIQUIFY_DISCARD_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "FranticEscape",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+        TheInsatiableIntent::Thrash1 | TheInsatiableIntent::Thrash2 => {
+            for _ in 0..INSATIABLE_THRASH_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    INSATIABLE_THRASH_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        TheInsatiableIntent::Bite => {
+            cs.deal_damage(
+                attacker,
+                player,
+                INSATIABLE_BITE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        TheInsatiableIntent::Salivate => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                insatiable_idx,
+                "StrengthPower",
+                INSATIABLE_SALIVATE_STRENGTH,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: SlumberingBeetle ---------------------------
 //
 // Reflects C# `SlumberingBeetle.GenerateMoveStateMachine`:
@@ -12845,6 +12959,92 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- TheInsatiable tests ----------------------------------------
+
+    #[test]
+    fn insatiable_walks_five_state_chain() {
+        assert_eq!(
+            pick_the_insatiable_intent(None),
+            TheInsatiableIntent::Liquify
+        );
+        assert_eq!(
+            pick_the_insatiable_intent(Some(TheInsatiableIntent::Liquify)),
+            TheInsatiableIntent::Thrash1
+        );
+        assert_eq!(
+            pick_the_insatiable_intent(Some(TheInsatiableIntent::Thrash1)),
+            TheInsatiableIntent::Bite
+        );
+        assert_eq!(
+            pick_the_insatiable_intent(Some(TheInsatiableIntent::Bite)),
+            TheInsatiableIntent::Salivate
+        );
+        assert_eq!(
+            pick_the_insatiable_intent(Some(TheInsatiableIntent::Salivate)),
+            TheInsatiableIntent::Thrash2
+        );
+        assert_eq!(
+            pick_the_insatiable_intent(Some(TheInsatiableIntent::Thrash2)),
+            TheInsatiableIntent::Thrash1
+        );
+    }
+
+    #[test]
+    fn insatiable_liquify_adds_six_franticescape() {
+        let mut cs = ironclad_combat();
+        execute_the_insatiable_move(&mut cs, 0, 0, TheInsatiableIntent::Liquify);
+        let draw_fe = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| {
+                p.draw
+                    .cards
+                    .iter()
+                    .filter(|c| c.id == "FranticEscape")
+                    .count()
+            })
+            .unwrap_or(0);
+        let disc_fe = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| {
+                p.discard
+                    .cards
+                    .iter()
+                    .filter(|c| c.id == "FranticEscape")
+                    .count()
+            })
+            .unwrap_or(0);
+        assert_eq!(draw_fe, 3);
+        assert_eq!(disc_fe, 3);
+    }
+
+    #[test]
+    fn insatiable_thrash_eight_times_two() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_the_insatiable_move(&mut cs, 0, 0, TheInsatiableIntent::Thrash1);
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+    }
+
+    #[test]
+    fn insatiable_bite_deals_twenty_eight() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_the_insatiable_move(&mut cs, 0, 0, TheInsatiableIntent::Bite);
+        assert_eq!(cs.allies[0].current_hp, hp - 28);
+    }
+
+    #[test]
+    fn insatiable_salivate_grants_two_strength() {
+        let mut cs = ironclad_combat();
+        execute_the_insatiable_move(&mut cs, 0, 0, TheInsatiableIntent::Salivate);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
     }
 
     // ---------- SlumberingBeetle + SlumberPower tests ----------------------
