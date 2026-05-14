@@ -1453,6 +1453,33 @@ fn dispatch_on_play(
             );
             true
         }
+        // Feed (Ironclad rare Exhaust Attack, 1 cost): 10 damage; if
+        // the attack kills, gain 3 max HP permanently. Upgrade: +2
+        // damage, +1 max HP. C# uses GainMaxHp which both raises
+        // max_hp AND heals current_hp by the same delta (standard StS
+        // pattern keeping % HP unchanged), so we do both here.
+        //
+        // ShouldOwnerDeathTriggerFatal — C# filters out minion/non-
+        // meaningful deaths via per-power hooks. Not modeled yet; all
+        // enemy deaths count. Reopen with MinionPower port.
+        "Feed" => {
+            let Some(target) = target else { return false; };
+            let Some(card) = card_by_id(card_id) else { return false; };
+            let damage = canonical_int_value(card, "Damage", upgrade_level);
+            let max_hp_gain = canonical_int_value(card, "MaxHp", upgrade_level);
+            let outcome = cs.deal_damage_enchanted(
+                (CombatSide::Player, player_idx),
+                target,
+                damage,
+                ValueProp::MOVE,
+                enchantment,
+            );
+            if outcome.fatal {
+                cs.change_max_hp(CombatSide::Player, player_idx, max_hp_gain);
+                cs.heal(CombatSide::Player, player_idx, max_hp_gain);
+            }
+            true
+        }
         // Barricade (Ironclad rare Power, 3 cost, Self): apply 1
         // BarricadePower. Its ShouldClearBlock hook (handled in
         // begin_turn) preserves block across the owner's turn
@@ -3966,6 +3993,98 @@ mod tests {
         let bs = card_by_id("BodySlam").unwrap();
         let upgraded = CardInstance::from_card(bs, 1);
         assert_eq!(upgraded.current_energy_cost, 0);
+    }
+
+    // ---------- Feed tests -----------------------------------------------
+
+    #[test]
+    fn feed_non_lethal_no_max_hp_gain() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("Feed").unwrap();
+        let max_before = cs.allies[0].max_hp;
+        let cur_before = cs.allies[0].current_hp;
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let hp_before = cs.enemies[0].current_hp;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 10);
+        // Target survived → no max HP gain.
+        assert_eq!(cs.allies[0].max_hp, max_before);
+        assert_eq!(cs.allies[0].current_hp, cur_before);
+    }
+
+    #[test]
+    fn feed_lethal_grants_three_max_hp_and_heals_three() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 5;
+        let card = card_by_id("Feed").unwrap();
+        let max_before = cs.allies[0].max_hp;
+        cs.allies[0].current_hp = 50;
+        let cur_before = cs.allies[0].current_hp;
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, 0);
+        // +3 max HP and +3 current HP (% HP preserved style).
+        assert_eq!(cs.allies[0].max_hp, max_before + 3);
+        assert_eq!(cs.allies[0].current_hp, cur_before + 3);
+    }
+
+    #[test]
+    fn upgraded_feed_kills_with_twelve_grants_four() {
+        let mut cs = ironclad_combat();
+        cs.enemies[0].current_hp = 6;
+        let card = card_by_id("Feed").unwrap();
+        let max_before = cs.allies[0].max_hp;
+        cs.allies[0].current_hp = 40;
+        let cur_before = cs.allies[0].current_hp;
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 1));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        assert_eq!(cs.enemies[0].current_hp, 0);
+        // +4 max HP, +4 current HP.
+        assert_eq!(cs.allies[0].max_hp, max_before + 4);
+        assert_eq!(cs.allies[0].current_hp, cur_before + 4);
+    }
+
+    #[test]
+    fn feed_routes_to_exhaust_via_keyword() {
+        let mut cs = ironclad_combat();
+        let card = card_by_id("Feed").unwrap();
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(card, 0));
+        let hand_idx = cs.allies[0].player.as_ref().unwrap().hand.len() - 1;
+        let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+        assert_eq!(r, PlayResult::Ok);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        assert!(ps.exhaust.cards.iter().any(|c| c.id == "Feed"));
+        assert!(ps.discard.cards.iter().all(|c| c.id != "Feed"));
     }
 
     // ---------- Barricade tests ------------------------------------------
