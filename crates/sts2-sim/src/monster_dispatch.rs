@@ -153,6 +153,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "Crusher"
             | "Rocket"
             | "Queen"
+            | "HauntedShip"
     )
 }
 
@@ -767,6 +768,20 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "HauntedShip" => {
+            let last = last_ref.and_then(|s| match s {
+                "HAUNT_MOVE" => Some(HauntedShipIntent::Haunt),
+                "RAMMING_SPEED_MOVE" => Some(HauntedShipIntent::RammingSpeed),
+                "SWIPE_MOVE" => Some(HauntedShipIntent::Swipe),
+                "STOMP_MOVE" => Some(HauntedShipIntent::Stomp),
+                _ => None,
+            });
+            let mut rng = take_rng(cs);
+            let intent = pick_haunted_ship_intent(&mut rng, last);
+            put_rng(cs, rng);
+            execute_haunted_ship_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "Queen" => {

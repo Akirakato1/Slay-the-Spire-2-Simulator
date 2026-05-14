@@ -4081,6 +4081,122 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: HauntedShip --------------------------------
+//
+// Reflects C# `HauntedShip.GenerateMoveStateMachine`. Init: Haunt.
+// All 4 moves transition to RandomBranch over {Ramming, Swipe,
+// Stomp} with `MoveRepeatType.CannotRepeat` AND each branch gated
+// on `RoundNumber % 2 != 0`. The round-parity gate is opaque (on
+// even rounds NO branches are eligible — what C# does in that
+// case isn't clear without runtime). We simplify: every turn after
+// the Haunt init, pick uniformly random from the 3 attacks
+// excluding the last-played one. Haunt only fires on init.
+//
+// A0 payloads:
+//   - Haunt:        add 5 Dazed cards to player's discard
+//   - RammingSpeed: 10 damage + 1 Weak (DeadlyEnemies: 11)
+//   - Swipe:        13 damage (DeadlyEnemies: 14)
+//   - Stomp:        4 damage × 3 hits (DeadlyEnemies: 5)
+
+const HAUNTED_SHIP_HAUNT_DAZED: i32 = 5;
+const HAUNTED_SHIP_RAMMING_DAMAGE: i32 = 10;
+const HAUNTED_SHIP_RAMMING_WEAK: i32 = 1;
+const HAUNTED_SHIP_SWIPE_DAMAGE: i32 = 13;
+const HAUNTED_SHIP_STOMP_DAMAGE: i32 = 4;
+const HAUNTED_SHIP_STOMP_HITS: i32 = 3;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum HauntedShipIntent {
+    Haunt,
+    RammingSpeed,
+    Swipe,
+    Stomp,
+}
+
+impl HauntedShipIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            HauntedShipIntent::Haunt => "HAUNT_MOVE",
+            HauntedShipIntent::RammingSpeed => "RAMMING_SPEED_MOVE",
+            HauntedShipIntent::Swipe => "SWIPE_MOVE",
+            HauntedShipIntent::Stomp => "STOMP_MOVE",
+        }
+    }
+}
+
+pub fn pick_haunted_ship_intent(
+    rng: &mut Rng,
+    last_intent: Option<HauntedShipIntent>,
+) -> HauntedShipIntent {
+    if last_intent.is_none() {
+        return HauntedShipIntent::Haunt;
+    }
+    let allowed: Vec<HauntedShipIntent> = [
+        HauntedShipIntent::RammingSpeed,
+        HauntedShipIntent::Swipe,
+        HauntedShipIntent::Stomp,
+    ]
+    .into_iter()
+    .filter(|i| Some(*i) != last_intent)
+    .collect();
+    let pick = rng.next_int_range(0, allowed.len() as i32) as usize;
+    allowed[pick]
+}
+
+pub fn execute_haunted_ship_move(
+    cs: &mut CombatState,
+    ship_idx: usize,
+    target_player_idx: usize,
+    intent: HauntedShipIntent,
+) {
+    let attacker = (CombatSide::Enemy, ship_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        HauntedShipIntent::Haunt => {
+            for _ in 0..HAUNTED_SHIP_HAUNT_DAZED {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Dazed",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+        HauntedShipIntent::RammingSpeed => {
+            cs.deal_damage(
+                attacker,
+                player,
+                HAUNTED_SHIP_RAMMING_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                HAUNTED_SHIP_RAMMING_WEAK,
+            );
+        }
+        HauntedShipIntent::Swipe => {
+            cs.deal_damage(
+                attacker,
+                player,
+                HAUNTED_SHIP_SWIPE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        HauntedShipIntent::Stomp => {
+            for _ in 0..HAUNTED_SHIP_STOMP_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    HAUNTED_SHIP_STOMP_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: Queen (boss) -------------------------------
 //
 // Reflects C# `Queen.GenerateMoveStateMachine`:
@@ -13794,6 +13910,79 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- HauntedShip tests ------------------------------------------
+
+    #[test]
+    fn haunted_ship_init_is_haunt() {
+        let mut rng = Rng::new(1, 0);
+        assert_eq!(
+            pick_haunted_ship_intent(&mut rng, None),
+            HauntedShipIntent::Haunt
+        );
+    }
+
+    #[test]
+    fn haunted_ship_post_haunt_never_repeats() {
+        let mut rng = Rng::new(42, 0);
+        for _ in 0..30 {
+            for &start in &[
+                HauntedShipIntent::Haunt,
+                HauntedShipIntent::RammingSpeed,
+                HauntedShipIntent::Swipe,
+                HauntedShipIntent::Stomp,
+            ] {
+                let next = pick_haunted_ship_intent(&mut rng, Some(start));
+                assert_ne!(next, start);
+                assert_ne!(next, HauntedShipIntent::Haunt);
+            }
+        }
+    }
+
+    #[test]
+    fn haunted_ship_haunt_adds_five_dazed() {
+        let mut cs = ironclad_combat();
+        execute_haunted_ship_move(&mut cs, 0, 0, HauntedShipIntent::Haunt);
+        let dazed = cs.allies[0]
+            .player
+            .as_ref()
+            .map(|p| p.discard.cards.iter().filter(|c| c.id == "Dazed").count())
+            .unwrap_or(0);
+        assert_eq!(dazed, 5);
+    }
+
+    #[test]
+    fn haunted_ship_ramming_speed_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_haunted_ship_move(
+            &mut cs,
+            0,
+            0,
+            HauntedShipIntent::RammingSpeed,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 10);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            1
+        );
+    }
+
+    #[test]
+    fn haunted_ship_swipe_deals_thirteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_haunted_ship_move(&mut cs, 0, 0, HauntedShipIntent::Swipe);
+        assert_eq!(cs.allies[0].current_hp, hp - 13);
+    }
+
+    #[test]
+    fn haunted_ship_stomp_four_times_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_haunted_ship_move(&mut cs, 0, 0, HauntedShipIntent::Stomp);
+        assert_eq!(cs.allies[0].current_hp, hp - 12);
     }
 
     // ---------- Queen tests ------------------------------------------------
