@@ -1376,6 +1376,7 @@ impl CombatState {
         let modified = self.modify_damage(dealer, target, raw, props);
         let outcome = self.apply_damage(target.0, target.1, modified);
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
+        self.fire_thorns_hook(dealer, target, props);
         outcome
     }
 
@@ -1394,7 +1395,55 @@ impl CombatState {
             self.modify_damage_with_enchantment(dealer, target, raw, props, enchantment);
         let outcome = self.apply_damage(target.0, target.1, modified);
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
+        self.fire_thorns_hook(dealer, target, props);
         outcome
+    }
+
+    /// ThornsPower.BeforeDamageReceived: when target with ThornsPower is
+    /// hit by a powered attack from a living dealer, the dealer takes
+    /// `Amount` unpowered damage back. The UNPOWERED flag prevents
+    /// recursive Thorns triggers (own check gates on
+    /// `is_powered_attack`). Fired post-apply for ordering simplicity:
+    /// outcome of the main hit is locked in before reflection.
+    fn fire_thorns_hook(
+        &mut self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        props: ValueProp,
+    ) {
+        if !props.is_powered_attack() {
+            return;
+        }
+        // Self-damage from a creature targeting itself doesn't bounce.
+        if dealer == target {
+            return;
+        }
+        let thorns = self.get_power_amount(target.0, target.1, "ThornsPower");
+        if thorns <= 0 {
+            return;
+        }
+        let dealer_alive = match dealer.0 {
+            CombatSide::Player => self
+                .allies
+                .get(dealer.1)
+                .map(|c| c.current_hp > 0)
+                .unwrap_or(false),
+            CombatSide::Enemy => self
+                .enemies
+                .get(dealer.1)
+                .map(|c| c.current_hp > 0)
+                .unwrap_or(false),
+            CombatSide::None => false,
+        };
+        if !dealer_alive {
+            return;
+        }
+        // Reflect: apply_damage bypasses modify_damage so block on the
+        // dealer's side still soaks via apply_damage's block check, but
+        // power-pipeline mods like Strength/Vulnerable don't apply to
+        // reflected damage. Matches C#: CreatureCmd.Damage with
+        // ValueProp.Unpowered.
+        self.apply_damage(dealer.0, dealer.1, thorns);
     }
 
     /// Fire `AfterDamageGiven` hooks for every per-power listener on
@@ -3580,6 +3629,108 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: Toadpole -----------------------------------
+//
+// Reflects C# `Toadpole.GenerateMoveStateMachine`:
+//   3-state cycle: SpikeSpit ↔ Whirl ↔ Spiken (triangle).
+//   Init depends on `IsFront`:
+//     - IsFront=true  → init Spiken
+//     - IsFront=false → init Whirl
+//   Chain (both entry points walk the same triangle):
+//     SpikeSpit → Whirl → Spiken → SpikeSpit → …
+//
+// A0 payloads:
+//   - SpikeSpit: 3 damage × 3 hits (DeadlyEnemies: 4). Also removes
+//                Spiken (2) Thorns from self — `Apply<ThornsPower>(-2)`.
+//   - Whirl:     7 damage (DeadlyEnemies: 8).
+//   - Spiken:    apply ThornsPower(+2) to self.
+//
+// ThornsPower wires into the deal_damage pipeline (fire_thorns_hook):
+// when target with Thorns is hit by a powered attack, dealer takes
+// Amount unpowered damage back.
+
+const TOADPOLE_SPIKE_SPIT_DAMAGE: i32 = 3;
+const TOADPOLE_SPIKE_SPIT_HITS: i32 = 3;
+const TOADPOLE_WHIRL_DAMAGE: i32 = 7;
+const TOADPOLE_SPIKEN_AMOUNT: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ToadpoleIntent {
+    SpikeSpit,
+    Whirl,
+    Spiken,
+}
+
+impl ToadpoleIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            ToadpoleIntent::SpikeSpit => "SPIKE_SPIT_MOVE",
+            ToadpoleIntent::Whirl => "WHIRL_MOVE",
+            ToadpoleIntent::Spiken => "SPIKEN_MOVE",
+        }
+    }
+}
+
+/// Init depends on `is_front`. Subsequent intent walks the cycle.
+pub fn pick_toadpole_intent(
+    last_intent: Option<ToadpoleIntent>,
+    is_front: bool,
+) -> ToadpoleIntent {
+    match last_intent {
+        None if is_front => ToadpoleIntent::Spiken,
+        None => ToadpoleIntent::Whirl,
+        Some(ToadpoleIntent::SpikeSpit) => ToadpoleIntent::Whirl,
+        Some(ToadpoleIntent::Whirl) => ToadpoleIntent::Spiken,
+        Some(ToadpoleIntent::Spiken) => ToadpoleIntent::SpikeSpit,
+    }
+}
+
+pub fn execute_toadpole_move(
+    cs: &mut CombatState,
+    toadpole_idx: usize,
+    target_player_idx: usize,
+    intent: ToadpoleIntent,
+) {
+    let attacker = (CombatSide::Enemy, toadpole_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        ToadpoleIntent::SpikeSpit => {
+            // Negative apply to self — strips ThornsPower(2). C# uses
+            // PowerCmd.Apply<ThornsPower>(-SpikenAmount).
+            cs.apply_power(
+                CombatSide::Enemy,
+                toadpole_idx,
+                "ThornsPower",
+                -TOADPOLE_SPIKEN_AMOUNT,
+            );
+            for _ in 0..TOADPOLE_SPIKE_SPIT_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    TOADPOLE_SPIKE_SPIT_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        ToadpoleIntent::Whirl => {
+            cs.deal_damage(
+                attacker,
+                player,
+                TOADPOLE_WHIRL_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        ToadpoleIntent::Spiken => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                toadpole_idx,
+                "ThornsPower",
+                TOADPOLE_SPIKEN_AMOUNT,
+            );
         }
     }
 }
@@ -10239,6 +10390,128 @@ mod tests {
             cs.get_power_amount(CombatSide::Enemy, 0, "EscapeArtistPower"),
             3
         );
+    }
+
+    // ---------- Toadpole + ThornsPower tests ------------------------------
+
+    #[test]
+    fn toadpole_front_starts_spiken_back_starts_whirl() {
+        assert_eq!(
+            pick_toadpole_intent(None, true),
+            ToadpoleIntent::Spiken
+        );
+        assert_eq!(
+            pick_toadpole_intent(None, false),
+            ToadpoleIntent::Whirl
+        );
+    }
+
+    #[test]
+    fn toadpole_walks_triangle() {
+        assert_eq!(
+            pick_toadpole_intent(Some(ToadpoleIntent::SpikeSpit), true),
+            ToadpoleIntent::Whirl
+        );
+        assert_eq!(
+            pick_toadpole_intent(Some(ToadpoleIntent::Whirl), true),
+            ToadpoleIntent::Spiken
+        );
+        assert_eq!(
+            pick_toadpole_intent(Some(ToadpoleIntent::Spiken), true),
+            ToadpoleIntent::SpikeSpit
+        );
+        // is_front flag doesn't matter once last_intent is set.
+        assert_eq!(
+            pick_toadpole_intent(Some(ToadpoleIntent::Spiken), false),
+            ToadpoleIntent::SpikeSpit
+        );
+    }
+
+    #[test]
+    fn toadpole_spiken_applies_thorns_two() {
+        let mut cs = ironclad_combat();
+        execute_toadpole_move(&mut cs, 0, 0, ToadpoleIntent::Spiken);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ThornsPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn toadpole_spike_spit_strips_two_thorns_and_hits_thrice() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "ThornsPower", 4);
+        let hp = cs.allies[0].current_hp;
+        execute_toadpole_move(&mut cs, 0, 0, ToadpoleIntent::SpikeSpit);
+        // 3 hits of 3 damage each (no Strength, no Vuln). Pre-SpikeSpit
+        // strips 2 Thorns from self — the player then takes 3 hits, each
+        // bouncing remaining 2 Thorns back on the toadpole.
+        assert_eq!(cs.allies[0].current_hp, hp - 9);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ThornsPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn toadpole_whirl_deals_seven() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_toadpole_move(&mut cs, 0, 0, ToadpoleIntent::Whirl);
+        assert_eq!(cs.allies[0].current_hp, hp - 7);
+    }
+
+    #[test]
+    fn thorns_reflects_damage_on_powered_hit() {
+        // Player attacks enemy with ThornsPower. Player should take
+        // back the thorns amount (unpowered).
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "ThornsPower", 4);
+        let player_hp = cs.allies[0].current_hp;
+        let enemy_hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.allies[0].current_hp, player_hp - 4);
+        assert_eq!(cs.enemies[0].current_hp, enemy_hp - 10);
+    }
+
+    #[test]
+    fn thorns_ignores_unpowered_attack() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "ThornsPower", 4);
+        let player_hp = cs.allies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::UNPOWERED.with(ValueProp::MOVE),
+        );
+        assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    #[test]
+    fn thorns_does_not_recurse_when_both_sides_have_it() {
+        // Both player and enemy have Thorns. Player attacks enemy.
+        // Enemy reflects unpowered → must NOT trigger player's Thorns
+        // back at enemy (recursion). Net: player loses Thorns amount,
+        // enemy loses raw damage, no further bounces.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "ThornsPower", 5);
+        cs.apply_power(CombatSide::Enemy, 0, "ThornsPower", 3);
+        let php = cs.allies[0].current_hp;
+        let ehp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.allies[0].current_hp, php - 3);
+        assert_eq!(cs.enemies[0].current_hp, ehp - 10);
     }
 
     // ---------- SludgeSpinner + FuzzyWurmCrawler tests --------------------
