@@ -12079,24 +12079,25 @@ mod tests {
     #[test]
     fn play_card_unhandled_still_spends_energy_and_routes_to_discard() {
         let mut cs = ironclad_combat();
-        // Survivor isn't dispatched yet (its "discard 1 from hand" branch
-        // needs a card-selection prompt that isn't ported). Confirm the
-        // "Unhandled but state-changes-still-happen" path: energy spent,
-        // card routed to discard.
-        let survivor = card_by_id("Survivor").unwrap();
+        // Sacrifice is one of the cards still SKIPped in the data table —
+        // its body is gated by an IsOstyMissing condition the Condition
+        // vocabulary doesn't yet express. Confirm the "Unhandled but
+        // state-changes-still-happen" path: energy spent, card routed to
+        // discard.
+        let sacrifice = card_by_id("Sacrifice").unwrap();
         cs.allies[0]
             .player
             .as_mut()
             .unwrap()
             .hand
             .cards
-            .push(CardInstance::from_card(survivor, 0));
+            .push(CardInstance::from_card(sacrifice, 0));
         let result = cs.play_card(0, 0, None);
         assert_eq!(result, PlayResult::Unhandled);
         let ps = cs.allies[0].player.as_ref().unwrap();
-        assert_eq!(ps.energy, 2); // Survivor costs 1.
+        assert_eq!(ps.energy, 2); // Sacrifice costs 1.
         assert!(ps.hand.is_empty());
-        assert_eq!(ps.discard.cards.iter().any(|c| c.id == "Survivor"), true);
+        assert_eq!(ps.discard.cards.iter().any(|c| c.id == "Sacrifice"), true);
     }
 
     #[test]

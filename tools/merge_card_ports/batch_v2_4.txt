@@ -1,0 +1,166 @@
+// batch_v2_4.txt — final 53 cards Reanimate..Zap.
+// One match arm per line; SKIP comments otherwise.
+// Conservative encodings only — bespoke / choice-based / unsupported amount-shapes -> SKIP.
+
+// Reanimate.cs L55-59: OstyCmd.Summon(self, Summon var) -- follow PullAggro precedent (osty_id="Default", HP arg dropped).
+        "Reanimate" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string() }]),
+
+// Reboot.cs L44-55: move every hand card to bottom of Draw, then Shuffle Draw, then Draw Cards.
+        "Reboot" => Some(vec![Effect::MoveCard { from: Pile::Hand, to: Pile::Draw, selector: Selector::All }, Effect::Shuffle { pile: Pile::Draw }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+
+// RefineBlade.cs L49-55: Forge(Forge var) + Apply<EnergyNextTurnPower>(self, Energy var).
+        "RefineBlade" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
+
+// Refract.cs L54-67: Attack(Damage) WithHitCount(2) on chosen + Channel<GlassOrb> Repeat times.
+        "Refract" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 2 }, Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::ChannelOrb { orb_id: "Glass".to_string() }] }]),
+
+// Relax.cs L71-78: GainBlock(Block) + Apply<DrawCardsNextTurnPower>(Cards) + Apply<EnergyNextTurnPower>(Energy) all self.
+        "Relax" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "DrawCardsNextTurnPower".to_string(), amount: AmountSpec::Canonical("Cards".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
+
+// SKIP Rend: CalculatedDamage multiplier = count of non-ITemporary Debuff powers on target -- target-debuff-count not in AmountSpec.
+
+// Resonance.cs L56-67: Apply<StrengthPower>(self, +StrengthPower var) then Apply<StrengthPower>(each enemy, -1).
+        "Resonance" => Some(vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(-1), target: Target::AllEnemies }]),
+
+// SKIP Restlessness: body gated by IsOnlyCardInHand (HandSize-excluding-self == 0) -- HandCount-excluding-self not in AmountSpec / Condition.
+
+// SKIP RightHandHand: OstyAttack body gated by Osty-missing check + AfterCardPlayedLate Discard->Hand promotion gated on energy threshold -- multiple unsupported predicates.
+
+// RoyalGamble.cs L53-58: GainStars(Stars).
+        "RoyalGamble" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+
+// SKIP Sacrifice: gated by Osty-missing check; Kill(Osty) + GainBlock(Osty.MaxHp * 2) -- IsOstyMissing condition primitive missing.
+
+// Salvo.cs L46-54: Attack(Damage) chosen + Apply<RetainHandPower>(self, 1).
+        "Salvo" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "RetainHandPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+
+// Scavenge.cs L51-61: PlayerInteractive exhaust 1 from Hand + Apply<EnergyNextTurnPower>(self, Energy).
+        "Scavenge" => Some(vec![Effect::ExhaustCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
+
+// Scourge.cs L49-56: Apply<DoomPower>(chosen, Doom) + Draw(Cards).
+        "Scourge" => Some(vec![Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("Doom".to_string()), target: Target::ChosenEnemy }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+
+// SKIP Scrawl: Draw(10 - HandSize) -- HandCount AmountSpec missing.
+
+// SKIP SecretTechnique: interactive choice from Skill-filtered Draw subset moved to Hand -- PlayerInteractive selector takes no filter.
+
+// SKIP SecretWeapon: interactive choice from Attack-filtered Draw subset moved to Hand -- PlayerInteractive selector takes no filter.
+
+// SKIP Severance: OnPlay body lives in async state-machine (not directly decompiled) and HoverTip references Soul card -- Soul-card factory bespoke, body opaque.
+
+// Shadowmeld.cs L46-50: Apply<ShadowmeldPower>(self, Power).
+        "Shadowmeld" => Some(vec![Effect::ApplyPower { power_id: "ShadowmeldPower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::SelfPlayer }]),
+
+// SharedFate.cs L59-66: Apply<StrengthPower>(self, -PlayerStrengthLoss) + Apply<StrengthPower>(chosen, -EnemyStrengthLoss).
+        "SharedFate" => Some(vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("PlayerStrengthLoss".to_string())), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("EnemyStrengthLoss".to_string())), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::ChosenEnemy }]),
+
+// Shockwave.cs L60-72: Apply<WeakPower>(Power) + Apply<VulnerablePower>(Power) on every hittable enemy.
+        "Shockwave" => Some(vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::AllEnemies }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::AllEnemies }]),
+
+// SKIP SicEm: OstyAttack gated by Osty-missing check then Apply<SicEmPower>(chosen) outside guard -- IsOstyMissing condition primitive missing.
+
+// SignalBoost.cs L44-49: Apply<SignalBoostPower>(self, SignalBoostPower var).
+        "SignalBoost" => Some(vec![Effect::ApplyPower { power_id: "SignalBoostPower".to_string(), amount: AmountSpec::Canonical("SignalBoostPower".to_string()), target: Target::SelfPlayer }]),
+
+// Skewer.cs L46-54: X-cost Attack(Damage) chosen with hits = ResolveEnergyXValue -- wrap as Repeat{XEnergy, [DealDamage{Damage,Chosen,1}]}.
+        "Skewer" => Some(vec![Effect::Repeat { count: AmountSpec::XEnergy, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }]),
+
+// SKIP Snap: OstyAttack gated by Osty-missing check + interactive Hand-pick to apply Retain keyword (filtered to non-Retain) -- unsupported predicate + filtered interactive pick.
+
+// Spite.cs L52-61: Attack(Damage) hits = Repeat var if OwnerLostHpThisTurn else 1 -- expressible via Conditional + Repeat.
+        "Spite" => Some(vec![Effect::Conditional { condition: Condition::OwnerLostHpThisTurn, then_branch: vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }], else_branch: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }]),
+
+// SKIP Splash: CardFactory.GetDistinctForCombat random Attack-from-pool with optional upgrade + ChooseACardScreen + SetToFreeThisTurn -- bespoke factory + choice flow.
+
+// SpoilsMap.cs L18-22 (Quest, Unplayable): no OnPlay; ModifyGeneratedMap + OnQuestComplete rewards are run-state hooks.
+        "SpoilsMap" => Some(vec![]),
+
+// SpoilsOfBattle.cs L48-53: Forge(Forge) + Draw(Cards).
+        "SpoilsOfBattle" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+
+// SKIP Spur: OstyCmd.Summon(Summon var as MaxHp) + Heal Osty -- HP-as-Summon-arg + Heal(Osty) target not in vocabulary.
+
+// Stack.cs L48-65: GainBlock(CalculationBase + CalculationExtra * DiscardCount).
+        "Stack" => Some(vec![Effect::GainBlock { amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("CalculationExtra".to_string())), right: Box::new(AmountSpec::CardCountInPile { pile: PileSelector::Single(Pile::Discard), filter: CardFilter::Any }) }) }, target: Target::SelfPlayer }]),
+
+// SKIP Stoke: exhaust entire hand then CardFactory.GetForCombat generates N character-pool cards into hand -- bespoke factory.
+
+// SKIP StormOfSteel: discard whole hand then Shiv.CreateInHand(handSize) -- bespoke Shiv factory.
+
+// SKIP SummonForth: Forge + pulls all SovereignBlade instances from non-Hand combat piles into Hand -- multi-pile filtered move not in vocabulary.
+
+// Sunder.cs L52-63: Attack(Damage) chosen; if any result.WasTargetKilled, GainEnergy(Energy). Use Conditional with AttackKilledTarget.
+        "Sunder" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::Conditional { condition: Condition::AttackKilledTarget, then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }], else_branch: vec![] }]),
+
+// Survivor.cs L46-56: GainBlock(Block) + PlayerInteractive Discard 1 from Hand.
+        "Survivor" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::DiscardCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+
+// SKIP SweepingGaze: OstyAttack TargetingRandomOpponents gated by Osty-missing check -- IsOstyMissing condition primitive missing.
+
+// SKIP Synchronize: Apply<SynchronizePower>(self, CalculatedFocus = base + extra * distinct-orb-types-in-queue) -- distinct-orb-types count not in AmountSpec.
+
+// Tempest.cs L49-62: X-cost Channel<LightningOrb> X + (upgraded ? 1 : 0) times.
+        "Tempest" => Some(vec![Effect::Repeat { count: AmountSpec::Add { left: Box::new(AmountSpec::XEnergy), right: Box::new(AmountSpec::BranchedOnUpgrade { base: 0, upgraded: 1 }) }, body: vec![Effect::ChannelOrb { orb_id: "Lightning".to_string() }] }]),
+
+// Terraforming.cs L45-49: Apply<VigorPower>(self, VigorPower var).
+        "Terraforming" => Some(vec![Effect::ApplyPower { power_id: "VigorPower".to_string(), amount: AmountSpec::Canonical("VigorPower".to_string()), target: Target::SelfPlayer }]),
+
+// SKIP TheBomb: Apply<TheBombPower>(self, Turns) then SetDamage(BombDamage) on the freshly applied power -- bespoke power-state mutation.
+
+// TheSmith.cs L54-59: Forge(Forge).
+        "TheSmith" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }]),
+
+// SKIP ToricToughness: GainBlock(Block) then Apply<ToricToughnessPower>(Turns).SetBlock(realized-block) -- realized-block read + bespoke power-state mutation.
+
+// Turbo.cs L49-57: GainEnergy(Energy) + add a Void into Discard (bottom).
+        "Turbo" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }, Effect::AddCardToPile { card_id: "Void".to_string(), upgrade: 0, pile: Pile::Discard }]),
+
+// SKIP Undeath: GainBlock(Block) + CreateClone() to discard -- per-card clone-self primitive missing.
+
+// Unrelenting.cs L35-43: Attack(Damage) chosen + Apply<FreeAttackPower>(self, 1).
+        "Unrelenting" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "FreeAttackPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+
+// Uppercut.cs L54-64: Attack(Damage) chosen + Apply<WeakPower>(chosen, Power) + Apply<VulnerablePower>(chosen, Power).
+        "Uppercut" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }]),
+
+// SKIP Uproar: Attack(Damage) 2-hit + AutoPlay a random Attack card from Draw (preferring playable) -- AutoPlay-card-from-filtered-Draw primitive missing.
+
+// Venerate.cs L33-38: GainStars(Stars).
+        "Venerate" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+
+// SKIP Voltaic: Channel<LightningOrb> count = lightning-orbs-channeled-this-combat (OrbChanneledEntry history scan) -- history scan unsupported.
+
+// SKIP WhiteNoise: CardFactory.GetDistinctForCombat random Power card + SetToFreeThisTurn into hand -- bespoke factory.
+
+// Wish.cs L34-48: PlayerInteractive pick 1 card from Draw (sorted by Rarity, Id) into Hand bottom.
+        "Wish" => Some(vec![Effect::MoveCard { from: Pile::Draw, to: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+
+// Zap.cs L39-44: Channel<LightningOrb>.
+        "Zap" => Some(vec![Effect::ChannelOrb { orb_id: "Lightning".to_string() }]),
+
+// ===== Summary =====
+// Encoded:  30  (Reanimate, Reboot, RefineBlade, Refract, Relax, Resonance, RoyalGamble,
+//                Salvo, Scavenge, Scourge, Shadowmeld, SharedFate, Shockwave, SignalBoost,
+//                Skewer, Spite, SpoilsMap, SpoilsOfBattle, Stack, Sunder, Survivor,
+//                Tempest, Terraforming, TheSmith, Turbo, Unrelenting, Uppercut, Venerate,
+//                Wish, Zap)
+// SKIPPED:  23  (Rend, Restlessness, RightHandHand, Sacrifice, Scrawl, SecretTechnique,
+//                SecretWeapon, Severance, SicEm, Snap, Splash, Spur, Stoke, StormOfSteel,
+//                SummonForth, SweepingGaze, Synchronize, TheBomb, ToricToughness, Undeath,
+//                Uproar, Voltaic, WhiteNoise)
+// MISSING:  0  (all 53 source files found at expected paths)
+//
+// Example SKIP reasons:
+//   - Osty-missing guards (Sacrifice, SicEm, Snap, SweepingGaze, RightHandHand) need IsOstyMissing condition.
+//   - CardFactory pool generation (Splash, Stoke, StormOfSteel, WhiteNoise) bespoke.
+//   - History-scan amount (Voltaic) unsupported.
+//   - Filtered interactive selection (SecretTechnique, SecretWeapon) PlayerInteractive selector lacks filter.
+//   - Hand-size derived amount (Scrawl, Restlessness) HandCount AmountSpec missing.
+//   - Post-apply power state mutation (TheBomb, ToricToughness) bespoke.
+//   - Target-debuff-count multiplier (Rend) not in AmountSpec.
+//   - Distinct-orb-type count (Synchronize) not in AmountSpec.
+//   - Multi-pile filtered move (SummonForth) not in vocabulary.
+//   - Per-card clone-self (Undeath) primitive missing.
+//   - AutoPlay-from-filtered-Draw (Uproar) primitive missing.
+//   - Osty-summon-with-HP-arg + Heal-Osty (Spur) target/arg shape mismatch.
+//   - Async-state-machine body referencing Soul card factory (Severance) opaque.

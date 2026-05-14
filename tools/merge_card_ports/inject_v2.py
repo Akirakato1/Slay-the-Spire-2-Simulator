@@ -61,7 +61,7 @@ def collect_existing(effects_src):
 
 
 def main():
-    batch_files = ['batch_v2_1.txt', 'batch_v2_2.txt', 'batch_v2_3.txt']
+    batch_files = ['batch_v2_1.txt', 'batch_v2_2.txt', 'batch_v2_3.txt', 'batch_v2_4.txt']
     all_arms = []
     for fname in batch_files:
         p = os.path.join(here, fname)
@@ -82,17 +82,19 @@ def main():
     with open(effects_path, 'r', encoding='utf-8') as f:
         src = f.read()
 
-    existing = collect_existing(src)
-    # Drop batch entries that already exist in card_effects().
-    fresh = [(n, a) for (n, a) in deduped if n not in existing]
-    dropped = [(n, a) for (n, a) in deduped if n in existing]
-
     # Strip any previously-injected v2 block so re-running is idempotent.
+    # MUST happen before collect_existing, otherwise the script would treat
+    # its own previous output as "existing" and drop everything.
     prev_pattern = re.compile(
         r'\n\s*// ===== Manual v2 card ports.*?(?=        _ => None,\s*\n\s*\}\s*\n\}\s*\n)',
         re.S,
     )
     src = prev_pattern.sub('', src)
+
+    existing = collect_existing(src)
+    # Drop batch entries that already exist in card_effects().
+    fresh = [(n, a) for (n, a) in deduped if n not in existing]
+    dropped = [(n, a) for (n, a) in deduped if n in existing]
 
     # Find the LAST `_ => None,` followed by `}\n}\n` (end of card_effects fn).
     # card_effects function ends with `_ => None,\n    }\n}` — find the

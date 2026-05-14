@@ -1683,10 +1683,8 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP WhiteNoise: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
-
-
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 66 hand-curated arms covering Acrobatics..Rattle.
+        // 96 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -1756,6 +1754,36 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Rage" => Some(vec![Effect::ApplyPower { power_id: "RagePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::SelfPlayer }]),
         "Rainbow" => Some(vec![Effect::ChannelOrb { orb_id: "Lightning".to_string() }, Effect::ChannelOrb { orb_id: "Frost".to_string() }, Effect::ChannelOrb { orb_id: "Dark".to_string() }]),
         "Rally" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        "Reanimate" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string() }]),
+        "Reboot" => Some(vec![Effect::MoveCard { from: Pile::Hand, to: Pile::Draw, selector: Selector::All }, Effect::Shuffle { pile: Pile::Draw }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "RefineBlade" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
+        "Refract" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 2 }, Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::ChannelOrb { orb_id: "Glass".to_string() }] }]),
+        "Relax" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "DrawCardsNextTurnPower".to_string(), amount: AmountSpec::Canonical("Cards".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
+        "Resonance" => Some(vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(-1), target: Target::AllEnemies }]),
+        "RoyalGamble" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+        "Salvo" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "RetainHandPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+        "Scavenge" => Some(vec![Effect::ExhaustCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
+        "Scourge" => Some(vec![Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("Doom".to_string()), target: Target::ChosenEnemy }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "Shadowmeld" => Some(vec![Effect::ApplyPower { power_id: "ShadowmeldPower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::SelfPlayer }]),
+        "SharedFate" => Some(vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("PlayerStrengthLoss".to_string())), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("EnemyStrengthLoss".to_string())), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::ChosenEnemy }]),
+        "Shockwave" => Some(vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::AllEnemies }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::AllEnemies }]),
+        "SignalBoost" => Some(vec![Effect::ApplyPower { power_id: "SignalBoostPower".to_string(), amount: AmountSpec::Canonical("SignalBoostPower".to_string()), target: Target::SelfPlayer }]),
+        "Skewer" => Some(vec![Effect::Repeat { count: AmountSpec::XEnergy, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }]),
+        "Spite" => Some(vec![Effect::Conditional { condition: Condition::OwnerLostHpThisTurn, then_branch: vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }], else_branch: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }] }]),
+        "SpoilsMap" => Some(vec![]),
+        "SpoilsOfBattle" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "Stack" => Some(vec![Effect::GainBlock { amount: AmountSpec::Add { left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())), right: Box::new(AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("CalculationExtra".to_string())), right: Box::new(AmountSpec::CardCountInPile { pile: PileSelector::Single(Pile::Discard), filter: CardFilter::Any }) }) }, target: Target::SelfPlayer }]),
+        "Sunder" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::Conditional { condition: Condition::AttackKilledTarget, then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }], else_branch: vec![] }]),
+        "Survivor" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::DiscardCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+        "Tempest" => Some(vec![Effect::Repeat { count: AmountSpec::Add { left: Box::new(AmountSpec::XEnergy), right: Box::new(AmountSpec::BranchedOnUpgrade { base: 0, upgraded: 1 }) }, body: vec![Effect::ChannelOrb { orb_id: "Lightning".to_string() }] }]),
+        "Terraforming" => Some(vec![Effect::ApplyPower { power_id: "VigorPower".to_string(), amount: AmountSpec::Canonical("VigorPower".to_string()), target: Target::SelfPlayer }]),
+        "TheSmith" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }]),
+        "Turbo" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }, Effect::AddCardToPile { card_id: "Void".to_string(), upgrade: 0, pile: Pile::Discard }]),
+        "Unrelenting" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "FreeAttackPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+        "Uppercut" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }]),
+        "Venerate" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+        "Wish" => Some(vec![Effect::MoveCard { from: Pile::Draw, to: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
+        "Zap" => Some(vec![Effect::ChannelOrb { orb_id: "Lightning".to_string() }]),
 
         _ => None,
     }
