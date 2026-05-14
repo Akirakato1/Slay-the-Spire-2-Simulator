@@ -788,6 +788,13 @@ impl CombatState {
         if self.current_side == CombatSide::Enemy {
             self.tick_slumber_powers();
         }
+        // AsleepPower: same shape as Slumber — decrement at owner
+        // turn end; at 0 remove Plating too and wake (remove
+        // Asleep). LagavulinMatriarch uses this to sleep for 3
+        // owner-turns then unconditionally awaken.
+        if self.current_side == CombatSide::Enemy {
+            self.tick_asleep_powers();
+        }
         // VigorPower drain: subtract the per-turn snapshot from
         // VigorPower on each enemy. The snapshot was taken at
         // begin_turn(Enemy); Vigor applied DURING the turn is
@@ -875,6 +882,37 @@ impl CombatState {
         }
         for idx in to_dec {
             self.decrement_power(side, idx, "EscapeArtistPower", 1);
+        }
+    }
+
+    /// AsleepPower end-of-enemy-turn tick: decrement each enemy's
+    /// Asleep by 1; at 0, also remove Plating (Lagavulin spawns with
+    /// both, and the C# behavior strips Plating when Asleep clears).
+    fn tick_asleep_powers(&mut self) {
+        let n = self.enemies.len();
+        let mut targets: Vec<usize> = Vec::new();
+        for i in 0..n {
+            if self.enemies[i].current_hp <= 0 {
+                continue;
+            }
+            let asleep = self.enemies[i]
+                .powers
+                .iter()
+                .find(|p| p.id == "AsleepPower")
+                .map(|p| p.amount)
+                .unwrap_or(0);
+            if asleep > 0 {
+                targets.push(i);
+            }
+        }
+        for i in targets {
+            self.decrement_power(CombatSide::Enemy, i, "AsleepPower", 1);
+            if self.get_power_amount(CombatSide::Enemy, i, "AsleepPower")
+                <= 0
+            {
+                self.remove_power(CombatSide::Enemy, i, "AsleepPower");
+                self.remove_power(CombatSide::Enemy, i, "PlatingPower");
+            }
         }
     }
 
@@ -1795,6 +1833,16 @@ impl CombatState {
                         }
                     }
                 }
+            } else if power_id == "AsleepPower" {
+                // AsleepPower.AfterDamageReceived: any unblocked
+                // damage immediately wakes the owner — remove
+                // PlatingPower (if present) and remove the
+                // AsleepPower stack. C# also stun-wakes the owner
+                // and forces SLASH_MOVE; we skip the stun and let
+                // the state machine see "no Asleep" on the next
+                // intent pick and route to Slash.
+                self.remove_power(target.0, target.1, "PlatingPower");
+                self.remove_power(target.0, target.1, "AsleepPower");
             } else if power_id == "SlumberPower" {
                 // SlumberPower.AfterDamageReceived: any unblocked
                 // damage decrements the counter (C# uses
@@ -4077,6 +4125,172 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: LagavulinMatriarch -------------------------
+//
+// Reflects C# `LagavulinMatriarch.GenerateMoveStateMachine`:
+//   Init: Sleep.
+//   Sleep → branch:
+//     - HasAsleep    → Sleep (loops while asleep)
+//     - !HasAsleep   → Slash (woke up via Asleep removal)
+//   Slash → Disembowel → Slash2 → SoulSiphon → Slash (loops awake).
+//
+// Spawn (AfterAddedToRoom): PlatingPower(12), AsleepPower(3).
+// AsleepPower wakes either:
+//   - on first unblocked-damage hit (fire_after_damage_received
+//     hook above)
+//   - at end of owner-turn-3 (tick_asleep_powers decrements; at 0
+//     also strips Plating). Mirrors C# `BeforeTurnEndVeryEarly +
+//     AfterTurnEnd`.
+//
+// A0 payloads:
+//   - Sleep:      no-op
+//   - Slash:      19 damage (DeadlyEnemies: 21)
+//   - Slash2:     12 damage + 12 block (ToughEnemies: 14 block;
+//                 DeadlyEnemies: 14 dmg)
+//   - Disembowel: 9 damage × 2 hits (DeadlyEnemies: 10)
+//   - SoulSiphon: -2 Strength + -2 Dexterity on player + +2 self
+//                 Strength
+
+const LAGAVULIN_PLATING_AMOUNT: i32 = 12;
+const LAGAVULIN_ASLEEP_AMOUNT: i32 = 3;
+const LAGAVULIN_SLASH_DAMAGE: i32 = 19;
+const LAGAVULIN_SLASH2_DAMAGE: i32 = 12;
+const LAGAVULIN_SLASH2_BLOCK: i32 = 12;
+const LAGAVULIN_DISEMBOWEL_DAMAGE: i32 = 9;
+const LAGAVULIN_DISEMBOWEL_HITS: i32 = 2;
+const LAGAVULIN_SOUL_SIPHON_DEBUFF: i32 = 2;
+const LAGAVULIN_SOUL_SIPHON_STRENGTH: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum LagavulinMatriarchIntent {
+    Sleep,
+    Slash,
+    Slash2,
+    Disembowel,
+    SoulSiphon,
+}
+
+impl LagavulinMatriarchIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            LagavulinMatriarchIntent::Sleep => "SLEEP_MOVE",
+            LagavulinMatriarchIntent::Slash => "SLASH_MOVE",
+            LagavulinMatriarchIntent::Slash2 => "SLASH2_MOVE",
+            LagavulinMatriarchIntent::Disembowel => "DISEMBOWEL_MOVE",
+            LagavulinMatriarchIntent::SoulSiphon => "SOUL_SIPHON_MOVE",
+        }
+    }
+}
+
+pub fn lagavulin_matriarch_spawn(cs: &mut CombatState, lag_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        lag_idx,
+        "PlatingPower",
+        LAGAVULIN_PLATING_AMOUNT,
+    );
+    cs.apply_power(
+        CombatSide::Enemy,
+        lag_idx,
+        "AsleepPower",
+        LAGAVULIN_ASLEEP_AMOUNT,
+    );
+}
+
+pub fn pick_lagavulin_matriarch_intent(
+    last_intent: Option<LagavulinMatriarchIntent>,
+    has_asleep: bool,
+) -> LagavulinMatriarchIntent {
+    if has_asleep {
+        return LagavulinMatriarchIntent::Sleep;
+    }
+    match last_intent {
+        // Just woke up (last was Sleep) or first awake move.
+        None | Some(LagavulinMatriarchIntent::Sleep) => {
+            LagavulinMatriarchIntent::Slash
+        }
+        Some(LagavulinMatriarchIntent::Slash) => {
+            LagavulinMatriarchIntent::Disembowel
+        }
+        Some(LagavulinMatriarchIntent::Disembowel) => {
+            LagavulinMatriarchIntent::Slash2
+        }
+        Some(LagavulinMatriarchIntent::Slash2) => {
+            LagavulinMatriarchIntent::SoulSiphon
+        }
+        Some(LagavulinMatriarchIntent::SoulSiphon) => {
+            LagavulinMatriarchIntent::Slash
+        }
+    }
+}
+
+pub fn execute_lagavulin_matriarch_move(
+    cs: &mut CombatState,
+    lag_idx: usize,
+    target_player_idx: usize,
+    intent: LagavulinMatriarchIntent,
+) {
+    let attacker = (CombatSide::Enemy, lag_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        LagavulinMatriarchIntent::Sleep => {
+            // No-op — SleepIntent. The Asleep tick + first-damage
+            // hook is what eventually wakes her.
+        }
+        LagavulinMatriarchIntent::Slash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                LAGAVULIN_SLASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        LagavulinMatriarchIntent::Slash2 => {
+            cs.deal_damage(
+                attacker,
+                player,
+                LAGAVULIN_SLASH2_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.gain_block(
+                CombatSide::Enemy,
+                lag_idx,
+                LAGAVULIN_SLASH2_BLOCK,
+            );
+        }
+        LagavulinMatriarchIntent::Disembowel => {
+            for _ in 0..LAGAVULIN_DISEMBOWEL_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    LAGAVULIN_DISEMBOWEL_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        LagavulinMatriarchIntent::SoulSiphon => {
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "StrengthPower",
+                -LAGAVULIN_SOUL_SIPHON_DEBUFF,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "DexterityPower",
+                -LAGAVULIN_SOUL_SIPHON_DEBUFF,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                lag_idx,
+                "StrengthPower",
+                LAGAVULIN_SOUL_SIPHON_STRENGTH,
+            );
         }
     }
 }
@@ -13910,6 +14124,148 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- LagavulinMatriarch + AsleepPower tests ---------------------
+
+    #[test]
+    fn lagavulin_sleeps_while_asleep_up() {
+        assert_eq!(
+            pick_lagavulin_matriarch_intent(None, true),
+            LagavulinMatriarchIntent::Sleep
+        );
+        assert_eq!(
+            pick_lagavulin_matriarch_intent(
+                Some(LagavulinMatriarchIntent::Sleep),
+                true
+            ),
+            LagavulinMatriarchIntent::Sleep
+        );
+    }
+
+    #[test]
+    fn lagavulin_wakes_into_slash_then_loops() {
+        assert_eq!(
+            pick_lagavulin_matriarch_intent(
+                Some(LagavulinMatriarchIntent::Sleep),
+                false
+            ),
+            LagavulinMatriarchIntent::Slash
+        );
+        assert_eq!(
+            pick_lagavulin_matriarch_intent(
+                Some(LagavulinMatriarchIntent::Slash),
+                false
+            ),
+            LagavulinMatriarchIntent::Disembowel
+        );
+        assert_eq!(
+            pick_lagavulin_matriarch_intent(
+                Some(LagavulinMatriarchIntent::Disembowel),
+                false
+            ),
+            LagavulinMatriarchIntent::Slash2
+        );
+        assert_eq!(
+            pick_lagavulin_matriarch_intent(
+                Some(LagavulinMatriarchIntent::Slash2),
+                false
+            ),
+            LagavulinMatriarchIntent::SoulSiphon
+        );
+        assert_eq!(
+            pick_lagavulin_matriarch_intent(
+                Some(LagavulinMatriarchIntent::SoulSiphon),
+                false
+            ),
+            LagavulinMatriarchIntent::Slash
+        );
+    }
+
+    #[test]
+    fn lagavulin_spawn_applies_plating_and_asleep() {
+        let mut cs = ironclad_combat();
+        lagavulin_matriarch_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PlatingPower"),
+            12
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "AsleepPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn asleep_wakes_on_first_unblocked_damage_removes_plating() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PlatingPower", 12);
+        cs.apply_power(CombatSide::Enemy, 0, "AsleepPower", 3);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            5,
+            ValueProp::MOVE,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "AsleepPower"),
+            0
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PlatingPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn asleep_does_not_wake_when_fully_blocked() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PlatingPower", 12);
+        cs.apply_power(CombatSide::Enemy, 0, "AsleepPower", 3);
+        cs.gain_block(CombatSide::Enemy, 0, 100);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            5,
+            ValueProp::MOVE,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "AsleepPower"),
+            3
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PlatingPower"),
+            12
+        );
+    }
+
+    #[test]
+    fn asleep_decrements_at_enemy_turn_end() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "AsleepPower", 3);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "AsleepPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn asleep_natural_wake_strips_plating_at_zero() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "PlatingPower", 12);
+        cs.apply_power(CombatSide::Enemy, 0, "AsleepPower", 1);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "AsleepPower"),
+            0
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PlatingPower"),
+            0
+        );
     }
 
     // ---------- HauntedShip tests ------------------------------------------

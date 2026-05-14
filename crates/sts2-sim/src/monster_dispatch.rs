@@ -51,6 +51,7 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
                 cs.apply_power(CombatSide::Enemy, i, "PlatingPower", 6);
             }
             "SlumberingBeetle" => slumbering_beetle_spawn(cs, i),
+            "LagavulinMatriarch" => lagavulin_matriarch_spawn(cs, i),
             "Crusher" => {
                 cs.apply_power(
                     CombatSide::Enemy,
@@ -154,6 +155,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "Rocket"
             | "Queen"
             | "HauntedShip"
+            | "LagavulinMatriarch"
     )
 }
 
@@ -768,6 +770,23 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "LagavulinMatriarch" => {
+            let last = last_ref.and_then(|s| match s {
+                "SLEEP_MOVE" => Some(LagavulinMatriarchIntent::Sleep),
+                "SLASH_MOVE" => Some(LagavulinMatriarchIntent::Slash),
+                "SLASH2_MOVE" => Some(LagavulinMatriarchIntent::Slash2),
+                "DISEMBOWEL_MOVE" => Some(LagavulinMatriarchIntent::Disembowel),
+                "SOUL_SIPHON_MOVE" => Some(LagavulinMatriarchIntent::SoulSiphon),
+                _ => None,
+            });
+            let has_asleep = cs.enemies[enemy_idx]
+                .powers
+                .iter()
+                .any(|p| p.id == "AsleepPower" && p.amount > 0);
+            let intent = pick_lagavulin_matriarch_intent(last, has_asleep);
+            execute_lagavulin_matriarch_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "HauntedShip" => {
