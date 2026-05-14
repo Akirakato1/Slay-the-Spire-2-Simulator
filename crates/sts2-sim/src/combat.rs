@@ -4081,6 +4081,180 @@ pub fn execute_owl_magistrate_move(
     }
 }
 
+// ---------- Monster intent: Queen (boss) -------------------------------
+//
+// Reflects C# `Queen.GenerateMoveStateMachine`:
+//   Init: PuppetStrings.
+//   Chain depends on whether the TorchHeadAmalgam teammate has died:
+//     - PuppetStrings → YoureMine
+//     - YoureMine → branch:
+//         amalgam alive → BurnBrightForMe
+//         amalgam dead  → OffWithYourHead
+//     - BurnBrightForMe → branch:
+//         amalgam alive → BurnBrightForMe (loops)
+//         amalgam dead  → OffWithYourHead
+//     - OffWithYourHead → Execution → Enrage → OffWithYourHead (loop)
+//
+// A0 payloads:
+//   - PuppetStrings:   apply ChainsOfBindingPower(3) [marker] to player
+//                      (per-card affliction-on-draw deferred)
+//   - YoureMine:       apply 99 Frail + 99 Weak + 99 Vulnerable
+//   - BurnBrightForMe: each living teammate gets +1 Strength; Queen
+//                      gains 20 block
+//   - OffWithYourHead: 3 dmg × 5 hits (DeadlyEnemies: 4)
+//   - Execution:       15 damage (DeadlyEnemies: 18)
+//   - Enrage:          +2 self-Strength
+
+const QUEEN_CHAINS_AMOUNT: i32 = 3;
+const QUEEN_YOURE_MINE_AMOUNT: i32 = 99;
+const QUEEN_BURN_BRIGHT_BLOCK: i32 = 20;
+const QUEEN_BURN_BRIGHT_TEAMMATE_STRENGTH: i32 = 1;
+const QUEEN_OFF_WITH_HEAD_DAMAGE: i32 = 3;
+const QUEEN_OFF_WITH_HEAD_HITS: i32 = 5;
+const QUEEN_EXECUTION_DAMAGE: i32 = 15;
+const QUEEN_ENRAGE_STRENGTH: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum QueenIntent {
+    PuppetStrings,
+    YoureMine,
+    BurnBrightForMe,
+    OffWithYourHead,
+    Execution,
+    Enrage,
+}
+
+impl QueenIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            QueenIntent::PuppetStrings => "PUPPET_STRINGS_MOVE",
+            QueenIntent::YoureMine => "YOUR_MINE_MOVE",
+            QueenIntent::BurnBrightForMe => "BURN_BRIGHT_FOR_ME_MOVE",
+            QueenIntent::OffWithYourHead => "OFF_WITH_YOUR_HEAD_MOVE",
+            QueenIntent::Execution => "EXECUTION_MOVE",
+            QueenIntent::Enrage => "ENRAGE_MOVE",
+        }
+    }
+}
+
+pub fn pick_queen_intent(
+    last_intent: Option<QueenIntent>,
+    amalgam_dead: bool,
+) -> QueenIntent {
+    match last_intent {
+        None => QueenIntent::PuppetStrings,
+        Some(QueenIntent::PuppetStrings) => QueenIntent::YoureMine,
+        Some(QueenIntent::YoureMine) => {
+            if amalgam_dead {
+                QueenIntent::OffWithYourHead
+            } else {
+                QueenIntent::BurnBrightForMe
+            }
+        }
+        Some(QueenIntent::BurnBrightForMe) => {
+            if amalgam_dead {
+                QueenIntent::OffWithYourHead
+            } else {
+                QueenIntent::BurnBrightForMe
+            }
+        }
+        Some(QueenIntent::OffWithYourHead) => QueenIntent::Execution,
+        Some(QueenIntent::Execution) => QueenIntent::Enrage,
+        Some(QueenIntent::Enrage) => QueenIntent::OffWithYourHead,
+    }
+}
+
+pub fn execute_queen_move(
+    cs: &mut CombatState,
+    queen_idx: usize,
+    target_player_idx: usize,
+    intent: QueenIntent,
+) {
+    let attacker = (CombatSide::Enemy, queen_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        QueenIntent::PuppetStrings => {
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "ChainsOfBindingPower",
+                QUEEN_CHAINS_AMOUNT,
+            );
+        }
+        QueenIntent::YoureMine => {
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "FrailPower",
+                QUEEN_YOURE_MINE_AMOUNT,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "WeakPower",
+                QUEEN_YOURE_MINE_AMOUNT,
+            );
+            cs.apply_power(
+                CombatSide::Player,
+                target_player_idx,
+                "VulnerablePower",
+                QUEEN_YOURE_MINE_AMOUNT,
+            );
+        }
+        QueenIntent::BurnBrightForMe => {
+            // Grant +1 Strength to every living teammate (= other
+            // alive enemies). Queen herself doesn't get Strength —
+            // C# uses `teammate != base.Creature` filter. Then Queen
+            // gains 20 block.
+            let n = cs.enemies.len();
+            for i in 0..n {
+                if i == queen_idx {
+                    continue;
+                }
+                if cs.enemies[i].current_hp > 0 {
+                    cs.apply_power(
+                        CombatSide::Enemy,
+                        i,
+                        "StrengthPower",
+                        QUEEN_BURN_BRIGHT_TEAMMATE_STRENGTH,
+                    );
+                }
+            }
+            cs.gain_block(
+                CombatSide::Enemy,
+                queen_idx,
+                QUEEN_BURN_BRIGHT_BLOCK,
+            );
+        }
+        QueenIntent::OffWithYourHead => {
+            for _ in 0..QUEEN_OFF_WITH_HEAD_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    QUEEN_OFF_WITH_HEAD_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        QueenIntent::Execution => {
+            cs.deal_damage(
+                attacker,
+                player,
+                QUEEN_EXECUTION_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        QueenIntent::Enrage => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                queen_idx,
+                "StrengthPower",
+                QUEEN_ENRAGE_STRENGTH,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: Crusher (KaiserCrabBoss left arm) ----------
 //
 // Reflects C# `Crusher.GenerateMoveStateMachine`:
@@ -13620,6 +13794,103 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- Queen tests ------------------------------------------------
+
+    #[test]
+    fn queen_walks_alive_amalgam_path() {
+        // alive amalgam → PuppetStrings → YoureMine → BurnBright
+        // (loops).
+        assert_eq!(
+            pick_queen_intent(None, false),
+            QueenIntent::PuppetStrings
+        );
+        assert_eq!(
+            pick_queen_intent(Some(QueenIntent::PuppetStrings), false),
+            QueenIntent::YoureMine
+        );
+        assert_eq!(
+            pick_queen_intent(Some(QueenIntent::YoureMine), false),
+            QueenIntent::BurnBrightForMe
+        );
+        for _ in 0..3 {
+            assert_eq!(
+                pick_queen_intent(Some(QueenIntent::BurnBrightForMe), false),
+                QueenIntent::BurnBrightForMe
+            );
+        }
+    }
+
+    #[test]
+    fn queen_pivots_when_amalgam_dies() {
+        // YoureMine → OffWithYourHead → Execution → Enrage →
+        // OffWithYourHead (loop).
+        assert_eq!(
+            pick_queen_intent(Some(QueenIntent::YoureMine), true),
+            QueenIntent::OffWithYourHead
+        );
+        assert_eq!(
+            pick_queen_intent(Some(QueenIntent::OffWithYourHead), true),
+            QueenIntent::Execution
+        );
+        assert_eq!(
+            pick_queen_intent(Some(QueenIntent::Execution), true),
+            QueenIntent::Enrage
+        );
+        assert_eq!(
+            pick_queen_intent(Some(QueenIntent::Enrage), true),
+            QueenIntent::OffWithYourHead
+        );
+        // BurnBrightForMe with amalgam dead also pivots.
+        assert_eq!(
+            pick_queen_intent(Some(QueenIntent::BurnBrightForMe), true),
+            QueenIntent::OffWithYourHead
+        );
+    }
+
+    #[test]
+    fn queen_youre_mine_applies_99_each() {
+        let mut cs = ironclad_combat();
+        execute_queen_move(&mut cs, 0, 0, QueenIntent::YoureMine);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "FrailPower"),
+            99
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "WeakPower"),
+            99
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "VulnerablePower"),
+            99
+        );
+    }
+
+    #[test]
+    fn queen_off_with_head_3_times_5() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_queen_move(&mut cs, 0, 0, QueenIntent::OffWithYourHead);
+        assert_eq!(cs.allies[0].current_hp, hp - 15);
+    }
+
+    #[test]
+    fn queen_execution_deals_fifteen() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_queen_move(&mut cs, 0, 0, QueenIntent::Execution);
+        assert_eq!(cs.allies[0].current_hp, hp - 15);
+    }
+
+    #[test]
+    fn queen_enrage_grants_two_strength() {
+        let mut cs = ironclad_combat();
+        execute_queen_move(&mut cs, 0, 0, QueenIntent::Enrage);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
     }
 
     // ---------- Crusher + Rocket tests -------------------------------------

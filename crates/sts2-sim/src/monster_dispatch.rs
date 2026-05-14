@@ -152,6 +152,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "Ovicopter"
             | "Crusher"
             | "Rocket"
+            | "Queen"
     )
 }
 
@@ -766,6 +767,27 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "Queen" => {
+            let last = last_ref.and_then(|s| match s {
+                "PUPPET_STRINGS_MOVE" => Some(QueenIntent::PuppetStrings),
+                "YOUR_MINE_MOVE" => Some(QueenIntent::YoureMine),
+                "BURN_BRIGHT_FOR_ME_MOVE" => Some(QueenIntent::BurnBrightForMe),
+                "OFF_WITH_YOUR_HEAD_MOVE" => Some(QueenIntent::OffWithYourHead),
+                "EXECUTION_MOVE" => Some(QueenIntent::Execution),
+                "ENRAGE_MOVE" => Some(QueenIntent::Enrage),
+                _ => None,
+            });
+            // amalgam_dead: any TorchHeadAmalgam in the encounter
+            // with current_hp == 0 (it spawned and is no longer
+            // alive). If none ever spawned, treat as alive (default
+            // BurnBrightForMe path).
+            let amalgam_dead = cs.enemies.iter().any(|e| {
+                e.model_id == "TorchHeadAmalgam" && e.current_hp <= 0
+            });
+            let intent = pick_queen_intent(last, amalgam_dead);
+            execute_queen_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "Crusher" => {
