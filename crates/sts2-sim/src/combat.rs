@@ -3265,6 +3265,99 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: Chomper ------------------------------------
+//
+// Reflects C# `Chomper.GenerateMoveStateMachine`:
+//   On spawn: applies ArtifactPower(2). Power stack tracked but the
+//   debuff-absorb behavior (Artifact eats N debuffs before they apply)
+//   is deferred — would need an AfterApplied hook on debuffs.
+//
+//   Init: scream_first flag-based:
+//     - scream_first=true → Screech
+//     - scream_first=false (default) → Clamp
+//   Cycle: Clamp ↔ Screech strict alternation.
+//
+// A0 payloads:
+//   - Clamp: 8 damage × 2 hits (DeadlyEnemies: 9)
+//   - Screech: add 3 Dazed status cards to player's discard
+
+const CHOMPER_CLAMP_DAMAGE: i32 = 8;
+const CHOMPER_CLAMP_HITS: i32 = 2;
+const CHOMPER_SCREECH_DAZED_COUNT: i32 = 3;
+const CHOMPER_ARTIFACT_AMOUNT: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ChomperIntent {
+    Clamp,
+    Screech,
+}
+
+impl ChomperIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            ChomperIntent::Clamp => "CLAMP_MOVE",
+            ChomperIntent::Screech => "SCREECH_MOVE",
+        }
+    }
+}
+
+/// The Chomper spawn payload — caller invokes once when the chomper
+/// is added to combat. Mirrors C# `AfterAddedToRoom`.
+pub fn chomper_spawn(cs: &mut CombatState, chomper_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        chomper_idx,
+        "ArtifactPower",
+        CHOMPER_ARTIFACT_AMOUNT,
+    );
+}
+
+/// Pick Chomper's next intent. scream_first=true → init Screech, else
+/// init Clamp. Cycle: Clamp ↔ Screech.
+pub fn pick_chomper_intent(
+    last_intent: Option<ChomperIntent>,
+    scream_first: bool,
+) -> ChomperIntent {
+    match last_intent {
+        None if scream_first => ChomperIntent::Screech,
+        None => ChomperIntent::Clamp,
+        Some(ChomperIntent::Clamp) => ChomperIntent::Screech,
+        Some(ChomperIntent::Screech) => ChomperIntent::Clamp,
+    }
+}
+
+pub fn execute_chomper_move(
+    cs: &mut CombatState,
+    chomper_idx: usize,
+    target_player_idx: usize,
+    intent: ChomperIntent,
+) {
+    let attacker = (CombatSide::Enemy, chomper_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        ChomperIntent::Clamp => {
+            for _ in 0..CHOMPER_CLAMP_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    CHOMPER_CLAMP_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        ChomperIntent::Screech => {
+            for _ in 0..CHOMPER_SCREECH_DAZED_COUNT {
+                cs.add_card_to_pile(
+                    target_player_idx,
+                    "Dazed",
+                    0,
+                    PileType::Discard,
+                );
+            }
+        }
+    }
+}
+
 // ---------- Monster intent: TurretOperator -----------------------------
 //
 // Reflects C# `TurretOperator.GenerateMoveStateMachine`. Deterministic
@@ -8498,6 +8591,57 @@ mod tests {
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
         );
+    }
+
+    // ---------- Chomper tests ---------------------------------------------
+
+    #[test]
+    fn chomper_default_init_is_clamp() {
+        assert_eq!(pick_chomper_intent(None, false), ChomperIntent::Clamp);
+    }
+
+    #[test]
+    fn chomper_scream_first_init_is_screech() {
+        assert_eq!(pick_chomper_intent(None, true), ChomperIntent::Screech);
+    }
+
+    #[test]
+    fn chomper_alternates() {
+        assert_eq!(
+            pick_chomper_intent(Some(ChomperIntent::Clamp), false),
+            ChomperIntent::Screech
+        );
+        assert_eq!(
+            pick_chomper_intent(Some(ChomperIntent::Screech), false),
+            ChomperIntent::Clamp
+        );
+    }
+
+    #[test]
+    fn chomper_spawn_applies_artifact_two() {
+        let mut cs = ironclad_combat();
+        chomper_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ArtifactPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn chomper_clamp_hits_twice_for_eight() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_chomper_move(&mut cs, 0, 0, ChomperIntent::Clamp);
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+    }
+
+    #[test]
+    fn chomper_screech_adds_three_dazed() {
+        let mut cs = ironclad_combat();
+        execute_chomper_move(&mut cs, 0, 0, ChomperIntent::Screech);
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        let dazed = ps.discard.cards.iter().filter(|c| c.id == "Dazed").count();
+        assert_eq!(dazed, 3);
     }
 
     // ---------- TurretOperator tests --------------------------------------

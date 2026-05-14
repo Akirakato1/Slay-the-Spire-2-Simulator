@@ -43,6 +43,7 @@ PORTED_INTENT_MACHINES = {
     "TwigSlimeM",
     "LeafSlimeM",
     "TurretOperator",
+    "Chomper",
 }
 
 
