@@ -302,6 +302,16 @@ pub struct CardInstance {
     /// Enchantment attached to this card, if any. Damage / block hooks
     /// read this during the modifier pipeline.
     pub enchantment: Option<EnchantmentInstance>,
+    /// Cost override valid until end-of-turn. BulletTime
+    /// (`SetToFreeThisTurn`), Enlightenment-non-upgraded
+    /// (`SetThisTurnOrUntilPlayed`). Cleared at begin_turn(Player).
+    pub cost_override_this_turn: Option<i32>,
+    /// Cost override valid until combat end. Enlightenment-upgraded
+    /// (`SetThisCombat`), Modded.
+    pub cost_override_this_combat: Option<i32>,
+    /// Cost override valid until next play of this card.
+    /// Enlightenment-non-upgraded's "OrUntilPlayed" half.
+    pub cost_override_until_played: Option<i32>,
 }
 
 /// One enchantment attached to a card. `id` matches `EnchantmentData.id`;
@@ -330,7 +340,29 @@ impl CardInstance {
             current_energy_cost: upgraded_cost,
             tags_this_turn: Vec::new(),
             enchantment: None,
+            cost_override_this_turn: None,
+            cost_override_this_combat: None,
+            cost_override_until_played: None,
         }
+    }
+
+    /// Effective energy cost at play time, honoring active overrides.
+    /// Priority (highest first): `cost_override_until_played` >
+    /// `cost_override_this_turn` > `cost_override_this_combat` >
+    /// `current_energy_cost`. Mirrors C# `CardModel.EnergyCost` with
+    /// the SetThisTurn / SetThisCombat / SetThisTurnOrUntilPlayed
+    /// override priority chain.
+    pub fn effective_energy_cost(&self) -> i32 {
+        if let Some(c) = self.cost_override_until_played {
+            return c.max(0);
+        }
+        if let Some(c) = self.cost_override_this_turn {
+            return c.max(0);
+        }
+        if let Some(c) = self.cost_override_this_combat {
+            return c.max(0);
+        }
+        self.current_energy_cost.max(0)
     }
 }
 
@@ -507,6 +539,19 @@ impl CombatState {
                     }
                     if let Some(ps) = ally.player.as_mut() {
                         ps.energy = ps.turn_energy;
+                        // Clear per-turn cost overrides (BulletTime /
+                        // Enlightenment-non-upgraded ThisTurnOrUntilPlayed).
+                        // Mirrors C# CardModel.EnergyCost.ClearThisTurn.
+                        for pile in [
+                            &mut ps.hand,
+                            &mut ps.draw,
+                            &mut ps.discard,
+                            &mut ps.exhaust,
+                        ] {
+                            for c in pile.cards.iter_mut() {
+                                c.cost_override_this_turn = None;
+                            }
+                        }
                     }
                 }
             }
@@ -2853,7 +2898,7 @@ impl CombatState {
                 energy_cost = ps.energy.max(0);
                 x_value = energy_cost;
             } else {
-                energy_cost = card.current_energy_cost;
+                energy_cost = card.effective_energy_cost();
                 x_value = 0;
             }
             if ps.energy < energy_cost {
@@ -2894,10 +2939,14 @@ impl CombatState {
         //    We hold it here until OnPlay finishes; some cards (e.g.,
         //    exhausting attacks) need their CardInstance available during
         //    OnPlay before routing.
-        let played_card = {
+        let mut played_card = {
             let ps = self.allies[player_idx].player.as_mut().unwrap();
             ps.hand.cards.remove(hand_idx)
         };
+        // `cost_override_until_played` consumed by THIS play — clear so
+        // the override doesn't survive if the card lands back in hand
+        // (e.g., a future "return to hand" effect).
+        played_card.cost_override_until_played = None;
 
         // Emit CardPlayed event for history-scan AmountSpecs and
         // FirstPlayOfSourceCardThisTurn / PlaysThisTurnLt conditions.

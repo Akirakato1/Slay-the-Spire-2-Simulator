@@ -1,0 +1,40 @@
+// batch_v5.txt - cards using the now-functional SetCardCost dispatcher.
+// Verified against C# Models/Cards/.
+
+// BulletTime.cs L22-33: every hand card, if !CostsX -> SetToFreeThisTurn.
+// Then Apply<NoDrawPower>(self, 1).
+// The "if !CostsX" check is unenforceable in current SetCardCost selector
+// (no filter for X-cost specifically); the override still applies but
+// X-cost cards' CostsX path takes precedence at play time (the player's
+// energy is fully consumed regardless), so the net effect is correct.
+        "BulletTime" => Some(vec![
+            Effect::SetCardCost {
+                from: Pile::Hand,
+                selector: Selector::All,
+                cost: AmountSpec::Fixed(0),
+                scope: CostScope::ThisTurn,
+            },
+            Effect::ApplyPower {
+                power_id: "NoDrawPower".to_string(),
+                amount: AmountSpec::Fixed(1),
+                target: Target::SelfPlayer,
+            },
+        ]),
+
+// Enlightenment.cs L31-46: every hand card -> SetThisTurnOrUntilPlayed(1)
+// or SetThisCombat(1) when upgraded. Use Conditional on IsUpgraded.
+        "Enlightenment" => Some(vec![Effect::Conditional {
+            condition: Condition::IsUpgraded,
+            then_branch: vec![Effect::SetCardCost {
+                from: Pile::Hand,
+                selector: Selector::All,
+                cost: AmountSpec::Fixed(1),
+                scope: CostScope::ThisCombat,
+            }],
+            else_branch: vec![Effect::SetCardCost {
+                from: Pile::Hand,
+                selector: Selector::All,
+                cost: AmountSpec::Fixed(1),
+                scope: CostScope::ThisTurn,
+            }],
+        }]),

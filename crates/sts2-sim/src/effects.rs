@@ -3368,7 +3368,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 149 hand-curated arms covering Acrobatics..Rattle.
+        // 151 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -3557,6 +3557,34 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         target: Target::ChosenEnemy,
         hits: 1,
         }],
+        }],
+        }]),
+        "BulletTime" => Some(vec![
+        Effect::SetCardCost {
+        from: Pile::Hand,
+        selector: Selector::All,
+        cost: AmountSpec::Fixed(0),
+        scope: CostScope::ThisTurn,
+        },
+        Effect::ApplyPower {
+        power_id: "NoDrawPower".to_string(),
+        amount: AmountSpec::Fixed(1),
+        target: Target::SelfPlayer,
+        },
+        ]),
+        "Enlightenment" => Some(vec![Effect::Conditional {
+        condition: Condition::IsUpgraded,
+        then_branch: vec![Effect::SetCardCost {
+        from: Pile::Hand,
+        selector: Selector::All,
+        cost: AmountSpec::Fixed(1),
+        scope: CostScope::ThisCombat,
+        }],
+        else_branch: vec![Effect::SetCardCost {
+        from: Pile::Hand,
+        selector: Selector::All,
+        cost: AmountSpec::Fixed(1),
+        scope: CostScope::ThisTurn,
         }],
         }]),
 
@@ -3976,9 +4004,36 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             // STUB: CardFactory.CreateRandom* not yet plumbed through
             // a named RNG stream.
         }
-        Effect::SetCardCost { .. } => {
-            // STUB: per-card cost override (this-turn / this-combat /
-            // until-played) requires extra fields on CardInstance.
+        Effect::SetCardCost {
+            from,
+            selector,
+            cost,
+            scope,
+        } => {
+            // Resolve target picks first (before mutating costs).
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            let c = cost.resolve(ctx, cs).max(0);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                let Some(pile) = pile_mut(ps, *from) else {
+                    return;
+                };
+                for idx in picks {
+                    let Some(card) = pile.cards.get_mut(idx) else {
+                        continue;
+                    };
+                    match scope {
+                        CostScope::ThisTurn => {
+                            card.cost_override_this_turn = Some(c);
+                        }
+                        CostScope::ThisCombat => {
+                            card.cost_override_this_combat = Some(c);
+                        }
+                        CostScope::UntilPlayed => {
+                            card.cost_override_until_played = Some(c);
+                        }
+                    }
+                }
+            }
         }
         Effect::SummonMonster { monster_id, slot } => {
             // Reuses the existing monster_dispatch + spawn payload path.

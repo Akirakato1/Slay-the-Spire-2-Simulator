@@ -274,7 +274,7 @@ impl CombatEnv {
                 continue;
             };
             for (hand_idx, card) in ps.hand.cards.iter().enumerate() {
-                if card.current_energy_cost > ps.energy {
+                if card.effective_energy_cost() > ps.energy {
                     continue;
                 }
                 let Some(data) = crate::card::by_id(&card.id) else {
