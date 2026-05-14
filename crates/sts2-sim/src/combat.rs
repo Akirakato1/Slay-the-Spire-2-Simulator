@@ -770,6 +770,12 @@ impl CombatState {
     ///     owner, so they all tick together on the enemy-turn boundary.
     pub fn end_turn(&mut self) {
         if self.current_side == CombatSide::Player {
+            // Pre-flush: fire OnTurnEndInHand for any status/curse cards
+            // still in hand (Burn / Decay / Toxic / Doubt / Shame /
+            // BadLuck / Debt / Regret / Infection / Beckon). Mirrors C#
+            // CardModel.OnTurnEndInHand iteration in PlayerCombatState
+            // before the keyword-routing flush.
+            self.fire_turn_end_in_hand_effects();
             for ally in self.allies.iter_mut() {
                 let Some(ps) = ally.player.as_mut() else {
                     continue;
@@ -1181,6 +1187,102 @@ impl CombatState {
             true
         } else {
             false
+        }
+    }
+
+    /// Fire `OnTurnEndInHand` for every card in every player's hand
+    /// at the end of the Player turn. Mirrors C# CardModel.OnTurnEndInHand
+    /// iteration. Cards covered (status / curses):
+    ///   - Burn: damage 2 to owner (Unpowered | Move; goes through
+    ///     block).
+    ///   - Decay / Toxic / Infection: damage Damage-canonical to owner.
+    ///   - BadLuck / Beckon: damage HpLoss (Unblockable | Unpowered).
+    ///   - Doubt: Weak(1) to owner with SkipNextDurationTick if newly
+    ///     applied (handled by apply_power's player-debuff flag).
+    ///   - Shame: Frail(1) to owner, same.
+    ///   - Debt: lose gold from pending_gold (clamped).
+    ///   - Regret: damage = hand size (Unblockable | Unpowered).
+    fn fire_turn_end_in_hand_effects(&mut self) {
+        let n_allies = self.allies.len();
+        for player_idx in 0..n_allies {
+            let cards: Vec<(String, i32)> = self
+                .allies
+                .get(player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| {
+                    ps.hand
+                        .cards
+                        .iter()
+                        .map(|c| (c.id.clone(), c.upgrade_level))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let hand_size = cards.len() as i32;
+            for (cid, upgrade) in &cards {
+                let card = card_by_id(cid);
+                let Some(card) = card else { continue; };
+                match cid.as_str() {
+                    "Burn" => {
+                        let dmg = canonical_int_value(card, "Damage", *upgrade);
+                        // Burn uses normal damage pipeline (Unpowered | Move).
+                        // Goes through block; ignores Strength.
+                        self.deal_damage(
+                            (CombatSide::Player, player_idx),
+                            (CombatSide::Player, player_idx),
+                            dmg,
+                            ValueProp::UNPOWERED,
+                        );
+                    }
+                    "Decay" | "Toxic" | "Infection" => {
+                        let dmg = canonical_int_value(card, "Damage", *upgrade);
+                        self.deal_damage(
+                            (CombatSide::Player, player_idx),
+                            (CombatSide::Player, player_idx),
+                            dmg,
+                            ValueProp::UNPOWERED,
+                        );
+                    }
+                    "BadLuck" | "Beckon" => {
+                        let hp = canonical_int_value(card, "HpLoss", *upgrade);
+                        // Unblockable | Unpowered → use lose_hp (bypasses block).
+                        self.lose_hp(CombatSide::Player, player_idx, hp);
+                    }
+                    "Doubt" => {
+                        let weak = canonical_int_value(card, "Weak", *upgrade);
+                        self.apply_power(
+                            CombatSide::Player,
+                            player_idx,
+                            "WeakPower",
+                            weak,
+                        );
+                    }
+                    "Shame" => {
+                        let frail = canonical_int_value(card, "Frail", *upgrade);
+                        self.apply_power(
+                            CombatSide::Player,
+                            player_idx,
+                            "FrailPower",
+                            frail,
+                        );
+                    }
+                    "Debt" => {
+                        let gold = canonical_int_value(card, "Gold", *upgrade);
+                        if let Some(ps) = self
+                            .allies
+                            .get_mut(player_idx)
+                            .and_then(|c| c.player.as_mut())
+                        {
+                            let lost = gold.min(ps.pending_gold);
+                            ps.pending_gold = (ps.pending_gold - lost).max(0);
+                        }
+                    }
+                    "Regret" => {
+                        // damage = hand size at this moment. Unblockable.
+                        self.lose_hp(CombatSide::Player, player_idx, hand_size);
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 
@@ -11816,6 +11918,57 @@ mod tests {
             .unwrap_or_else(|| panic!("no {} in draw", card_id));
         let card = ps.draw.cards.remove(pos);
         ps.hand.cards.push(card);
+    }
+
+    /// Status / curse cards with OnTurnEndInHand fire their per-turn
+    /// payload when the player turn ends with them in hand.
+    /// Burn deals 2 damage (Unpowered) to owner.
+    #[test]
+    fn burn_in_hand_damages_owner_at_turn_end() {
+        let mut cs = ironclad_combat();
+        let burn = card_by_id("Burn").expect("Burn exists");
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(burn, 0));
+        let hp_before = cs.allies[0].current_hp;
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(cs.allies[0].current_hp, hp_before - 2);
+        // Burn is Unplayable but not Ethereal -- routes to discard at
+        // turn end like a normal card. Stays in the deck for the
+        // duration of combat, dealing 2 every turn.
+        assert!(cs.allies[0]
+            .player
+            .as_ref()
+            .unwrap()
+            .discard
+            .cards
+            .iter()
+            .any(|c| c.id == "Burn"));
+    }
+
+    /// Doubt applies Weak(1) to the player at turn end. The new debuff's
+    /// SkipNextDurationTick prevents it from ticking down on the same
+    /// boundary (audit fix #3 applies to player-side Debuffs).
+    #[test]
+    fn doubt_in_hand_applies_weak_at_turn_end() {
+        let mut cs = ironclad_combat();
+        let doubt = card_by_id("Doubt").expect("Doubt exists");
+        cs.allies[0]
+            .player
+            .as_mut()
+            .unwrap()
+            .hand
+            .cards
+            .push(CardInstance::from_card(doubt, 0));
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        let weak = cs.get_power_amount(CombatSide::Player, 0, "WeakPower");
+        assert!(weak >= 1);
     }
 
     /// Unplayable cards (status, curses) cannot be played manually.
