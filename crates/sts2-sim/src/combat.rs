@@ -3222,6 +3222,87 @@ pub fn execute_flail_knight_move(
     }
 }
 
+// ---------- Monster intent: BowlbugNectar ------------------------------
+//
+// Reflects C# `BowlbugNectar.GenerateMoveStateMachine`. Deterministic
+// 3-state sequence:
+//   Thrash → Buff → Thrash2 → Thrash2 → Thrash2 → … (Thrash2 loops)
+//
+// Thrash and Thrash2 do the same payload (separate C# nodes for the
+// state-machine sequencing). We keep them as distinct variants because
+// they live in different state-machine positions — Thrash leads to
+// Buff (one-time), Thrash2 self-loops. Collapsing them would re-fire
+// Buff on every other turn (incorrect).
+//
+// A0 payloads:
+//   - Thrash / Thrash2: 3 damage (const)
+//   - Buff:             +15 self-Strength (DeadlyEnemies: 16)
+
+const BOWLBUG_NECTAR_THRASH_DAMAGE: i32 = 3;
+const BOWLBUG_NECTAR_BUFF_STRENGTH_GAIN: i32 = 15;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum BowlbugNectarIntent {
+    Thrash,
+    Buff,
+    Thrash2,
+}
+
+impl BowlbugNectarIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            BowlbugNectarIntent::Thrash => "THRASH_MOVE",
+            BowlbugNectarIntent::Buff => "BUFF_MOVE",
+            BowlbugNectarIntent::Thrash2 => "THRASH2_MOVE",
+        }
+    }
+}
+
+/// Pick BowlbugNectar's next intent. Fully deterministic chain:
+///   None    → Thrash
+///   Thrash  → Buff (one-time)
+///   Buff    → Thrash2
+///   Thrash2 → Thrash2 (forever)
+pub fn pick_bowlbug_nectar_intent(
+    last_intent: Option<BowlbugNectarIntent>,
+) -> BowlbugNectarIntent {
+    match last_intent {
+        None => BowlbugNectarIntent::Thrash,
+        Some(BowlbugNectarIntent::Thrash) => BowlbugNectarIntent::Buff,
+        Some(BowlbugNectarIntent::Buff) => BowlbugNectarIntent::Thrash2,
+        Some(BowlbugNectarIntent::Thrash2) => BowlbugNectarIntent::Thrash2,
+    }
+}
+
+/// Execute BowlbugNectar's move payload.
+pub fn execute_bowlbug_nectar_move(
+    cs: &mut CombatState,
+    nectar_idx: usize,
+    target_player_idx: usize,
+    intent: BowlbugNectarIntent,
+) {
+    let attacker = (CombatSide::Enemy, nectar_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        BowlbugNectarIntent::Thrash | BowlbugNectarIntent::Thrash2 => {
+            cs.deal_damage(
+                attacker,
+                player,
+                BOWLBUG_NECTAR_THRASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        BowlbugNectarIntent::Buff => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                nectar_idx,
+                "StrengthPower",
+                BOWLBUG_NECTAR_BUFF_STRENGTH_GAIN,
+            );
+        }
+    }
+}
+
 // ---------- Monster intent: BowlbugEgg ---------------------------------
 //
 // Reflects C# `BowlbugEgg.GenerateMoveStateMachine`: a single move
@@ -7609,6 +7690,77 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- BowlbugNectar intent + move payload tests -----------------
+
+    #[test]
+    fn bowlbug_nectar_first_turn_is_thrash() {
+        assert_eq!(
+            pick_bowlbug_nectar_intent(None),
+            BowlbugNectarIntent::Thrash
+        );
+    }
+
+    #[test]
+    fn bowlbug_nectar_thrash_buff_thrash2_self_loop() {
+        // Sequence: None → Thrash → Buff → Thrash2 → Thrash2 → …
+        assert_eq!(
+            pick_bowlbug_nectar_intent(Some(BowlbugNectarIntent::Thrash)),
+            BowlbugNectarIntent::Buff
+        );
+        assert_eq!(
+            pick_bowlbug_nectar_intent(Some(BowlbugNectarIntent::Buff)),
+            BowlbugNectarIntent::Thrash2
+        );
+        // Thrash2 self-loops forever.
+        for _ in 0..20 {
+            assert_eq!(
+                pick_bowlbug_nectar_intent(Some(BowlbugNectarIntent::Thrash2)),
+                BowlbugNectarIntent::Thrash2
+            );
+        }
+    }
+
+    #[test]
+    fn bowlbug_nectar_thrash2_payload_matches_thrash() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_bowlbug_nectar_move(
+            &mut cs,
+            0,
+            0,
+            BowlbugNectarIntent::Thrash2,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 3);
+    }
+
+    #[test]
+    fn bowlbug_nectar_thrash_deals_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_bowlbug_nectar_move(
+            &mut cs,
+            0,
+            0,
+            BowlbugNectarIntent::Thrash,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 3);
+    }
+
+    #[test]
+    fn bowlbug_nectar_buff_gains_fifteen_strength() {
+        let mut cs = ironclad_combat();
+        execute_bowlbug_nectar_move(
+            &mut cs,
+            0,
+            0,
+            BowlbugNectarIntent::Buff,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            15
         );
     }
 
