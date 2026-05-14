@@ -3005,6 +3005,113 @@ pub fn execute_myte_move(
     }
 }
 
+// ---------- Monster intent: Nibbit -------------------------------------
+//
+// Reflects C# `Nibbit.GenerateMoveStateMachine`:
+//   INIT: ConditionalBranchState gated on per-encounter flags
+//     `IsAlone` and `IsFront`:
+//       - if IsAlone:  start at BUTT_MOVE
+//       - else if !IsFront: start at HISS_MOVE
+//       - else (IsFront):   start at SLICE_MOVE
+//   Cycle (FollowUpState chain, no RNG):
+//     Butt → Slice → Hiss → Butt → …
+//
+// Deterministic — no RNG needed for intent selection. IsAlone /
+// IsFront are caller-provided booleans; in C# they're mutable fields
+// on the Nibbit monster set by encounter setup. For NibbitsNormal
+// (single Nibbit in "back" slot): is_alone=true, is_front=false.
+//
+// A0 values per `GetValueIfAscension(level, ascended, fallback)`:
+//   - Butt damage: 12 (A0) / 13 (DeadlyEnemies)
+//   - Slice damage: 6 / 7
+//   - Slice block: 5 / 6 (ToughEnemies)
+//   - Hiss strength gain: 2 / 3 (DeadlyEnemies)
+
+const NIBBIT_BUTT_DAMAGE: i32 = 12;
+const NIBBIT_SLICE_DAMAGE: i32 = 6;
+const NIBBIT_SLICE_BLOCK: i32 = 5;
+const NIBBIT_HISS_STRENGTH_GAIN: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum NibbitIntent {
+    Butt,
+    Slice,
+    Hiss,
+}
+
+impl NibbitIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            NibbitIntent::Butt => "BUTT_MOVE",
+            NibbitIntent::Slice => "SLICE_MOVE",
+            NibbitIntent::Hiss => "HISS_MOVE",
+        }
+    }
+}
+
+/// Pick Nibbit's next intent.
+///   - First turn (no `last_intent`): use `is_alone` and `is_front`
+///     per the C# INIT branch table.
+///   - Subsequent turns: deterministic cycle Butt → Slice → Hiss.
+pub fn pick_nibbit_intent(
+    last_intent: Option<NibbitIntent>,
+    is_alone: bool,
+    is_front: bool,
+) -> NibbitIntent {
+    match last_intent {
+        None => {
+            if is_alone {
+                NibbitIntent::Butt
+            } else if is_front {
+                NibbitIntent::Slice
+            } else {
+                NibbitIntent::Hiss
+            }
+        }
+        Some(NibbitIntent::Butt) => NibbitIntent::Slice,
+        Some(NibbitIntent::Slice) => NibbitIntent::Hiss,
+        Some(NibbitIntent::Hiss) => NibbitIntent::Butt,
+    }
+}
+
+/// Execute one Nibbit move's payload. Mirrors C# Nibbit per-move
+/// handlers (ButtMove / SliceMove / HissMove) minus audio/animation.
+pub fn execute_nibbit_move(
+    cs: &mut CombatState,
+    nibbit_idx: usize,
+    target_player_idx: usize,
+    intent: NibbitIntent,
+) {
+    let attacker = (CombatSide::Enemy, nibbit_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        NibbitIntent::Butt => {
+            cs.deal_damage(attacker, player, NIBBIT_BUTT_DAMAGE, ValueProp::MOVE);
+        }
+        NibbitIntent::Slice => {
+            cs.deal_damage(
+                attacker,
+                player,
+                NIBBIT_SLICE_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.gain_block(
+                CombatSide::Enemy,
+                nibbit_idx,
+                NIBBIT_SLICE_BLOCK,
+            );
+        }
+        NibbitIntent::Hiss => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                nibbit_idx,
+                "StrengthPower",
+                NIBBIT_HISS_STRENGTH_GAIN,
+            );
+        }
+    }
+}
+
 /// Result of a resolved combat. Reported by [`CombatState::is_combat_over`]
 /// when the combat ends.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -7334,6 +7441,79 @@ mod tests {
         assert!(
             (hammer - expect_hm as i32).abs() < tol,
             "HammerUppercut: {hammer}"
+        );
+    }
+
+    // ---------- Nibbit intent + move payload tests ------------------------
+
+    #[test]
+    fn nibbit_alone_first_turn_is_butt() {
+        assert_eq!(
+            pick_nibbit_intent(None, true, false),
+            NibbitIntent::Butt
+        );
+        assert_eq!(
+            pick_nibbit_intent(None, true, true),
+            NibbitIntent::Butt
+        );
+    }
+
+    #[test]
+    fn nibbit_pair_front_first_turn_is_slice() {
+        assert_eq!(
+            pick_nibbit_intent(None, false, true),
+            NibbitIntent::Slice
+        );
+    }
+
+    #[test]
+    fn nibbit_pair_back_first_turn_is_hiss() {
+        assert_eq!(
+            pick_nibbit_intent(None, false, false),
+            NibbitIntent::Hiss
+        );
+    }
+
+    #[test]
+    fn nibbit_cycle_butt_slice_hiss() {
+        assert_eq!(
+            pick_nibbit_intent(Some(NibbitIntent::Butt), true, false),
+            NibbitIntent::Slice
+        );
+        assert_eq!(
+            pick_nibbit_intent(Some(NibbitIntent::Slice), true, false),
+            NibbitIntent::Hiss
+        );
+        assert_eq!(
+            pick_nibbit_intent(Some(NibbitIntent::Hiss), true, false),
+            NibbitIntent::Butt
+        );
+    }
+
+    #[test]
+    fn nibbit_butt_deals_twelve() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_nibbit_move(&mut cs, 0, 0, NibbitIntent::Butt);
+        assert_eq!(cs.allies[0].current_hp, hp - 12);
+    }
+
+    #[test]
+    fn nibbit_slice_deals_six_and_gains_five_block() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_nibbit_move(&mut cs, 0, 0, NibbitIntent::Slice);
+        assert_eq!(cs.allies[0].current_hp, hp - 6);
+        assert_eq!(cs.enemies[0].block, 5);
+    }
+
+    #[test]
+    fn nibbit_hiss_gains_two_strength() {
+        let mut cs = ironclad_combat();
+        execute_nibbit_move(&mut cs, 0, 0, NibbitIntent::Hiss);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
         );
     }
 
