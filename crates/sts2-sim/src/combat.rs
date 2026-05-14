@@ -773,6 +773,13 @@ impl CombatState {
         if self.current_side == CombatSide::Enemy {
             self.tick_plating_powers();
         }
+        // SlumberPower: at end of owner's (enemy) turn, decrement;
+        // remove at 0 so the next intent pick reads "no Slumber"
+        // and routes the beetle to Rollout. C# stuns + forces
+        // ROLL_OUT_MOVE; we just remove the power.
+        if self.current_side == CombatSide::Enemy {
+            self.tick_slumber_powers();
+        }
         // VigorPower drain: subtract the per-turn snapshot from
         // VigorPower on each enemy. The snapshot was taken at
         // begin_turn(Enemy); Vigor applied DURING the turn is
@@ -860,6 +867,37 @@ impl CombatState {
         }
         for idx in to_dec {
             self.decrement_power(side, idx, "EscapeArtistPower", 1);
+        }
+    }
+
+    /// SlumberPower end-of-enemy-turn tick: decrement each enemy's
+    /// Slumber by 1; remove the power at 0. C# stun-wakes the owner
+    /// (forces ROLL_OUT_MOVE) — we skip the stun and let the next
+    /// intent pick see no Slumber and route accordingly.
+    fn tick_slumber_powers(&mut self) {
+        let n = self.enemies.len();
+        let mut targets: Vec<usize> = Vec::new();
+        for i in 0..n {
+            if self.enemies[i].current_hp <= 0 {
+                continue;
+            }
+            let slumber = self.enemies[i]
+                .powers
+                .iter()
+                .find(|p| p.id == "SlumberPower")
+                .map(|p| p.amount)
+                .unwrap_or(0);
+            if slumber > 0 {
+                targets.push(i);
+            }
+        }
+        for i in targets {
+            self.decrement_power(CombatSide::Enemy, i, "SlumberPower", 1);
+            if self.get_power_amount(CombatSide::Enemy, i, "SlumberPower")
+                <= 0
+            {
+                self.remove_power(CombatSide::Enemy, i, "SlumberPower");
+            }
         }
     }
 
@@ -1748,6 +1786,20 @@ impl CombatState {
                             ms.set_flag("skittish_used", true);
                         }
                     }
+                }
+            } else if power_id == "SlumberPower" {
+                // SlumberPower.AfterDamageReceived: any unblocked
+                // damage decrements the counter (C# uses
+                // result.UnblockedDamage != 0 — same predicate).
+                // When Amount hits 0 the C# stuns the owner and
+                // forces ROLL_OUT_MOVE; we skip the stun, just
+                // remove the power so the state-machine arm reads
+                // "no Slumber" on the next intent pick.
+                self.decrement_power(target.0, target.1, "SlumberPower", 1);
+                if self.get_power_amount(target.0, target.1, "SlumberPower")
+                    <= 0
+                {
+                    self.remove_power(target.0, target.1, "SlumberPower");
                 }
             } else if power_id == "ShriekPower" {
                 // ShriekPower.AfterDamageReceived: when owner's
@@ -4017,6 +4069,106 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: SlumberingBeetle ---------------------------
+//
+// Reflects C# `SlumberingBeetle.GenerateMoveStateMachine`:
+//   Init: Snore.
+//   Snore → conditional branch:
+//     - HasPower<SlumberPower> → Snore (still asleep, no-op)
+//     - else → Rollout (16 dmg + 2 self-Strength), then Rollout loops.
+//
+// Spawn (AfterAddedToRoom): apply PlatingPower(15), SlumberPower(3).
+//
+// A0 payloads:
+//   - Snore:   no-op
+//   - Rollout: 16 damage + 2 self-Strength (DeadlyEnemies: 18)
+//
+// SlumberPower (counter): decrements per owner-side turn end AND per
+// unblocked damage hit; removed at 0. PlatingPower wires the per-turn
+// block grant. Both ported alongside this monster.
+
+const SLUMBERING_BEETLE_PLATING_AMOUNT: i32 = 15;
+const SLUMBERING_BEETLE_SLUMBER_AMOUNT: i32 = 3;
+const SLUMBERING_BEETLE_ROLLOUT_DAMAGE: i32 = 16;
+const SLUMBERING_BEETLE_ROLLOUT_STRENGTH: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum SlumberingBeetleIntent {
+    Snore,
+    Rollout,
+}
+
+impl SlumberingBeetleIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            SlumberingBeetleIntent::Snore => "SNORE_MOVE",
+            SlumberingBeetleIntent::Rollout => "ROLL_OUT_MOVE",
+        }
+    }
+}
+
+pub fn slumbering_beetle_spawn(cs: &mut CombatState, beetle_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        beetle_idx,
+        "PlatingPower",
+        SLUMBERING_BEETLE_PLATING_AMOUNT,
+    );
+    cs.apply_power(
+        CombatSide::Enemy,
+        beetle_idx,
+        "SlumberPower",
+        SLUMBERING_BEETLE_SLUMBER_AMOUNT,
+    );
+}
+
+/// Pick the beetle's next intent. `has_slumber` is read from the
+/// owner's powers — when present (and amount > 0), the beetle is
+/// still asleep and snores. When Slumber clears it pivots to
+/// Rollout and loops.
+pub fn pick_slumbering_beetle_intent(
+    last_intent: Option<SlumberingBeetleIntent>,
+    has_slumber: bool,
+) -> SlumberingBeetleIntent {
+    if has_slumber {
+        return SlumberingBeetleIntent::Snore;
+    }
+    match last_intent {
+        // No slumber → roll out (init case after Slumber drained, or
+        // after the wake-via-damage trigger fires).
+        _ => SlumberingBeetleIntent::Rollout,
+    }
+}
+
+pub fn execute_slumbering_beetle_move(
+    cs: &mut CombatState,
+    beetle_idx: usize,
+    target_player_idx: usize,
+    intent: SlumberingBeetleIntent,
+) {
+    let attacker = (CombatSide::Enemy, beetle_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        SlumberingBeetleIntent::Snore => {
+            // No-op: SleepIntent in C#, monster doesn't act.
+        }
+        SlumberingBeetleIntent::Rollout => {
+            cs.deal_damage(
+                attacker,
+                player,
+                SLUMBERING_BEETLE_ROLLOUT_DAMAGE,
+                ValueProp::MOVE,
+            );
+            cs.apply_power(
+                CombatSide::Enemy,
+                beetle_idx,
+                "StrengthPower",
+                SLUMBERING_BEETLE_ROLLOUT_STRENGTH,
+            );
         }
     }
 }
@@ -12693,6 +12845,126 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- SlumberingBeetle + SlumberPower tests ----------------------
+
+    #[test]
+    fn slumbering_beetle_snores_while_slumber_present() {
+        assert_eq!(
+            pick_slumbering_beetle_intent(None, true),
+            SlumberingBeetleIntent::Snore
+        );
+        assert_eq!(
+            pick_slumbering_beetle_intent(
+                Some(SlumberingBeetleIntent::Snore),
+                true
+            ),
+            SlumberingBeetleIntent::Snore
+        );
+    }
+
+    #[test]
+    fn slumbering_beetle_rolls_out_when_slumber_clears() {
+        assert_eq!(
+            pick_slumbering_beetle_intent(None, false),
+            SlumberingBeetleIntent::Rollout
+        );
+        assert_eq!(
+            pick_slumbering_beetle_intent(
+                Some(SlumberingBeetleIntent::Snore),
+                false
+            ),
+            SlumberingBeetleIntent::Rollout
+        );
+    }
+
+    #[test]
+    fn slumbering_beetle_spawn_applies_plating_and_slumber() {
+        let mut cs = ironclad_combat();
+        slumbering_beetle_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "PlatingPower"),
+            15
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SlumberPower"),
+            3
+        );
+    }
+
+    #[test]
+    fn slumbering_beetle_rollout_payload() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_slumbering_beetle_move(
+            &mut cs,
+            0,
+            0,
+            SlumberingBeetleIntent::Rollout,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 16);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn slumber_decrements_each_enemy_turn_end() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "SlumberPower", 3);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SlumberPower"),
+            2
+        );
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SlumberPower"),
+            1
+        );
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SlumberPower"),
+            0
+        );
+    }
+
+    #[test]
+    fn slumber_decrements_on_unblocked_damage() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "SlumberPower", 3);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SlumberPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn slumber_not_decremented_when_fully_blocked() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "SlumberPower", 3);
+        cs.gain_block(CombatSide::Enemy, 0, 100);
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SlumberPower"),
+            3
+        );
     }
 
     // ---------- PlatingPower tests -----------------------------------------

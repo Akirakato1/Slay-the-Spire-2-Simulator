@@ -50,6 +50,7 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
                 cs.apply_power(CombatSide::Enemy, i, "StrengthPower", 6);
                 cs.apply_power(CombatSide::Enemy, i, "PlatingPower", 6);
             }
+            "SlumberingBeetle" => slumbering_beetle_spawn(cs, i),
             "SkulkingColony" => skulking_colony_spawn(cs, i),
             "LouseProgenitor" => louse_progenitor_spawn(cs, i),
             "TerrorEel" => terror_eel_spawn(cs, i),
@@ -120,6 +121,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "DecimillipedeSegmentMiddle"
             | "DecimillipedeSegmentBack"
             | "MysteriousKnight"
+            | "SlumberingBeetle"
     )
 }
 
@@ -734,6 +736,20 @@ pub fn dispatch_enemy_turn(
             });
             let intent = pick_soul_fysh_intent(last);
             execute_soul_fysh_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "SlumberingBeetle" => {
+            let last = last_ref.and_then(|s| match s {
+                "SNORE_MOVE" => Some(SlumberingBeetleIntent::Snore),
+                "ROLL_OUT_MOVE" => Some(SlumberingBeetleIntent::Rollout),
+                _ => None,
+            });
+            let has_slumber = cs.enemies[enemy_idx]
+                .powers
+                .iter()
+                .any(|p| p.id == "SlumberPower" && p.amount > 0);
+            let intent = pick_slumbering_beetle_intent(last, has_slumber);
+            execute_slumbering_beetle_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         "DecimillipedeSegmentFront"
