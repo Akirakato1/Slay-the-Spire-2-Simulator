@@ -680,6 +680,21 @@ impl CombatState {
         if self.current_side == CombatSide::Enemy {
             self.tick_duration_debuffs();
         }
+        // SkittishPower.AfterTurnEnd (resets on the side OTHER than
+        // owner's — i.e., end of Player turn for enemy-owned Skittish):
+        // clear skittish_used so the next Player turn can trigger the
+        // block grant once again.
+        if self.current_side == CombatSide::Player {
+            for enemy in self.enemies.iter_mut() {
+                let has_skittish =
+                    enemy.powers.iter().any(|p| p.id == "SkittishPower");
+                if has_skittish {
+                    if let Some(ms) = enemy.monster.as_mut() {
+                        ms.set_flag("skittish_used", false);
+                    }
+                }
+            }
+        }
         // DoomPower.BeforeTurnEnd: if any creature on the side just
         // ending has DoomPower and CurrentHp <= Amount, kill them.
         // Fires before the temp-strength cleanup since the C# uses
@@ -1590,6 +1605,35 @@ impl CombatState {
                     }
                 }
                 self.remove_power(target.0, target.1, "CurlUpPower");
+            } else if power_id == "SkittishPower" {
+                // SkittishPower.AfterAttack: when owner takes unblocked
+                // Player-attack damage AND hasn't already gained block
+                // this turn, gain Amount unpowered block and flip the
+                // skittish_used flag. Flag clears in end_turn(Player).
+                // C# additionally gates on `command.ModelSource is
+                // CardModel` (only card attacks, not power-tick damage
+                // like Poison). All player attacks today are card or
+                // direct deal_damage, so the powered+player-side gates
+                // approximate this.
+                let already_used = creature(self, target.0, target.1)
+                    .and_then(|c| c.monster.as_ref())
+                    .map(|m| m.flag("skittish_used"))
+                    .unwrap_or(false);
+                if !already_used {
+                    self.gain_block_with_props(
+                        target.0,
+                        target.1,
+                        amount,
+                        ValueProp::UNPOWERED,
+                    );
+                    if let Some(creature) =
+                        creature_mut(self, target.0, target.1)
+                    {
+                        if let Some(ms) = creature.monster.as_mut() {
+                            ms.set_flag("skittish_used", true);
+                        }
+                    }
+                }
             } else if power_id == "ShriekPower" {
                 // ShriekPower.AfterDamageReceived: when owner's
                 // CurrentHp ≤ Amount AND took unblocked damage, fire
@@ -3858,6 +3902,128 @@ pub fn execute_owl_magistrate_move(
             // Remove SoarPower from self (Single-stack, can't go
             // negative via apply_power; use the explicit remover).
             cs.remove_power(CombatSide::Enemy, owl_idx, "SoarPower");
+        }
+    }
+}
+
+// ---------- Monster intent: PhantasmalGardener -------------------------
+//
+// Reflects C# `PhantasmalGardener.GenerateMoveStateMachine`. Init by
+// SlotName: first → Flail, second → Bite, third → Lash, fourth →
+// Enlarge. Chain after init: Bite → Lash → Flail → Enlarge → Bite
+// (loop).
+//
+// Spawn (AfterAddedToRoom): apply SkittishPower(6).
+//
+// A0 payloads (no DeadlyEnemies bump):
+//   - Bite:    5 damage
+//   - Lash:    7 damage
+//   - Flail:   1 damage × 3 hits
+//   - Enlarge: +2 self-Strength (DeadlyEnemies: 3)
+//
+// SkittishPower wires into fire_after_damage_received_hooks: first
+// unblocked Player-attack hit per turn → gain Amount unpowered block,
+// set skittish_used flag (cleared at end of Player turn).
+
+const PHANTASMAL_GARDENER_SKITTISH_AMOUNT: i32 = 6;
+const PHANTASMAL_GARDENER_BITE_DAMAGE: i32 = 5;
+const PHANTASMAL_GARDENER_LASH_DAMAGE: i32 = 7;
+const PHANTASMAL_GARDENER_FLAIL_DAMAGE: i32 = 1;
+const PHANTASMAL_GARDENER_FLAIL_HITS: i32 = 3;
+const PHANTASMAL_GARDENER_ENLARGE_STRENGTH: i32 = 2;
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum PhantasmalGardenerIntent {
+    Bite,
+    Lash,
+    Flail,
+    Enlarge,
+}
+
+impl PhantasmalGardenerIntent {
+    pub fn id(self) -> &'static str {
+        match self {
+            PhantasmalGardenerIntent::Bite => "BITE_MOVE",
+            PhantasmalGardenerIntent::Lash => "LASH_MOVE",
+            PhantasmalGardenerIntent::Flail => "FLAIL_MOVE",
+            PhantasmalGardenerIntent::Enlarge => "ENLARGE_MOVE",
+        }
+    }
+}
+
+pub fn phantasmal_gardener_spawn(cs: &mut CombatState, gardener_idx: usize) {
+    cs.apply_power(
+        CombatSide::Enemy,
+        gardener_idx,
+        "SkittishPower",
+        PHANTASMAL_GARDENER_SKITTISH_AMOUNT,
+    );
+}
+
+/// `slot` is 1-based (first..fourth). On init, gates which intent
+/// the gardener opens with. After last_intent is set the cycle is
+/// deterministic and slot is ignored.
+pub fn pick_phantasmal_gardener_intent(
+    last_intent: Option<PhantasmalGardenerIntent>,
+    slot: u8,
+) -> PhantasmalGardenerIntent {
+    match last_intent {
+        None => match slot {
+            1 => PhantasmalGardenerIntent::Flail,
+            2 => PhantasmalGardenerIntent::Bite,
+            3 => PhantasmalGardenerIntent::Lash,
+            4 => PhantasmalGardenerIntent::Enlarge,
+            _ => PhantasmalGardenerIntent::Bite,
+        },
+        Some(PhantasmalGardenerIntent::Bite) => PhantasmalGardenerIntent::Lash,
+        Some(PhantasmalGardenerIntent::Lash) => PhantasmalGardenerIntent::Flail,
+        Some(PhantasmalGardenerIntent::Flail) => PhantasmalGardenerIntent::Enlarge,
+        Some(PhantasmalGardenerIntent::Enlarge) => PhantasmalGardenerIntent::Bite,
+    }
+}
+
+pub fn execute_phantasmal_gardener_move(
+    cs: &mut CombatState,
+    gardener_idx: usize,
+    target_player_idx: usize,
+    intent: PhantasmalGardenerIntent,
+) {
+    let attacker = (CombatSide::Enemy, gardener_idx);
+    let player = (CombatSide::Player, target_player_idx);
+    match intent {
+        PhantasmalGardenerIntent::Bite => {
+            cs.deal_damage(
+                attacker,
+                player,
+                PHANTASMAL_GARDENER_BITE_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        PhantasmalGardenerIntent::Lash => {
+            cs.deal_damage(
+                attacker,
+                player,
+                PHANTASMAL_GARDENER_LASH_DAMAGE,
+                ValueProp::MOVE,
+            );
+        }
+        PhantasmalGardenerIntent::Flail => {
+            for _ in 0..PHANTASMAL_GARDENER_FLAIL_HITS {
+                cs.deal_damage(
+                    attacker,
+                    player,
+                    PHANTASMAL_GARDENER_FLAIL_DAMAGE,
+                    ValueProp::MOVE,
+                );
+            }
+        }
+        PhantasmalGardenerIntent::Enlarge => {
+            cs.apply_power(
+                CombatSide::Enemy,
+                gardener_idx,
+                "StrengthPower",
+                PHANTASMAL_GARDENER_ENLARGE_STRENGTH,
+            );
         }
     }
 }
@@ -11889,6 +12055,182 @@ mod tests {
             ValueProp::UNPOWERED.with(ValueProp::MOVE),
         );
         assert_eq!(cs.allies[0].current_hp, player_hp);
+    }
+
+    // ---------- PhantasmalGardener + SkittishPower tests -------------------
+
+    #[test]
+    fn phantasmal_gardener_init_by_slot() {
+        assert_eq!(
+            pick_phantasmal_gardener_intent(None, 1),
+            PhantasmalGardenerIntent::Flail
+        );
+        assert_eq!(
+            pick_phantasmal_gardener_intent(None, 2),
+            PhantasmalGardenerIntent::Bite
+        );
+        assert_eq!(
+            pick_phantasmal_gardener_intent(None, 3),
+            PhantasmalGardenerIntent::Lash
+        );
+        assert_eq!(
+            pick_phantasmal_gardener_intent(None, 4),
+            PhantasmalGardenerIntent::Enlarge
+        );
+    }
+
+    #[test]
+    fn phantasmal_gardener_walks_four_state_cycle() {
+        for slot in 1..=4 {
+            assert_eq!(
+                pick_phantasmal_gardener_intent(
+                    Some(PhantasmalGardenerIntent::Bite),
+                    slot
+                ),
+                PhantasmalGardenerIntent::Lash
+            );
+        }
+        assert_eq!(
+            pick_phantasmal_gardener_intent(
+                Some(PhantasmalGardenerIntent::Lash),
+                1
+            ),
+            PhantasmalGardenerIntent::Flail
+        );
+        assert_eq!(
+            pick_phantasmal_gardener_intent(
+                Some(PhantasmalGardenerIntent::Flail),
+                1
+            ),
+            PhantasmalGardenerIntent::Enlarge
+        );
+        assert_eq!(
+            pick_phantasmal_gardener_intent(
+                Some(PhantasmalGardenerIntent::Enlarge),
+                1
+            ),
+            PhantasmalGardenerIntent::Bite
+        );
+    }
+
+    #[test]
+    fn phantasmal_gardener_spawn_applies_skittish_six() {
+        let mut cs = ironclad_combat();
+        phantasmal_gardener_spawn(&mut cs, 0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SkittishPower"),
+            6
+        );
+    }
+
+    #[test]
+    fn phantasmal_gardener_bite_deals_five() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_phantasmal_gardener_move(
+            &mut cs,
+            0,
+            0,
+            PhantasmalGardenerIntent::Bite,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 5);
+    }
+
+    #[test]
+    fn phantasmal_gardener_lash_deals_seven() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_phantasmal_gardener_move(
+            &mut cs,
+            0,
+            0,
+            PhantasmalGardenerIntent::Lash,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 7);
+    }
+
+    #[test]
+    fn phantasmal_gardener_flail_one_times_three() {
+        let mut cs = ironclad_combat();
+        let hp = cs.allies[0].current_hp;
+        execute_phantasmal_gardener_move(
+            &mut cs,
+            0,
+            0,
+            PhantasmalGardenerIntent::Flail,
+        );
+        assert_eq!(cs.allies[0].current_hp, hp - 3);
+    }
+
+    #[test]
+    fn phantasmal_gardener_enlarge_grants_two_strength() {
+        let mut cs = ironclad_combat();
+        execute_phantasmal_gardener_move(
+            &mut cs,
+            0,
+            0,
+            PhantasmalGardenerIntent::Enlarge,
+        );
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "StrengthPower"),
+            2
+        );
+    }
+
+    #[test]
+    fn skittish_triggers_once_per_turn_on_unblocked_player_attack() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "SkittishPower", 6);
+        let hp = cs.enemies[0].current_hp;
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert_eq!(cs.enemies[0].current_hp, hp - 10);
+        assert_eq!(cs.enemies[0].block, 6);
+        // SkittishPower stays — not consumed, just flagged.
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "SkittishPower"),
+            6
+        );
+        // Second hit same turn — no second block grant.
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        // Block soaks 6, then 4 of the 10 hits HP.
+        assert_eq!(cs.enemies[0].current_hp, hp - 14);
+        assert_eq!(cs.enemies[0].block, 0);
+    }
+
+    #[test]
+    fn skittish_flag_clears_at_player_turn_end() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Enemy, 0, "SkittishPower", 6);
+        // First Player turn — trigger once.
+        cs.deal_damage(
+            (CombatSide::Player, 0),
+            (CombatSide::Enemy, 0),
+            10,
+            ValueProp::MOVE,
+        );
+        assert!(cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("skittish_used"))
+            .unwrap_or(false));
+        // End the Player turn — flag must clear.
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert!(!cs.enemies[0]
+            .monster
+            .as_ref()
+            .map(|m| m.flag("skittish_used"))
+            .unwrap_or(true));
     }
 
     // ---------- TerrorEel + VigorPower + ShriekPower tests -----------------

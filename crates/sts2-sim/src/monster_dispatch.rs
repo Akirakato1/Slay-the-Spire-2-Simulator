@@ -49,6 +49,7 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
             "SkulkingColony" => skulking_colony_spawn(cs, i),
             "LouseProgenitor" => louse_progenitor_spawn(cs, i),
             "TerrorEel" => terror_eel_spawn(cs, i),
+            "PhantasmalGardener" => phantasmal_gardener_spawn(cs, i),
             _ => {}
         }
     }
@@ -105,6 +106,7 @@ pub fn monster_has_dispatch(model_id: &str) -> bool {
             | "SkulkingColony"
             | "LouseProgenitor"
             | "TerrorEel"
+            | "PhantasmalGardener"
     )
 }
 
@@ -651,6 +653,21 @@ pub fn dispatch_enemy_turn(
                 .unwrap_or(false);
             let intent = pick_terror_eel_intent(last, shriek_triggered);
             execute_terror_eel_move(cs, enemy_idx, player_idx, intent);
+            set_intent(cs, enemy_idx, intent.id());
+        }
+        "PhantasmalGardener" => {
+            let last = last_ref.and_then(|s| match s {
+                "BITE_MOVE" => Some(PhantasmalGardenerIntent::Bite),
+                "LASH_MOVE" => Some(PhantasmalGardenerIntent::Lash),
+                "FLAIL_MOVE" => Some(PhantasmalGardenerIntent::Flail),
+                "ENLARGE_MOVE" => Some(PhantasmalGardenerIntent::Enlarge),
+                _ => None,
+            });
+            let intent = pick_phantasmal_gardener_intent(
+                last,
+                slot_index_1based(&slot),
+            );
+            execute_phantasmal_gardener_move(cs, enemy_idx, player_idx, intent);
             set_intent(cs, enemy_idx, intent.id());
         }
         _ => {
