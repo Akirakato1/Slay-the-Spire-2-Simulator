@@ -8,6 +8,7 @@ pub mod affliction;
 pub mod card;
 pub mod character;
 pub mod combat;
+pub mod effects;
 pub mod enchantment;
 pub mod encounter;
 pub mod env;

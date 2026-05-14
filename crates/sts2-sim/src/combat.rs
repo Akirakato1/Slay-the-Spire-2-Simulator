@@ -3254,7 +3254,7 @@ fn dispatch_on_play(
 ///   - `v.generic` stripped of "Power" suffix matches (Vulnerable ↔
 ///     `PowerVar<VulnerablePower>`)
 ///   - `v.key == var_kind` for keyed `DynamicVar("key", val)`
-fn canonical_int_value(card: &CardData, var_kind: &str, upgrade_level: i32) -> i32 {
+pub(crate) fn canonical_int_value(card: &CardData, var_kind: &str, upgrade_level: i32) -> i32 {
     let base = card
         .canonical_vars
         .iter()
