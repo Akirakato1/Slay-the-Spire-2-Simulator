@@ -56,17 +56,65 @@ impl RustRig {
     }
     /// Grant a relic mid-combat. Mirrors the oracle host's
     /// `combat_grant_relic` RPC — pushes the relic id onto the player's
-    /// `relics` list. AfterObtained run-state effects are NOT fired here
-    /// (those belong to the run-state VM, not combat). BeforeCombatStart
-    /// hooks are exposed via `fire_before_combat_start` for the caller
-    /// to invoke explicitly, so test setups can sequence "grant +
-    /// trigger" in lockstep with the oracle.
+    /// `relics` list, then applies a curated subset of the run-state
+    /// AfterObtained effects to the combat-level creature state.
+    /// Oracle's `RelicCmd.Obtain` always fires `relic.AfterObtained()`;
+    /// for relics that bump MaxHp / heal / change HP, that mutation is
+    /// visible on the combat-frame `Creature` once the oracle dumps,
+    /// so the rust mirror needs to apply the same delta to keep parity.
     pub fn grant_relic(&mut self, relic_modelid: &str) {
         let relic_rust = modelid_to_rust(relic_modelid);
         if let Some(ps) = self.combat.allies[0].player.as_mut() {
             if !ps.relics.contains(&relic_rust) {
-                ps.relics.push(relic_rust);
+                ps.relics.push(relic_rust.clone());
             }
+        }
+        // Apply the AfterObtained body to the combat-level creature.
+        // run_state_effects returns the full hook→body table; we only
+        // care about the AfterObtained body's combat-visible mutations.
+        let Some(arms) = sts2_sim::effects::run_state_effects(&relic_rust) else {
+            return;
+        };
+        for (hook, body) in arms {
+            if !matches!(hook, sts2_sim::effects::RunStateHook::AfterObtained) {
+                continue;
+            }
+            for eff in body {
+                self.apply_after_obtained_effect(&eff);
+            }
+        }
+    }
+
+    /// Mirror a subset of run-state Effect variants onto the combat
+    /// creature's HP/MaxHp. Other effects (gold, potion slots, run-state
+    /// pile mutations) are out-of-band for the combat dump; ignored.
+    fn apply_after_obtained_effect(&mut self, eff: &sts2_sim::effects::Effect) {
+        use sts2_sim::effects::{AmountSpec, Effect};
+        let resolve = |a: &AmountSpec| -> i32 {
+            match a {
+                AmountSpec::Fixed(n) => *n,
+                _ => 0,
+            }
+        };
+        let Some(c) = self.combat.allies.get_mut(0) else { return };
+        match eff {
+            Effect::GainRunStateMaxHp { amount } => {
+                let amt = resolve(amount);
+                c.max_hp += amt;
+                c.current_hp += amt;
+            }
+            Effect::LoseRunStateMaxHp { amount } => {
+                let amt = resolve(amount);
+                c.max_hp = (c.max_hp - amt).max(1);
+                if c.current_hp > c.max_hp {
+                    c.current_hp = c.max_hp;
+                }
+            }
+            Effect::LoseRunStateHp { amount } => {
+                let amt = resolve(amount);
+                c.current_hp = (c.current_hp - amt).max(0);
+            }
+            _ => {}
         }
     }
     /// Fire every player-relic's BeforeCombatStart hook. Caller invokes
