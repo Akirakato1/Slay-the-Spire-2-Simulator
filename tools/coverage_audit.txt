@@ -1,49 +1,49 @@
 # Data-driven coverage audit
 
-**Cards**:   data-table  490/577  (84.9%) +  legacy-match-arm-only 29  =  total handled 519/577 (89.9%)
+**Cards**:   data-table  519/577  (89.9%) +  legacy-match-arm-only 0  =  total handled 519/577 (89.9%)
 **Relics**:  encoded   87/294  (29.6%)  -> gap 207
 **Potions**: encoded   55/64  (85.9%)  -> gap 9
 
-Total entries in data tables: 632
+Total entries in data tables: 661
 
 ## Top primitives by use count
-   503  AmountSpec::Canonical
-   234  Effect::ApplyPower
-   163  Effect::DealDamage
-    78  Effect::GainBlock
-    67  AmountSpec::Fixed
-    52  Effect::DrawCards
+   531  AmountSpec::Canonical
+   246  Effect::ApplyPower
+   180  Effect::DealDamage
+    83  Effect::GainBlock
+    72  AmountSpec::Fixed
+    53  Effect::DrawCards
     37  Effect::GainEnergy
-    34  Effect::Conditional
-    24  Effect::Repeat
+    36  Effect::Conditional
+    32  Effect::Repeat
+    23  AmountSpec::Mul
     23  RelicHook::AfterSideTurnStart
-    22  AmountSpec::Mul
     17  AmountSpec::Add
     17  Effect::AddRandomCardFromPool
     16  RelicHook::AfterCardPlayed
+    15  Effect::AddCardToPile
     15  RelicHook::BeforeCombatStart
     11  Effect::ChannelOrb
     11  Effect::SummonOsty
-     9  Effect::AddCardToPile
      9  Effect::GainStars
      8  AmountSpec::CardCountInPile
      8  Effect::Forge
      8  Effect::MoveCard
      8  Condition::Not
      7  Effect::DamageFromOsty
+     7  AmountSpec::XEnergy
      7  Condition::IsOstyMissing
      7  Condition::RoundEquals
      7  RelicHook::BeforeTurnEnd
-     6  AmountSpec::XEnergy
+     6  Effect::LoseHp
+     6  Effect::Heal
      6  CardPoolRef::Colorless
      6  RelicHook::BeforeSideTurnStart
      6  RelicHook::AfterDamageReceived
-     5  Effect::Heal
+     5  AmountSpec::TargetPowerAmount
      5  CardPoolRef::CharacterAttack
      5  Condition::IsUpgraded
      5  RelicHook::AfterPlayerTurnStart
-     4  Effect::LoseHp
-     4  AmountSpec::TargetPowerAmount
      4  Effect::ExhaustCards
      4  Effect::TransformIntoSpecific
      3  AmountSpec::SelfBlock

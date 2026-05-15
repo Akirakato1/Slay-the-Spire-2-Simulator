@@ -35,19 +35,21 @@ Phase 0 (simulator port) is well underway. Concrete state today:
 - **Potion VM** — `potion_effects(potion_id)` registry, dispatched via
   `CombatState::use_potion(...)`.
 - **Data-driven coverage (post-vocabulary-expansion)**:
-  - **519 / 577 cards** handled (89.9%): 490 via `card_effects` data
-    table + 29 still on the legacy `combat.rs::dispatch_on_play`
-    match-arm path. 58 cards still unimplemented.
-  - **87 / 294 relics** data-driven via `relic_effects` (29.6%). 207
-    relics gap. 6 relics ported via the new run-state effect VM
-    (Mango/Pear/Strawberry/FakeMango/OldCoin/CursedPearl), unblocking
-    the ~80-relic AfterObtained bucket — remaining are mechanical
-    encoding work in `run_state_effects`.
+  - **519 / 577 cards** fully data-driven (89.9%). All 42 cards
+    previously on the legacy `combat.rs::dispatch_on_play` match-arm
+    migrated to `card_effects` via batch_v8 — the legacy match arm is
+    now dead code (kept as fallback only).
+  - **87 / 294 relics** data-driven via `relic_effects` (29.6%) +
+    **13 / 294 via `run_state_effects`** (4.4%) = **100 / 294
+    data-driven relics across both VMs (34.0%)**.
+  - **55 / 64 potions** data-driven via `potion_effects` (85.9%).
   - **Power VM**: RegenPower + PoisonPower + DemonFormPower migrated
     to `power_effects` data table (Strength/Dex/Weak/Vulnerable/Frail
     /Intangible stay on hardcoded value-flow pipeline pending #70).
-  - **Monster move VM**: Axebot ported as proof-of-pattern via
-    `monster_move_effects` registry.
+  - **Monster move VM**: **55 / 60 monsters fully ported** (92%)
+    plus Axebot (proof case) = 56 / 60. 189 (monster_id, intent_name)
+    payloads in `monster_move_effects`. State-machine choreography
+    (intent picking) stays as Rust; only the payloads migrated.
   - **55 / 64 potions** data-driven via `potion_effects` (85.9%). 9
     gap: BloodPotion / Fortifier (target-MaxHp-percent — now resolvable
     via FloorDiv but the integer-percent var needs care),
@@ -171,7 +173,7 @@ Re-extract any table with `cargo run -p extract-<thing>`.
 ```powershell
 # Rust workspace
 cargo check
-cargo test                       # 774 unit + integration tests; 632 data-table entries
+cargo test                       # 774 unit + integration tests; 866 data-table entries
 
 # C# oracle host (only needed for the bit-exact diff tests)
 dotnet build oracle-host -c Release
