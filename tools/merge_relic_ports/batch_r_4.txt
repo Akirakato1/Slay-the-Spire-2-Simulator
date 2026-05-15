@@ -1,0 +1,59 @@
+// batch_r_4.txt - counter-gated relics using the relic_counters slot +
+// ModifyRelicCounter + RelicCounterModEq primitives. Verified against C#.
+//
+// Pattern: each AfterCardPlayed / AfterSideTurnStart body increments the
+// counter then runs a Conditional that fires the payload when the modulo
+// hits zero. BeforeSideTurnStart resets the counter to 0 at turn start
+// (Kunai/Shuriken use AttacksPlayedThisTurn — reset per owner turn).
+//
+// HappyFlower's TurnsSeen persists across combats in the C# save; we
+// don't model that (counter resets at combat start). For RL training
+// the per-combat semantics are equivalent.
+
+// Kunai.cs L131-162: BeforeSideTurnStart(owner) -> reset counter.
+//                    AfterCardPlayed(Attack-only) -> ++counter;
+//                    if counter % 3 == 0: Apply DexterityPower(1) self.
+// CanonicalVars: Cards=3 (modulus), Dexterity=1 (power amount).
+"Kunai" => Some(vec![
+    (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: false },
+     vec![Effect::SetRelicCounter { key: "Kunai_attacks".to_string(), value: AmountSpec::Fixed(0) }]),
+    (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+     vec![
+        Effect::ModifyRelicCounter { key: "Kunai_attacks".to_string(), delta: AmountSpec::Fixed(1) },
+        Effect::Conditional {
+            condition: Condition::RelicCounterModEq { key: "Kunai_attacks".to_string(), modulus: 3, remainder: 0 },
+            then_branch: vec![Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }],
+            else_branch: vec![],
+        },
+     ]),
+]),
+
+// Shuriken.cs L131-162: same shape as Kunai, applies StrengthPower(1).
+"Shuriken" => Some(vec![
+    (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: false },
+     vec![Effect::SetRelicCounter { key: "Shuriken_attacks".to_string(), value: AmountSpec::Fixed(0) }]),
+    (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+     vec![
+        Effect::ModifyRelicCounter { key: "Shuriken_attacks".to_string(), delta: AmountSpec::Fixed(1) },
+        Effect::Conditional {
+            condition: Condition::RelicCounterModEq { key: "Shuriken_attacks".to_string(), modulus: 3, remainder: 0 },
+            then_branch: vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }],
+            else_branch: vec![],
+        },
+     ]),
+]),
+
+// HappyFlower.cs L114-127: AfterSideTurnStart(owner) -> ++TurnsSeen;
+// if TurnsSeen % 3 == 0: GainEnergy(1). C# uses 'TurnsSeen = (TurnsSeen+1) % 3'
+// then 'if TurnsSeen == 0'; equivalent to '++counter; if counter % 3 == 0'.
+"HappyFlower" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+     vec![
+        Effect::ModifyRelicCounter { key: "HappyFlower_turns".to_string(), delta: AmountSpec::Fixed(1) },
+        Effect::Conditional {
+            condition: Condition::RelicCounterModEq { key: "HappyFlower_turns".to_string(), modulus: 3, remainder: 0 },
+            then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }],
+            else_branch: vec![],
+        },
+     ]),
+]),

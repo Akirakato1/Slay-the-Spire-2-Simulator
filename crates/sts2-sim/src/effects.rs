@@ -2270,21 +2270,31 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         ]),
 
         "Kunai" => Some(vec![
+            (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::SetRelicCounter { key: "Kunai_attacks".to_string(), value: AmountSpec::Fixed(0) }]),
             (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
-             vec![Effect::ApplyPower {
-                 power_id: "DexterityPower".to_string(),
-                 amount: AmountSpec::Canonical("Dexterity".to_string()),
-                 target: Target::SelfPlayer,
-             }]),
+             vec![
+                Effect::ModifyRelicCounter { key: "Kunai_attacks".to_string(), delta: AmountSpec::Fixed(1) },
+                Effect::Conditional {
+                    condition: Condition::RelicCounterModEq { key: "Kunai_attacks".to_string(), modulus: 3, remainder: 0 },
+                    then_branch: vec![Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }],
+                    else_branch: vec![],
+                },
+             ]),
         ]),
 
         "Shuriken" => Some(vec![
+            (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::SetRelicCounter { key: "Shuriken_attacks".to_string(), value: AmountSpec::Fixed(0) }]),
             (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
-             vec![Effect::ApplyPower {
-                 power_id: "StrengthPower".to_string(),
-                 amount: AmountSpec::Canonical("Strength".to_string()),
-                 target: Target::SelfPlayer,
-             }]),
+             vec![
+                Effect::ModifyRelicCounter { key: "Shuriken_attacks".to_string(), delta: AmountSpec::Fixed(1) },
+                Effect::Conditional {
+                    condition: Condition::RelicCounterModEq { key: "Shuriken_attacks".to_string(), modulus: 3, remainder: 0 },
+                    then_branch: vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }],
+                    else_branch: vec![],
+                },
+             ]),
         ]),
 
         "Nunchaku" => Some(vec![
@@ -2570,7 +2580,14 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
 
         "HappyFlower" => Some(vec![
             (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
-             vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
+             vec![
+                Effect::ModifyRelicCounter { key: "HappyFlower_turns".to_string(), delta: AmountSpec::Fixed(1) },
+                Effect::Conditional {
+                    condition: Condition::RelicCounterModEq { key: "HappyFlower_turns".to_string(), modulus: 3, remainder: 0 },
+                    then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }],
+                    else_branch: vec![],
+                },
+             ]),
         ]),
 
         "FakeHappyFlower" => Some(vec![

@@ -63,7 +63,7 @@ def parse_arms(text):
 
 
 def main():
-    batch_files = ['batch_r_1.txt', 'batch_r_2.txt', 'batch_r_3.txt']
+    batch_files = ['batch_r_1.txt', 'batch_r_2.txt', 'batch_r_3.txt', 'batch_r_4.txt']
     arms = []
     for fname in batch_files:
         p = os.path.join(here, fname)
@@ -74,14 +74,15 @@ def main():
         for name, body in parse_arms(text):
             arms.append((name, body))
 
-    # Dedup
-    seen = set()
-    deduped = []
+    # Dedup — LAST-seen wins, so later batches override earlier ones.
+    # Lets batch_r_N supersede batch_r_M's placeholder for the same relic.
+    by_name = {}
+    order = []
     for n, b in arms:
-        if n in seen:
-            continue
-        seen.add(n)
-        deduped.append((n, b))
+        if n not in by_name:
+            order.append(n)
+        by_name[n] = b
+    deduped = [(n, by_name[n]) for n in order]
 
     effects_path = os.path.join(repo, 'crates', 'sts2-sim', 'src', 'effects.rs')
     with open(effects_path, 'r', encoding='utf-8') as f:
