@@ -64,10 +64,14 @@ impl RustRig {
     /// so the rust mirror needs to apply the same delta to keep parity.
     pub fn grant_relic(&mut self, relic_modelid: &str) {
         let relic_rust = modelid_to_rust(relic_modelid);
+        // Mirror C# RelicCmd.Obtain — always push, even if a relic
+        // with the same id is already present. The C# code calls
+        // AddRelicInternal unconditionally; IsStackable only affects
+        // grab-bag membership, not the player's relics list. Granting
+        // a starter relic (e.g., BurningBlood for Ironclad) twice
+        // produces two entries in oracle's dump.
         if let Some(ps) = self.combat.allies[0].player.as_mut() {
-            if !ps.relics.contains(&relic_rust) {
-                ps.relics.push(relic_rust.clone());
-            }
+            ps.relics.push(relic_rust.clone());
         }
         // Apply the AfterObtained body to the combat-level creature.
         // run_state_effects returns the full hook→body table; we only

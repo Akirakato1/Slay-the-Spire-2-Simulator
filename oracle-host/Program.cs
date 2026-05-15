@@ -732,8 +732,13 @@ internal sealed class Dispatcher
                 var ownerPlayer = _combat.CreaturePlayer.GetValue(ownerCreature)!;
                 var canonicalRelic = _combat.GetRelicById(relicId);
                 var mutableRelic = _combat.RelicToMutable.Invoke(canonicalRelic, null)!;
-                // RelicCmd.Obtain handles AddRelicInternal + AfterObtained.
-                // Returns a Task; await synchronously via .GetAwaiter().GetResult().
+                // Flip CombatManager.IsInProgress=false for the duration
+                // of Obtain so AfterObtained takes the out-of-combat
+                // branch (matches normal-gameplay relic acquisition).
+                // Without this, relics with both AfterObtained and
+                // BeforeCombatStart paths fire their effect twice
+                // (once mid-grant, once at our explicit BCS firing).
+                SaveManagerPrefix.CombatInProgress = false;
                 try
                 {
                     var task = _combat.RelicCmdObtain.Invoke(null,
@@ -744,6 +749,7 @@ internal sealed class Dispatcher
                 }
                 catch (Exception ex)
                 {
+                    SaveManagerPrefix.CombatInProgress = true;
                     return new JsonObject {
                         ["error"] = new JsonObject {
                             ["code"] = -32000,
@@ -751,6 +757,7 @@ internal sealed class Dispatcher
                         },
                     };
                 }
+                SaveManagerPrefix.CombatInProgress = true;
                 return Ok(JsonValue.Create(true));
             }
 
@@ -1014,7 +1021,34 @@ internal sealed class Dispatcher
         var node = new JsonObject();
         try
         {
-            node["max_energy_base"] = (int)_combat.PlayerMaxEnergy.GetValue(player)!;
+            // Effective per-turn max energy = base Player.MaxEnergy +
+            // Σ relic.ModifyMaxEnergy delta. The C# Hook.* iterator is
+            // no-op'd in our harness so we walk owned relics directly
+            // and accumulate the modifier returns. Rust dumps
+            // `turn_energy` which is already the post-modifier
+            // effective value (rust eagerly bumps on BeforeCombatStart).
+            int baseMax = (int)_combat.PlayerMaxEnergy.GetValue(player)!;
+            decimal effective = baseMax;
+            try
+            {
+                var relics = (System.Collections.IEnumerable?)_combat.PlayerRelics.GetValue(player);
+                if (relics != null && _combat.ModifyMaxEnergyMethod != null)
+                {
+                    foreach (var r in relics)
+                    {
+                        if (r == null) continue;
+                        try
+                        {
+                            var d = (decimal)_combat.ModifyMaxEnergyMethod.Invoke(
+                                r, new object[] { player, effective })!;
+                            effective = d;
+                        }
+                        catch { /* relic doesn't override; skip */ }
+                    }
+                }
+            }
+            catch { /* relic walk failed; fall back to base */ }
+            node["max_energy_base"] = (int)effective;
         }
         catch (Exception ex) { node["max_energy_error"] = ex.Message; }
         try
@@ -1319,13 +1353,14 @@ internal static class GodotBypass
             "MegaCrit.Sts2.Core.Hooks.Hook", "ModifyShuffleOrder",
             BindingFlags.Public | BindingFlags.Static,
             typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NoOp));
-        // CombatManager.IsInProgress = true (treat as if a combat is
-        // active so AttackCommand.Execute / DamageCmd etc. proceed
-        // instead of short-circuiting on IsOverOrEnding).
+        // CombatManager.IsInProgress — toggleable. Default `true` so
+        // combat machinery proceeds during card-play tests. Flipped
+        // `false` during RelicCmd.Obtain so AfterObtained takes the
+        // out-of-combat branch (avoids double-firing with BeforeCombatStart).
         HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Combat.CombatManager", "get_IsInProgress",
             BindingFlags.Public | BindingFlags.Instance,
-            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.TruePrefix));
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.CombatInProgressPrefix));
         HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Combat.CombatManager", "get_IsOverOrEnding",
             BindingFlags.Public | BindingFlags.Instance,
@@ -1528,6 +1563,19 @@ internal static class SaveManagerPrefix
         __result = false;
         return false;
     }
+    /// Toggleable IsInProgress prefix — default `true` so combat
+    /// machinery (AttackCommand.Execute, DamageCmd, etc.) doesn't
+    /// short-circuit during card-play tests. Flipped to `false` while
+    /// `RelicCmd.Obtain` runs so relic `AfterObtained()` bodies take
+    /// the out-of-combat branch (skips the mid-combat double-fire of
+    /// BeltBuckle/SneckoEye/FakeSneckoEye etc., which otherwise apply
+    /// their effect at AfterObtained AND again at BeforeCombatStart).
+    public static bool CombatInProgress = true;
+    public static bool CombatInProgressPrefix(ref bool __result)
+    {
+        __result = CombatInProgress;
+        return false;
+    }
     // Skip + return a completed Task for async-Task void-effect methods.
     public static bool CompletedTaskPrefix(ref Task __result)
     {
@@ -1657,6 +1705,7 @@ internal sealed class CombatReflectionBundle
     public required MethodInfo AfterRoomEnteredMethod { get; init; }
     public required MethodInfo RunStateCreateForTest { get; init; }
     public required Type GameModeType { get; init; }
+    public MethodInfo? ModifyMaxEnergyMethod { get; init; }
 
     public object GetCharacterById(string id)
     {
@@ -1954,6 +2003,12 @@ internal sealed class CombatReflectionBundle
             ?? throw new InvalidOperationException("RunState.CreateForTest not found");
         var gameModeType = asm.GetType("MegaCrit.Sts2.Core.Runs.GameMode",
             throwOnError: true)!;
+        // AbstractModel.ModifyMaxEnergy(Player, decimal) — virtual,
+        // overridden by relics like BlessedAntler/Ectoplasm/etc.
+        var modifyMaxEnergy = abstractModelType.GetMethod(
+            "ModifyMaxEnergy",
+            BindingFlags.Public | BindingFlags.Instance,
+            new[] { playerType, typeof(decimal) });
 
         return new CombatReflectionBundle
         {
@@ -2018,6 +2073,7 @@ internal sealed class CombatReflectionBundle
             AfterRoomEnteredMethod = afterRoomEntered,
             RunStateCreateForTest = runStateCreateForTest,
             GameModeType = gameModeType,
+            ModifyMaxEnergyMethod = modifyMaxEnergy,
         };
     }
 }

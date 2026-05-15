@@ -2828,6 +2828,11 @@ pub fn run_state_effects(
         RunStateHook::AfterObtained,
         vec![Effect::AddCardToRunStateDeck { card_id: "Enthralled".to_string(), upgrade: 0 }],
         )]),
+        // BloodSoakedRose ALSO has ModifyMaxEnergy(player, amt) ->
+        // amt + Energy.BaseValue. The run-state body above only
+        // covers the AfterObtained deck mutation. Combat-side
+        // BeforeCombatStart bumps max energy by Energy.BaseValue.
+        // (Separate match arm below in combat-effects path.)
 
         "CallingBell" => Some(vec![(
         RunStateHook::AfterObtained,
@@ -5071,6 +5076,13 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         "Ectoplasm" => Some(vec![
             (RelicHook::BeforeCombatStart,
              vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+        ]),
+
+        "BloodSoakedRose" => Some(vec![
+            // ModifyMaxEnergy(amount, player) -> amount + Energy.BaseValue.
+            // canonical_var Energy.base_value = 1; bumps per-turn cap.
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Canonical("Energy".to_string()) }]),
         ]),
 
         "EmberTea" => Some(vec![
