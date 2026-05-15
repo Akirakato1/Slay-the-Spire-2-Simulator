@@ -156,6 +156,11 @@ pub struct OstyState {
     pub current_hp: i32,
     pub max_hp: i32,
     pub block: i32,
+    /// Which pet/osty kind this is. "Default" = Necrobinder osty
+    /// (has DieForYouPower, redirect damage). "Byrdpip"/"PaelsLegion"
+    /// etc. = decorative pets without DieForYouPower. Drives the
+    /// `combat_dump_with_master` synthesis of allies[1].powers.
+    pub osty_id: String,
 }
 
 /// One orb in the player's queue. Mirrors C# `OrbModel`.

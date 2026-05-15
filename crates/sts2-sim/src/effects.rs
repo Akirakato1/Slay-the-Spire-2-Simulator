@@ -4900,7 +4900,9 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         "BoundPhylactery" => Some(vec![
             (RelicHook::BeforeCombatStart,
              vec![Effect::SummonOsty {
-                 osty_id: "BoundPhylactery".to_string(),
+                 // C# BoundPhylactery uses OstyCmd.Summon -> true
+                 // Necrobinder osty (gets DieForYouPower).
+                 osty_id: "Default".to_string(),
                  max_hp: Some(AmountSpec::Canonical("Summon".to_string())),
              }]),
         ]),
@@ -4908,12 +4910,12 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         "PhylacteryUnbound" => Some(vec![
             (RelicHook::BeforeCombatStart,
              vec![Effect::SummonOsty {
-                 osty_id: "PhylacteryUnbound".to_string(),
+                 osty_id: "Default".to_string(),
                  max_hp: Some(AmountSpec::Canonical("StartOfCombat".to_string())),
              }]),
             (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
              vec![Effect::SummonOsty {
-                 osty_id: "PhylacteryUnbound".to_string(),
+                 osty_id: "Default".to_string(),
                  max_hp: Some(AmountSpec::Canonical("StartOfTurn".to_string())),
              }]),
         ]),
@@ -4922,7 +4924,9 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
             (RelicHook::BeforeCombatStart,
              vec![Effect::SummonOsty {
                  osty_id: "Byrdpip".to_string(),
-                 max_hp: None,
+                 // C# MonsterModel.Byrdpip MinInitialHp = MaxInitialHp = 9999
+                 // (effectively-immortal pet, no health bar).
+                 max_hp: Some(AmountSpec::Fixed(9999)),
              }]),
         ]),
 
@@ -4930,7 +4934,8 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
             (RelicHook::BeforeCombatStart,
              vec![Effect::SummonOsty {
                  osty_id: "PaelsLegion".to_string(),
-                 max_hp: None,
+                 // C# MonsterModel.PaelsLegion MinInitialHp = MaxInitialHp = 9999.
+                 max_hp: Some(AmountSpec::Fixed(9999)),
              }]),
         ]),
 
@@ -8102,7 +8107,7 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             let d = delta.resolve(ctx, cs);
             cs.change_orb_slots(ctx.player_idx, d);
         }
-        Effect::SummonOsty { osty_id: _, max_hp } => {
+        Effect::SummonOsty { osty_id, max_hp } => {
             // C# OstyCmd.Summon(owner, amount, source) — summons Osty
             // with HP = amount. Most cards bind this via their
             // `Summon` canonical var; cards that omit the arg fall
@@ -8117,6 +8122,7 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                     current_hp: hp,
                     max_hp: hp,
                     block: 0,
+                    osty_id: osty_id.clone(),
                 });
             }
         }
@@ -9772,6 +9778,7 @@ mod tests {
             current_hp: 10,
             max_hp: 10,
             block: 0,
+            osty_id: "Default".to_string(),
         });
         let ctx = EffectContext::for_card(0, None, "Protector", 0, None, 0);
         assert_eq!(AmountSpec::OstyMaxHp.resolve(&ctx, &cs), 10);
@@ -9808,6 +9815,7 @@ mod tests {
             current_hp: 6,
             max_hp: 6,
             block: 0,
+            osty_id: "Default".to_string(),
         });
         let hp_before = cs.enemies[0].current_hp;
         let ctx = EffectContext::for_card(
