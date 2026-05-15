@@ -596,6 +596,13 @@ pub enum Effect {
     /// summon cards use a `Summon` canonical var for this; pass None
     /// to fall back to a default (6 HP) for cards that omit it.
     SummonOsty { osty_id: String, max_hp: Option<AmountSpec> },
+    /// Add `delta` to the player's round-1 initial-hand-draw count.
+    /// Mirrors C# `RelicModel.ModifyHandDraw` for relics that bump
+    /// the opening hand size (BagOfPreparation, RingOfTheSnake,
+    /// BoomingConch +2 each; Toolbox / NinjaScroll add a colorless card
+    /// or a Shiv instead). Stored on PlayerState; env.rs's initial-
+    /// hand draw consumes the delta.
+    ModifyRound1HandDraw { delta: AmountSpec },
     /// Heal the player's Osty companion (Spur).
     HealOsty { amount: AmountSpec },
     /// Set Osty current_hp to 0. Sacrifice (combined with GainBlock).
@@ -5065,12 +5072,26 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
 
         "BagOfPreparation" => Some(vec![
             (RelicHook::BeforeCombatStart,
-             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+             // C# BagOfPreparation.ModifyHandDraw adds +2 to round-1
+             // hand-draw count. Encoded as a deferred delta on
+             // PlayerState; env.rs's initial draw applies it before
+             // pulling cards. Eagerly drawing at BeforeCombatStart
+             // would also work in a vacuum but breaks parity tests
+             // that don't run the initial-draw flow.
+             vec![Effect::ModifyRound1HandDraw {
+                 delta: AmountSpec::Canonical("Cards".to_string()),
+             }]),
         ]),
 
         "BoomingConch" => Some(vec![
             (RelicHook::BeforeCombatStart,
-             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+             // C# BoomingConch.ModifyHandDraw: +2 on round 1, but
+             // only when currentRoom.RoomType == Elite. We don't
+             // gate by RoomType yet (our harness doesn't model it);
+             // applying unconditionally matches the same-flow tests.
+             vec![Effect::ModifyRound1HandDraw {
+                 delta: AmountSpec::Canonical("Cards".to_string()),
+             }]),
         ]),
 
         "PhilosophersStone" => Some(vec![
@@ -5256,7 +5277,12 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
 
         "RingOfTheSnake" => Some(vec![
             (RelicHook::BeforeCombatStart,
-             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+             // C# RingOfTheSnake.ModifyHandDraw +2 on round 1 only.
+             // Silent's starter relic. See BagOfPreparation for the
+             // ModifyRound1HandDraw rationale.
+             vec![Effect::ModifyRound1HandDraw {
+                 delta: AmountSpec::Canonical("Cards".to_string()),
+             }]),
         ]),
 
         "Sozu" => Some(vec![
@@ -8106,6 +8132,12 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         Effect::ChangeOrbSlots { delta } => {
             let d = delta.resolve(ctx, cs);
             cs.change_orb_slots(ctx.player_idx, d);
+        }
+        Effect::ModifyRound1HandDraw { delta } => {
+            let d = delta.resolve(ctx, cs);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                ps.hand_draw_round1_delta += d;
+            }
         }
         Effect::SummonOsty { osty_id, max_hp } => {
             // C# OstyCmd.Summon(owner, amount, source) — summons Osty

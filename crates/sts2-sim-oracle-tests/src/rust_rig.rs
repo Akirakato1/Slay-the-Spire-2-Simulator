@@ -289,6 +289,7 @@ pub fn combat_add_player(cs: &mut CombatState, character_modelid: &str, _seed: u
             pending_forge: 0,
             osty: None,
             relic_counters: std::collections::HashMap::new(),
+            hand_draw_round1_delta: 0,
         }),
         monster: None,
     };

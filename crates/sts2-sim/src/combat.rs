@@ -147,6 +147,15 @@ pub struct PlayerState {
     /// CentennialPuzzle (one-shot flag). Keys are short ids the relic's
     /// hook bodies read via `Effect::SetPowerStateField`-style writes.
     pub relic_counters: std::collections::HashMap<String, i32>,
+    /// Round-1-only delta applied to the initial-hand draw count.
+    /// Mirrors C# `RelicModel.ModifyHandDraw` modifier pipeline that
+    /// BagOfPreparation / RingOfTheSnake / BoomingConch use to add +2
+    /// to the player's opening hand. Consumed by env.rs's initial
+    /// draw and reset to 0 thereafter (subsequent rounds use the
+    /// unmodified INITIAL_HAND_SIZE). Stored as i32 so multiple
+    /// modifiers (Defect's class starter + an Ironclad-event relic)
+    /// stack.
+    pub hand_draw_round1_delta: i32,
 }
 
 /// Companion-creature state. Cards reference Osty.MaxHp (Protector,
@@ -12030,6 +12039,7 @@ impl Creature {
                 pending_forge: 0,
                 osty: None,
                 relic_counters: std::collections::HashMap::new(),
+                hand_draw_round1_delta: 0,
             }),
             monster: None,
         }

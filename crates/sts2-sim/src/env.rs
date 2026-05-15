@@ -140,7 +140,23 @@ impl CombatEnv {
             // are guaranteed in the opening hand. The remaining draw
             // fills up to INITIAL_HAND_SIZE total.
             let innate_count = state.move_innate_cards_to_hand(player_idx);
-            let remaining = (INITIAL_HAND_SIZE - innate_count).max(0);
+            // Round-1 hand-draw delta from ModifyRound1HandDraw (set by
+            // BagOfPreparation/RingOfTheSnake/BoomingConch in their
+            // BeforeCombatStart hooks). Consumed once.
+            let round1_delta = state
+                .allies
+                .get(player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.hand_draw_round1_delta)
+                .unwrap_or(0);
+            if let Some(ps) = state.allies
+                .get_mut(player_idx)
+                .and_then(|c| c.player.as_mut())
+            {
+                ps.hand_draw_round1_delta = 0;
+            }
+            let target = INITIAL_HAND_SIZE + round1_delta;
+            let remaining = (target - innate_count).max(0);
             if remaining > 0 {
                 let mut rng_taken =
                     std::mem::replace(&mut state.rng, Rng::new(0, 0));
