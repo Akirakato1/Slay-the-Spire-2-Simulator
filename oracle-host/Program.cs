@@ -882,6 +882,49 @@ internal sealed class Dispatcher
                 return Ok(JsonValue.Create(true));
             }
 
+            case "combat_set_card_property":
+            {
+                // Generic per-card property setter via reflection.
+                // Used to configure MadScience.TinkerTimeType /
+                // TinkerTimeRider and any future per-instance state.
+                // Looks up the card in hand by hand_idx; sets
+                // `prop_name` to `value` (int).
+                var combat = GetInstance(p);
+                var handIdx = p["hand_idx"]!.GetValue<int>();
+                var propName = p["prop_name"]!.GetValue<string>();
+                var value = p["value"]!.GetValue<int>();
+                var playerIdx = p["player_idx"]?.GetValue<int>() ?? 0;
+                var allies = (System.Collections.IList)_combat.Allies.GetValue(combat)!;
+                var ownerCreature = allies[playerIdx]!;
+                var ownerPlayer = _combat.CreaturePlayer.GetValue(ownerCreature)!;
+                var pcs = _combat.PlayerCombatState.GetValue(ownerPlayer)!;
+                var hand = _combat.PcsHand.GetValue(pcs)!;
+                var handCards = (System.Collections.IList)_combat.PileCards.GetValue(hand)!;
+                if (handIdx < 0 || handIdx >= handCards.Count)
+                {
+                    return new JsonObject { ["error"] = $"hand index {handIdx} out of range" };
+                }
+                var card = handCards[handIdx]!;
+                var prop = card.GetType().GetProperty(propName,
+                    BindingFlags.Public | BindingFlags.Instance);
+                if (prop == null || !prop.CanWrite)
+                {
+                    return new JsonObject { ["error"] = $"no writable property {propName} on {card.GetType().Name}" };
+                }
+                // Coerce int -> property type (enum or int).
+                object coerced;
+                if (prop.PropertyType.IsEnum)
+                {
+                    coerced = Enum.ToObject(prop.PropertyType, value);
+                }
+                else
+                {
+                    coerced = Convert.ChangeType(value, prop.PropertyType);
+                }
+                prop.SetValue(card, coerced);
+                return Ok(JsonValue.Create(true));
+            }
+
             case "combat_play_card":
             {
                 var combat = GetInstance(p);

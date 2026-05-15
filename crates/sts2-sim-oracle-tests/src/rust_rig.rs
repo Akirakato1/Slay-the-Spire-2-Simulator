@@ -54,6 +54,21 @@ impl RustRig {
     pub fn force_card_to_hand(&mut self, card_modelid: &str, upgrade: i32) {
         combat_force_card_to_hand(&mut self.combat, card_modelid, upgrade);
     }
+
+    /// Set a state field on the card at `hand_idx`. Used to configure
+    /// MadScience.TinkerTimeType / TinkerTimeRider before play.
+    pub fn set_card_state(&mut self, hand_idx: usize, key: &str, value: i32) {
+        if let Some(ps) = self
+            .combat
+            .allies
+            .get_mut(0)
+            .and_then(|c| c.player.as_mut())
+        {
+            if let Some(card) = ps.hand.cards.get_mut(hand_idx) {
+                card.state.insert(key.to_string(), value);
+            }
+        }
+    }
     /// Grant a relic mid-combat. Mirrors the oracle host's
     /// `combat_grant_relic` RPC — pushes the relic id onto the player's
     /// `relics` list, then applies a curated subset of the run-state

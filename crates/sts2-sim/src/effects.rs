@@ -379,6 +379,12 @@ pub enum Condition {
     /// check (RedSkull fires only when HP <= 50%). Reads
     /// `cs.allies[player_idx].{current_hp,max_hp}`.
     OwnerHpAtOrBelowPercent { percent: i32 },
+    /// `played_card.state[key] == value`. Used by MadScience to
+    /// dispatch on its per-instance TinkerTimeType / TinkerTimeRider
+    /// (1=Attack/Sapping, 2=Skill/Violence, etc., matching the C#
+    /// enum ordinals). Reads `EffectContext.source_card_id` to find
+    /// the playing card in the play_pile and inspects `state[key]`.
+    SourceCardCounterEquals { key: String, value: i32 },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -6368,7 +6374,133 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
             }],
         }]),
         "MachineLearning" => Some(vec![Effect::ApplyPower { power_id: "MachineLearningPower".to_string(), amount: AmountSpec::Canonical("Cards".to_string()), target: Target::SelfPlayer }]),
-        "MadScience" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::ChosenEnemy }]),
+        // MadScience: 9 variants gated on per-instance TinkerTimeType
+        // (1=Attack, 2=Skill, 3=Power per C# CardType ordinals) +
+        // TinkerTimeRider (1=Sapping, 2=Violence, 3=Choking, 4=Energized,
+        // 5=Wisdom, 6=Chaos, 7=Expertise, 8=Curious, 9=Improvement per
+        // C# TinkerTime.RiderEffect ordinals). Pre-set via test
+        // harness `force_card_state("tinker_time_type", ...)` etc.
+        //
+        // C# OnPlay dispatches via TinkerTimeType (with default-throw),
+        // then optionally runs ExecuteRider for a subset of riders.
+        // Power-type's rider is handled inline in ExecutePower.
+        "MadScience" => Some(vec![
+            // ---- Attack type (TinkerTimeType == 1) ----
+            // Attack base: damage(12) × 1 hit. Violence rider overrides
+            // to × 3 hits. Sapping/Choking riders add a status power.
+            Effect::Conditional {
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 1 }),
+                    Box::new(Condition::Not(Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 2 }))),
+                ),
+                then_branch: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }],
+                else_branch: vec![],
+            },
+            Effect::Conditional {
+                // Attack + Violence: 3 hits.
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 1 }),
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 2 }),
+                ),
+                then_branch: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 3 }],
+                else_branch: vec![],
+            },
+            Effect::Conditional {
+                // Attack + Sapping: Weak(2) + Vulnerable(2) on target.
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 1 }),
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 1 }),
+                ),
+                then_branch: vec![
+                    Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("SappingWeak".to_string()), target: Target::ChosenEnemy },
+                    Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("SappingVulnerable".to_string()), target: Target::ChosenEnemy },
+                ],
+                else_branch: vec![],
+            },
+            Effect::Conditional {
+                // Attack + Choking: StranglePower(6) on target.
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 1 }),
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 3 }),
+                ),
+                then_branch: vec![Effect::ApplyPower { power_id: "StranglePower".to_string(), amount: AmountSpec::Canonical("ChokingDamage".to_string()), target: Target::ChosenEnemy }],
+                else_branch: vec![],
+            },
+            // ---- Skill type (TinkerTimeType == 2) ----
+            // Skill base: gain block(8). Riders add their effect.
+            Effect::Conditional {
+                condition: Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 2 },
+                then_branch: vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }],
+                else_branch: vec![],
+            },
+            Effect::Conditional {
+                // Skill + Energized: gain 2 energy.
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 2 }),
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 4 }),
+                ),
+                then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("EnergizedEnergy".to_string()) }],
+                else_branch: vec![],
+            },
+            Effect::Conditional {
+                // Skill + Wisdom: draw 3 cards.
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 2 }),
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 5 }),
+                ),
+                then_branch: vec![Effect::DrawCards { amount: AmountSpec::Canonical("WisdomCards".to_string()) }],
+                else_branch: vec![],
+            },
+            Effect::Conditional {
+                // Skill + Chaos: add 1 random card from character pool to hand (free this turn).
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 2 }),
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 6 }),
+                ),
+                then_branch: vec![Effect::AddRandomCardFromPool {
+                    pool: CardPoolRef::CharacterAny,
+                    filter: CardFilter::Any,
+                    n: AmountSpec::Fixed(1),
+                    pile: Pile::Hand,
+                    upgrade: 0,
+                    free_this_turn: true,
+                    distinct: true,
+                }],
+                else_branch: vec![],
+            },
+            // ---- Power type (TinkerTimeType == 3) ----
+            // No base effect; rider drives the entire payload.
+            Effect::Conditional {
+                // Power + Expertise: Strength(2) + Dexterity(2).
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 3 }),
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 7 }),
+                ),
+                then_branch: vec![
+                    Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("ExpertiseStrength".to_string()), target: Target::SelfPlayer },
+                    Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("ExpertiseDexterity".to_string()), target: Target::SelfPlayer },
+                ],
+                else_branch: vec![],
+            },
+            Effect::Conditional {
+                // Power + Curious: CuriousPower(1).
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 3 }),
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 8 }),
+                ),
+                then_branch: vec![Effect::ApplyPower { power_id: "CuriousPower".to_string(), amount: AmountSpec::Canonical("CuriousReduction".to_string()), target: Target::SelfPlayer }],
+                else_branch: vec![],
+            },
+            Effect::Conditional {
+                // Power + Improvement: ImprovementPower(1).
+                condition: Condition::And(
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_type".to_string(), value: 3 }),
+                    Box::new(Condition::SourceCardCounterEquals { key: "tinker_time_rider".to_string(), value: 9 }),
+                ),
+                then_branch: vec![Effect::ApplyPower { power_id: "ImprovementPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }],
+                else_branch: vec![],
+            },
+        ]),
         "MakeItSo" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "ManifestAuthority" => Some(vec![
             Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
@@ -9101,6 +9233,27 @@ pub fn evaluate_condition(
             };
             // RedSkull: current_hp <= max_hp * percent / 100.
             c.current_hp * 100 <= c.max_hp * (*percent)
+        }
+        Condition::SourceCardCounterEquals { key, value } => {
+            let Some(card_id) = ctx.source_card_id else {
+                return false;
+            };
+            // Find the playing card in play_pile (matches source_card_id
+            // and is the most recently pushed entry — OnPlay just put
+            // it there before dispatch).
+            let Some(ps) = cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+            else {
+                return false;
+            };
+            ps.play_pile
+                .iter()
+                .rev()
+                .find(|c| c.id == card_id)
+                .map(|c| c.state.get(key).copied().unwrap_or(0) == *value)
+                .unwrap_or(false)
         }
         Condition::TargetMonsterIntendsToAttack => {
             let Some((side, idx)) = ctx.target else {
