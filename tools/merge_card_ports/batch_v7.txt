@@ -1,0 +1,22 @@
+// batch_v7.txt - cards using Selector::PlayerInteractiveFiltered.
+// Verified against C# source.
+
+// SecretTechnique.cs L34-46: pick 1 Skill from Draw -> Hand bottom.
+        "SecretTechnique" => Some(vec![Effect::MoveCard {
+            from: Pile::Draw,
+            to: Pile::Hand,
+            selector: Selector::PlayerInteractiveFiltered {
+                n: 1,
+                filter: CardFilter::OfType("Skill".to_string()),
+            },
+        }]),
+
+// SecretWeapon.cs L34-46: pick 1 Attack from Draw -> Hand bottom.
+        "SecretWeapon" => Some(vec![Effect::MoveCard {
+            from: Pile::Draw,
+            to: Pile::Hand,
+            selector: Selector::PlayerInteractiveFiltered {
+                n: 1,
+                filter: CardFilter::OfType("Attack".to_string()),
+            },
+        }]),

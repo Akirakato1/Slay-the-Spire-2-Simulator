@@ -386,6 +386,13 @@ pub enum Selector {
     /// resolves to `Random { n }` so cards that use this stay
     /// functional until the multi-step play API lands.
     PlayerInteractive { n: i32 },
+    /// Player picks from cards matching `filter`. Filtered variant of
+    /// PlayerInteractive — used when the C# `CardSelectCmd.FromX`
+    /// passes a predicate (Attack-only / Skill-only / etc.).
+    /// SecretTechnique (Skill-only from Draw), SecretWeapon
+    /// (Attack-only from Draw). Fallback: Random over the filtered
+    /// candidates.
+    PlayerInteractiveFiltered { n: i32, filter: CardFilter },
 }
 
 /// Predicate over cards. Closed set tracks the C# pile-filter idioms.
@@ -3760,7 +3767,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 158 hand-curated arms covering Acrobatics..Rattle.
+        // 160 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -4057,6 +4064,22 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Mimic" => Some(vec![Effect::GainBlock {
         amount: AmountSpec::TargetBlock,
         target: Target::SelfPlayer,
+        }]),
+        "SecretTechnique" => Some(vec![Effect::MoveCard {
+        from: Pile::Draw,
+        to: Pile::Hand,
+        selector: Selector::PlayerInteractiveFiltered {
+        n: 1,
+        filter: CardFilter::OfType("Skill".to_string()),
+        },
+        }]),
+        "SecretWeapon" => Some(vec![Effect::MoveCard {
+        from: Pile::Draw,
+        to: Pile::Hand,
+        selector: Selector::PlayerInteractiveFiltered {
+        n: 1,
+        filter: CardFilter::OfType("Attack".to_string()),
+        },
         }]),
 
         _ => None,
@@ -4978,6 +5001,39 @@ fn select_card_indices(
             // Random selection. Deterministic given combat RNG.
             let stub = Selector::Random { n: *n };
             select_card_indices(cs, player_idx, pile, &stub)
+        }
+        Selector::PlayerInteractiveFiltered { n, filter } => {
+            // Filter to the candidate pool, then random-pick from that.
+            // Equivalent to "C# CardSelectCmd.From(filtered_cards, n)
+            // with default-random fallback".
+            let Some(ps) = player_state_mut(cs, player_idx) else {
+                return Vec::new();
+            };
+            let Some(cards) = pile_mut(ps, pile) else {
+                return Vec::new();
+            };
+            let candidate_indices: Vec<usize> = cards
+                .cards
+                .iter()
+                .enumerate()
+                .filter(|(_, c)| matches_filter(c, filter))
+                .map(|(i, _)| i)
+                .collect();
+            if candidate_indices.is_empty() {
+                return Vec::new();
+            }
+            let mut rng = std::mem::replace(&mut cs.rng, crate::rng::Rng::new(0, 0));
+            let mut picked: Vec<usize> = Vec::with_capacity((*n).max(0) as usize);
+            let mut pool = candidate_indices;
+            for _ in 0..(*n).max(0) {
+                if pool.is_empty() {
+                    break;
+                }
+                let pick = rng.next_int_range(0, pool.len() as i32) as usize;
+                picked.push(pool.swap_remove(pick));
+            }
+            cs.rng = rng;
+            picked
         }
     }
 }
