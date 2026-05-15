@@ -624,12 +624,34 @@ internal sealed class Dispatcher
             {
                 var combat = GetInstance(p);
                 var characterId = p["character_id"]!.GetValue<string>();
+                var seed = (uint)(p["seed"]?.GetValue<long>() ?? 0L);
                 var unlock = _combat.UnlockNone;
                 var characterModel = _combat.GetCharacterById(characterId);
                 // Player.CreateForNewRun(character, unlockState, netId)
                 var player = _combat.PlayerCreateForNewRun.Invoke(
                     null, new object[] { characterModel, unlock, 0UL })!;
                 _combat.AddPlayer.Invoke(combat, new[] { player });
+                // ResetCombatState + PopulateCombatState wire the
+                // combat-frame PlayerCombatState (hand/draw/discard/
+                // exhaust piles) and seed the draw pile from the
+                // master deck via a deterministic Rng.
+                _combat.ResetCombatState.Invoke(player, null);
+                var rng = _rngCtor.Invoke(new object[] { seed, 0 });
+                try
+                {
+                    _combat.PopulateCombatState.Invoke(player, new[] { rng, combat });
+                }
+                catch (TargetInvocationException ex) when (ex.InnerException is not null)
+                {
+                    // Shuffle hook listeners can NRE on Godot-dependent
+                    // paths; the draw pile is still populated (just not
+                    // shuffled). Surface the warning but don't fail.
+                    return new JsonObject
+                    {
+                        ["result"] = true,
+                        ["populate_warning"] = ex.InnerException.Message,
+                    };
+                }
                 return Ok(JsonValue.Create(true));
             }
 
@@ -691,23 +713,161 @@ internal sealed class Dispatcher
 
     private JsonObject SerializeCreature(object creature)
     {
-        // Name getter can NRE for partially-initialized creatures; we
-        // capture the type name as a fallback identifier.
         string? name = null;
         try { name = (string?)_combat.CreatureName.GetValue(creature); }
-        catch { /* fallback to null */ }
+        catch { }
         var hp = (int)_combat.CreatureCurrentHp.GetValue(creature)!;
         var maxHp = (int)_combat.CreatureMaxHp.GetValue(creature)!;
         var block = (int)_combat.CreatureBlock.GetValue(creature)!;
         var isPlayer = (bool)_combat.CreatureIsPlayer.GetValue(creature)!;
-        return new JsonObject
+        var powers = SerializePowers(creature);
+        var creatureNode = new JsonObject
         {
             ["name"] = name,
             ["current_hp"] = hp,
             ["max_hp"] = maxHp,
             ["block"] = block,
             ["is_player"] = isPlayer,
+            ["powers"] = powers,
         };
+        if (isPlayer)
+        {
+            try
+            {
+                var player = _combat.CreaturePlayer.GetValue(creature);
+                if (player != null)
+                {
+                    creatureNode["player"] = SerializePlayer(player);
+                }
+            }
+            catch (Exception ex)
+            {
+                creatureNode["player_error"] = ex.Message;
+            }
+        }
+        return creatureNode;
+    }
+
+    private JsonArray SerializePowers(object creature)
+    {
+        var arr = new JsonArray();
+        var powers = (System.Collections.IEnumerable?)_combat.CreaturePowers.GetValue(creature);
+        if (powers == null) return arr;
+        foreach (var p in powers)
+        {
+            var id = ModelIdString(_combat.AbstractModelId.GetValue(p));
+            var amount = (int)_combat.PowerAmount.GetValue(p)!;
+            arr.Add(new JsonObject { ["id"] = id, ["amount"] = amount });
+        }
+        return arr;
+    }
+
+    private JsonObject SerializePlayer(object player)
+    {
+        var node = new JsonObject();
+        try
+        {
+            node["max_energy_base"] = (int)_combat.PlayerMaxEnergy.GetValue(player)!;
+        }
+        catch (Exception ex) { node["max_energy_error"] = ex.Message; }
+        try
+        {
+            var pcs = _combat.PlayerCombatState.GetValue(player);
+            if (pcs != null)
+            {
+                try { node["energy"] = (int)_combat.PcsEnergy.GetValue(pcs)!; }
+                catch (Exception ex) { node["energy_error"] = ex.Message; }
+                try { node["stars"] = (int)_combat.PcsStars.GetValue(pcs)!; }
+                catch (Exception ex) { node["stars_error"] = ex.Message; }
+                node["hand"] = SerializePile(_combat.PcsHand.GetValue(pcs));
+                node["draw"] = SerializePile(_combat.PcsDrawPile.GetValue(pcs));
+                node["discard"] = SerializePile(_combat.PcsDiscardPile.GetValue(pcs));
+                node["exhaust"] = SerializePile(_combat.PcsExhaustPile.GetValue(pcs));
+                node["play"] = SerializePile(_combat.PcsPlayPile.GetValue(pcs));
+            }
+        }
+        catch (Exception ex)
+        {
+            node["pcs_error"] = ex.Message;
+        }
+        try
+        {
+            node["master_deck"] = SerializePile(_combat.PlayerMasterDeck.GetValue(player));
+        }
+        catch (Exception ex) { node["master_deck_error"] = ex.Message; }
+        try
+        {
+            var relicsArr = new JsonArray();
+            var relics = (System.Collections.IEnumerable?)_combat.PlayerRelics.GetValue(player);
+            if (relics != null)
+            {
+                foreach (var r in relics)
+                {
+                    relicsArr.Add(ModelIdString(_combat.AbstractModelId.GetValue(r)));
+                }
+            }
+            node["relics"] = relicsArr;
+        }
+        catch (Exception ex) { node["relics_error"] = ex.Message; }
+        try
+        {
+            var potionsArr = new JsonArray();
+            var potions = (System.Collections.IEnumerable?)_combat.PlayerPotionSlots.GetValue(player);
+            if (potions != null)
+            {
+                foreach (var p in potions)
+                {
+                    if (p == null) { potionsArr.Add((JsonNode?)null); continue; }
+                    potionsArr.Add(ModelIdString(_combat.AbstractModelId.GetValue(p)));
+                }
+            }
+            node["potions"] = potionsArr;
+        }
+        catch (Exception ex) { node["potions_error"] = ex.Message; }
+        return node;
+    }
+
+    private JsonArray SerializePile(object? pile)
+    {
+        var arr = new JsonArray();
+        if (pile == null) return arr;
+        var cards = (System.Collections.IEnumerable?)_combat.PileCards.GetValue(pile);
+        if (cards == null) return arr;
+        foreach (var c in cards)
+        {
+            arr.Add(SerializeCard(c));
+        }
+        return arr;
+    }
+
+    private JsonObject SerializeCard(object card)
+    {
+        var id = ModelIdString(_combat.AbstractModelId.GetValue(card));
+        var upgrade = (int)_combat.CardCurrentUpgradeLevel.GetValue(card)!;
+        var node = new JsonObject { ["id"] = id, ["upgrade_level"] = upgrade };
+        try
+        {
+            var ench = _combat.CardEnchantment.GetValue(card);
+            if (ench != null)
+            {
+                var enchId = ModelIdString(_combat.AbstractModelId.GetValue(ench));
+                var amount = (int)_combat.EnchantmentAmountField.GetValue(ench)!;
+                node["enchantment"] = new JsonObject
+                {
+                    ["id"] = enchId,
+                    ["amount"] = amount,
+                };
+            }
+        }
+        catch { /* enchantment absent or unreadable */ }
+        return node;
+    }
+
+    private static string? ModelIdString(object? mid)
+    {
+        if (mid == null) return null;
+        // ModelId.ToString() returns "CATEGORY.ENTRY".
+        return mid.ToString();
     }
 
     private static JsonObject Ok(JsonNode? result) => new() { ["result"] = result };
@@ -925,6 +1085,8 @@ internal sealed class CombatReflectionBundle
     public required MethodInfo CreateCreature { get; init; }
     public required MethodInfo AddCreature { get; init; }
     public required MethodInfo ToMutable { get; init; }
+    public required MethodInfo ResetCombatState { get; init; }
+    public required MethodInfo PopulateCombatState { get; init; }
     public required MethodInfo GetCharacterByIdMethod { get; init; }
     public required MethodInfo GetMonsterByIdMethod { get; init; }
     public required MethodInfo ModelIdDeserialize { get; init; }
@@ -938,6 +1100,26 @@ internal sealed class CombatReflectionBundle
     public required PropertyInfo CreatureMaxHp { get; init; }
     public required PropertyInfo CreatureBlock { get; init; }
     public required PropertyInfo CreatureIsPlayer { get; init; }
+    public required PropertyInfo CreaturePowers { get; init; }
+    public required PropertyInfo CreaturePlayer { get; init; }
+    public required PropertyInfo PowerAmount { get; init; }
+    public required PropertyInfo AbstractModelId { get; init; }
+    public required PropertyInfo PlayerCombatState { get; init; }
+    public required PropertyInfo PlayerMaxEnergy { get; init; }
+    public required PropertyInfo PlayerMasterDeck { get; init; }
+    public required PropertyInfo PlayerRelics { get; init; }
+    public required PropertyInfo PlayerPotionSlots { get; init; }
+    public required PropertyInfo PcsEnergy { get; init; }
+    public required PropertyInfo PcsStars { get; init; }
+    public required PropertyInfo PcsHand { get; init; }
+    public required PropertyInfo PcsDrawPile { get; init; }
+    public required PropertyInfo PcsDiscardPile { get; init; }
+    public required PropertyInfo PcsExhaustPile { get; init; }
+    public required PropertyInfo PcsPlayPile { get; init; }
+    public required PropertyInfo PileCards { get; init; }
+    public required PropertyInfo CardCurrentUpgradeLevel { get; init; }
+    public required PropertyInfo CardEnchantment { get; init; }
+    public required PropertyInfo EnchantmentAmountField { get; init; }
 
     public object GetCharacterById(string id)
     {
@@ -1018,6 +1200,12 @@ internal sealed class CombatReflectionBundle
             BindingFlags.Public | BindingFlags.Instance,
             Type.EmptyTypes)
             ?? throw new InvalidOperationException("MonsterModel.ToMutable not found");
+        var resetCombatState = playerType.GetMethod("ResetCombatState",
+            BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("Player.ResetCombatState not found");
+        var populateCombatState = playerType.GetMethod("PopulateCombatState",
+            BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("Player.PopulateCombatState not found");
 
         // ModelDb.GetById<T>(ModelId id). We need ModelId.Deserialize(string)
         // to bridge from the string id ("CHARACTER.IRONCLAD") to ModelId.
@@ -1059,11 +1247,72 @@ internal sealed class CombatReflectionBundle
             ?? throw new InvalidOperationException("Creature.Block not found");
         var creatureIsPlayer = creatureType.GetProperty("IsPlayer")
             ?? throw new InvalidOperationException("Creature.IsPlayer not found");
+        var creaturePowers = creatureType.GetProperty("Powers")
+            ?? throw new InvalidOperationException("Creature.Powers not found");
+        var creaturePlayer = creatureType.GetProperty("Player")
+            ?? throw new InvalidOperationException("Creature.Player not found");
+
+        var powerType = asm.GetType("MegaCrit.Sts2.Core.Models.PowerModel",
+            throwOnError: true)!;
+        var powerAmount = powerType.GetProperty("Amount")
+            ?? throw new InvalidOperationException("PowerModel.Amount not found");
+        var abstractModelType = asm.GetType("MegaCrit.Sts2.Core.Models.AbstractModel",
+            throwOnError: true)!;
+        var abstractModelId = abstractModelType.GetProperty("Id")
+            ?? throw new InvalidOperationException("AbstractModel.Id not found");
+
+        var pcsType = asm.GetType(
+            "MegaCrit.Sts2.Core.Entities.Players.PlayerCombatState",
+            throwOnError: true)!;
+        var playerCombatStateProp = playerType.GetProperty("PlayerCombatState")
+            ?? throw new InvalidOperationException("Player.PlayerCombatState not found");
+        var playerMaxEnergy = playerType.GetProperty("MaxEnergy")
+            ?? throw new InvalidOperationException("Player.MaxEnergy not found");
+        var playerMasterDeck = playerType.GetProperty("Deck")
+            ?? throw new InvalidOperationException("Player.Deck not found");
+        var playerRelics = playerType.GetProperty("Relics")
+            ?? throw new InvalidOperationException("Player.Relics not found");
+        var playerPotionSlots = playerType.GetProperty("PotionSlots")
+            ?? throw new InvalidOperationException("Player.PotionSlots not found");
+
+        var pcsEnergy = pcsType.GetProperty("Energy")
+            ?? throw new InvalidOperationException("Pcs.Energy not found");
+        var pcsStars = pcsType.GetProperty("Stars")
+            ?? throw new InvalidOperationException("Pcs.Stars not found");
+        var pcsHand = pcsType.GetProperty("Hand")
+            ?? throw new InvalidOperationException("Pcs.Hand not found");
+        var pcsDraw = pcsType.GetProperty("DrawPile")
+            ?? throw new InvalidOperationException("Pcs.DrawPile not found");
+        var pcsDiscard = pcsType.GetProperty("DiscardPile")
+            ?? throw new InvalidOperationException("Pcs.DiscardPile not found");
+        var pcsExhaust = pcsType.GetProperty("ExhaustPile")
+            ?? throw new InvalidOperationException("Pcs.ExhaustPile not found");
+        var pcsPlay = pcsType.GetProperty("PlayPile")
+            ?? throw new InvalidOperationException("Pcs.PlayPile not found");
+
+        var pileType = asm.GetType("MegaCrit.Sts2.Core.Entities.Cards.CardPile",
+            throwOnError: true)!;
+        var pileCards = pileType.GetProperty("Cards")
+            ?? throw new InvalidOperationException("CardPile.Cards not found");
+
+        var cardType = asm.GetType("MegaCrit.Sts2.Core.Models.CardModel",
+            throwOnError: true)!;
+        var cardUpgrade = cardType.GetProperty("CurrentUpgradeLevel")
+            ?? throw new InvalidOperationException("CardModel.CurrentUpgradeLevel not found");
+        var cardEnchantment = cardType.GetProperty("Enchantment")
+            ?? throw new InvalidOperationException("CardModel.Enchantment not found");
+        var enchantmentType = asm.GetType(
+            "MegaCrit.Sts2.Core.Models.EnchantmentModel",
+            throwOnError: true)!;
+        var enchantmentAmount = enchantmentType.GetProperty("Amount")
+            ?? throw new InvalidOperationException("Enchantment.Amount not found");
 
         return new CombatReflectionBundle
         {
             CombatStateCtor = combatStateCtor,
             UnlockNone = unlockNone,
+            ResetCombatState = resetCombatState,
+            PopulateCombatState = populateCombatState,
             PlayerCreateForNewRun = playerCreate,
             AddPlayer = addPlayer,
             CreateCreature = createCreature,
@@ -1082,6 +1331,26 @@ internal sealed class CombatReflectionBundle
             CreatureMaxHp = creatureMaxHp,
             CreatureBlock = creatureBlock,
             CreatureIsPlayer = creatureIsPlayer,
+            CreaturePowers = creaturePowers,
+            CreaturePlayer = creaturePlayer,
+            PowerAmount = powerAmount,
+            AbstractModelId = abstractModelId,
+            PlayerCombatState = playerCombatStateProp,
+            PlayerMaxEnergy = playerMaxEnergy,
+            PlayerMasterDeck = playerMasterDeck,
+            PlayerRelics = playerRelics,
+            PlayerPotionSlots = playerPotionSlots,
+            PcsEnergy = pcsEnergy,
+            PcsStars = pcsStars,
+            PcsHand = pcsHand,
+            PcsDrawPile = pcsDraw,
+            PcsDiscardPile = pcsDiscard,
+            PcsExhaustPile = pcsExhaust,
+            PcsPlayPile = pcsPlay,
+            PileCards = pileCards,
+            CardCurrentUpgradeLevel = cardUpgrade,
+            CardEnchantment = cardEnchantment,
+            EnchantmentAmountField = enchantmentAmount,
         };
     }
 }

@@ -52,24 +52,62 @@ fn combat_add_player_ironclad() {
     // Character ids are namespaced: "CHARACTER.IRONCLAD".
     let r = oracle.call(
         "combat_add_player",
-        json!({ "handle": handle, "character_id": "CHARACTER.IRONCLAD" }),
+        json!({
+            "handle": handle,
+            "character_id": "CHARACTER.IRONCLAD",
+            "seed": 42,
+        }),
     );
-    let r = unwrap_result(r.expect("combat_add_player"));
-    assert_eq!(r, true);
+    let r = r.expect("combat_add_player");
+    assert_eq!(r["result"], true, "add_player failed: {r}");
+    // populate_warning is an acceptable soft-fail for now — Godot-dep
+    // shuffle hooks NRE without scene tree. Future fix: more Harmony
+    // patches.
 
     let dump = unwrap_result(
         oracle
             .call("combat_dump", json!({ "handle": handle }))
             .expect("combat_dump"),
     );
-    assert_eq!(
-        dump["allies"].as_array().unwrap().len(),
-        1,
-        "expected 1 ally after add_player: {dump}"
+    assert_eq!(dump["allies"].as_array().unwrap().len(), 1);
+    let creature = &dump["allies"][0];
+    assert_eq!(creature["is_player"], true);
+    assert_eq!(creature["current_hp"], 80, "Ironclad starting HP: {creature}");
+    assert_eq!(creature["max_hp"], 80);
+    assert_eq!(creature["block"], 0);
+    assert_eq!(creature["powers"].as_array().unwrap().len(), 0);
+
+    let player = &creature["player"];
+    assert_eq!(player["max_energy_base"], 3, "Ironclad max energy: {player}");
+    assert_eq!(player["energy"], 0, "pre-turn-start energy is 0: {player}");
+    // 10-card starter deck: 5 Strikes, 4 Defends, 1 Bash.
+    let master = player["master_deck"].as_array().unwrap();
+    assert_eq!(master.len(), 10, "master deck size: {player}");
+    let strikes = master
+        .iter()
+        .filter(|c| c["id"] == "CARD.STRIKE_IRONCLAD")
+        .count();
+    let defends = master
+        .iter()
+        .filter(|c| c["id"] == "CARD.DEFEND_IRONCLAD")
+        .count();
+    let bashes = master.iter().filter(|c| c["id"] == "CARD.BASH").count();
+    assert_eq!(strikes, 5, "5 Strikes: {master:?}");
+    assert_eq!(defends, 4, "4 Defends: {master:?}");
+    assert_eq!(bashes, 1, "1 Bash: {master:?}");
+    // Draw pile populated (PCS exists) with all 10 deck cards.
+    assert_eq!(player["draw"].as_array().unwrap().len(), 10);
+    assert_eq!(player["hand"].as_array().unwrap().len(), 0);
+    assert_eq!(player["discard"].as_array().unwrap().len(), 0);
+    assert_eq!(player["exhaust"].as_array().unwrap().len(), 0);
+    // Ironclad starts with BurningBlood.
+    let relics = player["relics"].as_array().unwrap();
+    assert!(
+        relics.iter().any(|r| r == "RELIC.BURNING_BLOOD"),
+        "BurningBlood in starting relics: {relics:?}"
     );
-    let player = &dump["allies"][0];
-    assert_eq!(player["is_player"], true);
-    assert!(player["max_hp"].as_i64().unwrap() > 0, "max_hp not positive: {player}");
+    // 3 empty potion slots.
+    assert_eq!(player["potions"].as_array().unwrap().len(), 3);
 }
 
 #[test]
