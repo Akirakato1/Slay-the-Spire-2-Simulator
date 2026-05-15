@@ -1,0 +1,105 @@
+// batch_v9.txt - cards unblocked by the latest primitive additions:
+//   AmountSpec::CurrentEnergy / AllEnemiesPowerSum / EmptyOrbSlots /
+//   SourceCardCounter
+//   Effect::CloneSourceCardToPile / ChannelRandomOrb /
+//   CopyDebuffsToOtherEnemies / IncrementSourceCardCounter
+
+// AdaptiveStrike.cs: Damage chosen + clone self into Discard with cost 0 ThisCombat.
+        "AdaptiveStrike" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::CloneSourceCardToPile { pile: Pile::Discard, cost_override_this_combat: Some(0), copies: AmountSpec::Fixed(1) },
+        ]),
+
+// Undeath.cs: GainBlock + clone self into Discard.
+        "Undeath" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::CloneSourceCardToPile { pile: Pile::Discard, cost_override_this_combat: None, copies: AmountSpec::Fixed(1) },
+        ]),
+
+// DualWield.cs: interactive pick Attack/Power from Hand + clone N (Cards) into Hand.
+// The interactive pick is approximated via PlayerInteractiveFiltered; the clone-N
+// fires CloneSourceCardToPile but using the CHOSEN card as the source isn't expressible
+// today (source is always the playing card). Best approximation: skip the choice +
+// clone self-N. SKIP — needs a different "clone-from-picked-card" primitive.
+// SKIP DualWield: clones the player-picked card, not self; primitive missing.
+
+// DoubleEnergy.cs: GainEnergy(CurrentEnergy).
+        "DoubleEnergy" => Some(vec![Effect::GainEnergy { amount: AmountSpec::CurrentEnergy }]),
+
+// Mirage.cs: GainBlock(sum of PoisonPower across alive enemies). Self-targeted.
+// CanonicalVars: CalculationBase(0) + CalculationExtra(1) * sum. Encode via Mul.
+        "Mirage" => Some(vec![Effect::GainBlock {
+            amount: AmountSpec::Add {
+                left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())),
+                right: Box::new(AmountSpec::Mul {
+                    left: Box::new(AmountSpec::Canonical("CalculationExtra".to_string())),
+                    right: Box::new(AmountSpec::AllEnemiesPowerSum { power_id: "PoisonPower".to_string() }),
+                }),
+            },
+            target: Target::SelfPlayer,
+        }]),
+
+// Chaos.cs: Channel Repeat random orbs from the 4-orb pool.
+        "Chaos" => Some(vec![Effect::Repeat {
+            count: AmountSpec::Canonical("Repeat".to_string()),
+            body: vec![Effect::ChannelRandomOrb {
+                from_pool: vec![
+                    "LightningOrb".to_string(),
+                    "FrostOrb".to_string(),
+                    "DarkOrb".to_string(),
+                    "PlasmaOrb".to_string(),
+                ],
+            }],
+        }]),
+
+// Misery.cs: Damage chosen + copy target's Debuff powers onto all other alive enemies.
+        "Misery" => Some(vec![
+            Effect::CopyDebuffsToOtherEnemies,
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        ]),
+
+// Claw.cs: damage = base + (count of Claw plays this combat). Each play
+// increments the per-card-id counter and the damage scales. Use SourceCardCounter.
+// C# walks AllCards looking for Claw instances and bumps each one's BaseDamage; we
+// approximate via shared per-card-id counter on the player.
+        "Claw" => Some(vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Add {
+                    left: Box::new(AmountSpec::Canonical("Damage".to_string())),
+                    right: Box::new(AmountSpec::SourceCardCounter { key: "plays".to_string() }),
+                },
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+            Effect::IncrementSourceCardCounter { key: "plays".to_string(), delta: AmountSpec::Fixed(2) },
+        ]),
+
+// Maul.cs: 2-hit damage; each play bumps own BaseDamage by Increase.
+// Per-card-id counter shared across instances.
+        "Maul" => Some(vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Add {
+                    left: Box::new(AmountSpec::Canonical("Damage".to_string())),
+                    right: Box::new(AmountSpec::SourceCardCounter { key: "extra_damage".to_string() }),
+                },
+                target: Target::ChosenEnemy,
+                hits: 2,
+            },
+            Effect::IncrementSourceCardCounter { key: "extra_damage".to_string(), delta: AmountSpec::Canonical("Increase".to_string()) },
+        ]),
+
+// Rampage.cs: damage = base + bump-counter; on play, +Increase.
+        "Rampage" => Some(vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Add {
+                    left: Box::new(AmountSpec::Canonical("Damage".to_string())),
+                    right: Box::new(AmountSpec::SourceCardCounter { key: "extra_damage".to_string() }),
+                },
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+            Effect::IncrementSourceCardCounter { key: "extra_damage".to_string(), delta: AmountSpec::Canonical("Increase".to_string()) },
+        ]),
+
+// === EssenceOfDarkness (potion): Channel EmptyOrbSlots DarkOrbs. ===
+// Potion-side encoding lives in batch_p_3.txt, not here.

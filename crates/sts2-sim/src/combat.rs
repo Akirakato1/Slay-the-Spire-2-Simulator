@@ -312,6 +312,13 @@ pub struct CardInstance {
     /// Cost override valid until next play of this card.
     /// Enlightenment-non-upgraded's "OrUntilPlayed" half.
     pub cost_override_until_played: Option<i32>,
+    /// Per-instance scalar state. Used by cards whose behavior reads
+    /// or mutates a counter that's specific to THIS card instance:
+    /// Claw (PlaysThisCombat counter on the card), HiddenGem
+    /// (ReplayCount), Maul/Rampage (own base-damage ramp). Keyed by
+    /// short id; mutated via `Effect::IncrementSourceCardCounter`,
+    /// read via `AmountSpec::SourceCardCounter`.
+    pub state: std::collections::HashMap<String, i32>,
 }
 
 /// One enchantment attached to a card. `id` matches `EnchantmentData.id`;
@@ -343,6 +350,7 @@ impl CardInstance {
             cost_override_this_turn: None,
             cost_override_this_combat: None,
             cost_override_until_played: None,
+            state: std::collections::HashMap::new(),
         }
     }
 

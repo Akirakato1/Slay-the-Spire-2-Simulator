@@ -1,0 +1,7 @@
+// batch_p_3.txt - potions unblocked by new primitives.
+
+// EssenceOfDarkness.cs: Channel one DarkOrb per empty orb slot.
+"EssenceOfDarkness" => Some(vec![Effect::Repeat {
+    count: AmountSpec::EmptyOrbSlots,
+    body: vec![Effect::ChannelOrb { orb_id: "DarkOrb".to_string() }],
+}]),

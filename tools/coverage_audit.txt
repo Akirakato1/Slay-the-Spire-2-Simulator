@@ -1,29 +1,29 @@
 # Data-driven coverage audit
 
-**Cards**:   data-table  519/577  (89.9%) +  legacy-match-arm-only 0  =  total handled 519/577 (89.9%)
+**Cards**:   data-table  528/577  (91.5%) +  legacy-match-arm-only 0  =  total handled 528/577 (91.5%)
 **Relics**:  encoded   87/294  (29.6%)  -> gap 207
-**Potions**: encoded   55/64  (85.9%)  -> gap 9
+**Potions**: encoded   56/64  (87.5%)  -> gap 8
 
-Total entries in data tables: 661
+Total entries in data tables: 671
 
 ## Top primitives by use count
-   531  AmountSpec::Canonical
+   539  AmountSpec::Canonical
    246  Effect::ApplyPower
-   180  Effect::DealDamage
-    83  Effect::GainBlock
-    72  AmountSpec::Fixed
+   185  Effect::DealDamage
+    85  Effect::GainBlock
+    75  AmountSpec::Fixed
     53  Effect::DrawCards
-    37  Effect::GainEnergy
+    38  Effect::GainEnergy
     36  Effect::Conditional
-    32  Effect::Repeat
-    23  AmountSpec::Mul
+    34  Effect::Repeat
+    24  AmountSpec::Mul
     23  RelicHook::AfterSideTurnStart
-    17  AmountSpec::Add
+    21  AmountSpec::Add
     17  Effect::AddRandomCardFromPool
     16  RelicHook::AfterCardPlayed
     15  Effect::AddCardToPile
     15  RelicHook::BeforeCombatStart
-    11  Effect::ChannelOrb
+    12  Effect::ChannelOrb
     11  Effect::SummonOsty
      9  Effect::GainStars
      8  AmountSpec::CardCountInPile
@@ -49,16 +49,13 @@ Total entries in data tables: 661
      3  AmountSpec::SelfBlock
 
 ## Unencoded cards (gap)
-  - AdaptiveStrike
   - AllForOne
   - Bolas
   - Bombardment
   - CalculatedGamble
   - CaptureSpirit
   - Cascade
-  - Chaos
   - Chill
-  - Claw
   - Cleanse
   - Coordinate
   - CrescentSpear
@@ -69,7 +66,6 @@ Total entries in data tables: 661
   - DemonicShield
   - Dirge
   - DodgeAndRoll
-  - DoubleEnergy
   - Dredge
   - DualWield
   - Eidolon
@@ -88,9 +84,6 @@ Total entries in data tables: 661
   - HuddleUp
   - Jackpot
   - Largesse
-  - Maul
-  - Mirage
-  - Misery
   - Modded
   - Monologue
   - Nightmare
@@ -98,7 +91,6 @@ Total entries in data tables: 661
   - PhotonCut
   - Pillage
   - PullFromBelow
-  - Rampage
   - Rattle
   - RightHandHand
   - Severance
@@ -106,7 +98,6 @@ Total entries in data tables: 661
   - Stoke
   - StormOfSteel
   - SummonForth
-  - Undeath
 
 ## Unencoded relics (gap)
   - AlchemicalCoffer
@@ -320,7 +311,6 @@ Total entries in data tables: 661
 ## Unencoded potions (gap)
   - BloodPotion
   - DeprecatedPotion
-  - EssenceOfDarkness
   - FairyInABottle
   - FoulPotion
   - GamblersBrew

@@ -188,6 +188,19 @@ pub enum AmountSpec {
     /// NoEscape: `floor(target.DoomPower / DoomThreshold)`. BloodPotion:
     /// `floor(target.MaxHp * HealPercent / 100)`.
     FloorDiv { left: Box<AmountSpec>, right: Box<AmountSpec> },
+    /// Player's current energy at resolve time. DoubleEnergy:
+    /// `GainEnergy(Owner.PlayerCombatState.Energy)`.
+    CurrentEnergy,
+    /// Sum of `power_id` stacks across every alive enemy. Mirage:
+    /// `Enemies.Where(IsAlive).Sum(GetPowerAmount<PoisonPower>())`.
+    AllEnemiesPowerSum { power_id: String },
+    /// Empty orb slots = `orb_slots - orb_queue.len()`. EssenceOfDarkness.
+    EmptyOrbSlots,
+    /// Per-card-instance scalar counter from `CardInstance.state[key]`
+    /// of the source card. Claw (per-play damage ramp), HiddenGem
+    /// (BaseReplayCount), Maul/Rampage (own base-damage ramp).
+    /// Returns 0 if no source card or key not set.
+    SourceCardCounter { key: String },
 }
 
 /// Named card pool reference for `Effect::AddRandomCardFromPool`.
@@ -555,6 +568,29 @@ pub enum Effect {
     /// Discard the top N cards of the draw pile straight into discard.
     /// Cycle-family.
     MillFromDraw { n: AmountSpec },
+    /// Clone the source card into the named pile with optional cost
+    /// override. Mirrors C# `base.CreateClone()` + EnergyCost.Set*.
+    /// AdaptiveStrike (clone into Discard with cost 0 ThisCombat),
+    /// Undeath (clone into Discard), DualWield (clone N times into Hand).
+    CloneSourceCardToPile {
+        pile: Pile,
+        /// Set the clone's cost-override-this-combat to this value if
+        /// Some. Otherwise the clone inherits the source's cost.
+        cost_override_this_combat: Option<i32>,
+        /// Number of clones to create.
+        copies: AmountSpec,
+    },
+    /// Channel a randomly-chosen orb from a fixed pool. Chaos (random
+    /// from Lightning/Frost/Dark/Plasma). Uses combat RNG.
+    ChannelRandomOrb { from_pool: Vec<String> },
+    /// Copy every Debuff power from `target` onto every other alive
+    /// enemy. Misery: each non-target enemy gains the same Debuff
+    /// stack counts as the target.
+    CopyDebuffsToOtherEnemies,
+    /// Add `delta` to the source card's per-instance state counter.
+    /// Used by Claw (increment plays counter) and similar self-ramping
+    /// cards. Reads via `AmountSpec::SourceCardCounter`.
+    IncrementSourceCardCounter { key: String, delta: AmountSpec },
     /// Add `delta` to `PlayerState.relic_counters[key]`. Used by stateful
     /// relics (Kunai/Shuriken/HappyFlower/Pendulum/Pocketwatch/etc.) to
     /// implement "every Nth attack" / "after N turns" gating. `key`
@@ -1120,16 +1156,51 @@ impl AmountSpec {
                     return 0;
                 }
                 let l = left.resolve(ctx, cs);
-                // i32 division floors toward zero, NOT toward neg-inf.
-                // For our use cases (NoEscape's positive Doom amounts,
-                // BloodPotion's positive MaxHp*pct) the difference is
-                // invisible, but match C# Math.Floor explicitly.
                 let q = l / r;
                 if (l % r) != 0 && (l < 0) {
                     q - 1
                 } else {
                     q
                 }
+            }
+            AmountSpec::CurrentEnergy => cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.energy)
+                .unwrap_or(0),
+            AmountSpec::AllEnemiesPowerSum { power_id } => cs
+                .enemies
+                .iter()
+                .filter(|e| e.current_hp > 0)
+                .map(|e| {
+                    e.powers
+                        .iter()
+                        .find(|p| p.id == *power_id)
+                        .map(|p| p.amount)
+                        .unwrap_or(0)
+                })
+                .sum::<i32>(),
+            AmountSpec::EmptyOrbSlots => cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| (ps.orb_slots - ps.orb_queue.len() as i32).max(0))
+                .unwrap_or(0),
+            AmountSpec::SourceCardCounter { key } => {
+                // Per-card-id counter stored on PlayerState.relic_counters
+                // with the namespace `card.<id>.<key>`. Shared across
+                // all instances of the same card-id (matches StS1 Claw
+                // semantics). Returns 0 if no source card or key unset.
+                let Some(card_id) = ctx.source_card_id else {
+                    return 0;
+                };
+                let namespaced = format!("card.{}.{}", card_id, key);
+                cs.allies
+                    .get(ctx.player_idx)
+                    .and_then(|c| c.player.as_ref())
+                    .map(|ps| ps.relic_counters.get(&namespaced).copied().unwrap_or(0))
+                    .unwrap_or(0)
             }
         }
     }
@@ -3016,6 +3087,11 @@ pub fn potion_effects(potion_id: &str) -> Option<Vec<Effect>> {
             target: Target::SelfPlayer,
         }]),
 
+        "EssenceOfDarkness" => Some(vec![Effect::Repeat {
+            count: AmountSpec::EmptyOrbSlots,
+            body: vec![Effect::ChannelOrb { orb_id: "DarkOrb".to_string() }],
+        }]),
+
 
         _ => None,
     }
@@ -4504,7 +4580,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 189 hand-curated arms covering Acrobatics..Rattle.
+        // 198 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -4923,6 +4999,73 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
         Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Weak".to_string()), target: Target::ChosenEnemy },
         ]),
+        "AdaptiveStrike" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::CloneSourceCardToPile { pile: Pile::Discard, cost_override_this_combat: Some(0), copies: AmountSpec::Fixed(1) },
+        ]),
+        "Undeath" => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        Effect::CloneSourceCardToPile { pile: Pile::Discard, cost_override_this_combat: None, copies: AmountSpec::Fixed(1) },
+        ]),
+        "DoubleEnergy" => Some(vec![Effect::GainEnergy { amount: AmountSpec::CurrentEnergy }]),
+        "Mirage" => Some(vec![Effect::GainBlock {
+        amount: AmountSpec::Add {
+        left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())),
+        right: Box::new(AmountSpec::Mul {
+        left: Box::new(AmountSpec::Canonical("CalculationExtra".to_string())),
+        right: Box::new(AmountSpec::AllEnemiesPowerSum { power_id: "PoisonPower".to_string() }),
+        }),
+        },
+        target: Target::SelfPlayer,
+        }]),
+        "Chaos" => Some(vec![Effect::Repeat {
+        count: AmountSpec::Canonical("Repeat".to_string()),
+        body: vec![Effect::ChannelRandomOrb {
+        from_pool: vec![
+        "LightningOrb".to_string(),
+        "FrostOrb".to_string(),
+        "DarkOrb".to_string(),
+        "PlasmaOrb".to_string(),
+        ],
+        }],
+        }]),
+        "Misery" => Some(vec![
+        Effect::CopyDebuffsToOtherEnemies,
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        ]),
+        "Claw" => Some(vec![
+        Effect::DealDamage {
+        amount: AmountSpec::Add {
+        left: Box::new(AmountSpec::Canonical("Damage".to_string())),
+        right: Box::new(AmountSpec::SourceCardCounter { key: "plays".to_string() }),
+        },
+        target: Target::ChosenEnemy,
+        hits: 1,
+        },
+        Effect::IncrementSourceCardCounter { key: "plays".to_string(), delta: AmountSpec::Fixed(2) },
+        ]),
+        "Maul" => Some(vec![
+        Effect::DealDamage {
+        amount: AmountSpec::Add {
+        left: Box::new(AmountSpec::Canonical("Damage".to_string())),
+        right: Box::new(AmountSpec::SourceCardCounter { key: "extra_damage".to_string() }),
+        },
+        target: Target::ChosenEnemy,
+        hits: 2,
+        },
+        Effect::IncrementSourceCardCounter { key: "extra_damage".to_string(), delta: AmountSpec::Canonical("Increase".to_string()) },
+        ]),
+        "Rampage" => Some(vec![
+        Effect::DealDamage {
+        amount: AmountSpec::Add {
+        left: Box::new(AmountSpec::Canonical("Damage".to_string())),
+        right: Box::new(AmountSpec::SourceCardCounter { key: "extra_damage".to_string() }),
+        },
+        target: Target::ChosenEnemy,
+        hits: 1,
+        },
+        Effect::IncrementSourceCardCounter { key: "extra_damage".to_string(), delta: AmountSpec::Canonical("Increase".to_string()) },
+        ]),
 
         _ => None,
     }
@@ -5199,6 +5342,92 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                         ps.discard.cards.push(card);
                     }
                 }
+            }
+        }
+        Effect::CloneSourceCardToPile {
+            pile,
+            cost_override_this_combat,
+            copies,
+        } => {
+            let n = copies.resolve(ctx, cs).max(0) as usize;
+            let Some(card_id) = ctx.source_card_id else {
+                return;
+            };
+            let Some(data) = crate::card::by_id(card_id) else {
+                return;
+            };
+            let upg = ctx.upgrade_level;
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                let target_pile = match pile {
+                    Pile::Hand => &mut ps.hand,
+                    Pile::Discard => &mut ps.discard,
+                    Pile::Draw => &mut ps.draw,
+                    Pile::Exhaust => &mut ps.exhaust,
+                    Pile::Deck => return,
+                };
+                for _ in 0..n {
+                    let mut clone = crate::combat::CardInstance::from_card(data, upg);
+                    if let Some(c) = cost_override_this_combat {
+                        clone.cost_override_this_combat = Some(*c);
+                    }
+                    target_pile.cards.push(clone);
+                }
+            }
+        }
+        Effect::ChannelRandomOrb { from_pool } => {
+            if from_pool.is_empty() {
+                return;
+            }
+            let mut rng = std::mem::replace(&mut cs.rng, crate::rng::Rng::new(0, 0));
+            let pick = rng.next_int_range(0, from_pool.len() as i32) as usize;
+            cs.rng = rng;
+            let orb_id = from_pool[pick].clone();
+            cs.channel_orb(ctx.player_idx, &orb_id);
+        }
+        Effect::CopyDebuffsToOtherEnemies => {
+            // Snapshot target's debuff powers.
+            let Some((side, target_idx)) = ctx.target else {
+                return;
+            };
+            if !matches!(side, CombatSide::Enemy) {
+                return;
+            }
+            let debuffs: Vec<(String, i32)> = cs
+                .enemies
+                .get(target_idx)
+                .map(|c| {
+                    c.powers
+                        .iter()
+                        .filter(|p| is_debuff_power(&p.id))
+                        .map(|p| (p.id.clone(), p.amount))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if debuffs.is_empty() {
+                return;
+            }
+            let n = cs.enemies.len();
+            for i in 0..n {
+                if i == target_idx {
+                    continue;
+                }
+                if cs.enemies[i].current_hp == 0 {
+                    continue;
+                }
+                for (power_id, amount) in &debuffs {
+                    cs.apply_power(CombatSide::Enemy, i, power_id, *amount);
+                }
+            }
+        }
+        Effect::IncrementSourceCardCounter { key, delta } => {
+            let d = delta.resolve(ctx, cs);
+            let Some(card_id) = ctx.source_card_id else {
+                return;
+            };
+            let namespaced = format!("card.{}.{}", card_id, key);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                let entry = ps.relic_counters.entry(namespaced).or_insert(0);
+                *entry += d;
             }
         }
         Effect::ModifyRelicCounter { key, delta } => {
