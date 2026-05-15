@@ -622,16 +622,21 @@ internal sealed class Dispatcher
                 if (_combat.CombatManagerSetUpCombat != null
                     && _combat.CombatManagerInstance != null)
                 {
-                    try
+                    var cm = _combat.CombatManagerInstance.GetValue(null);
+                    if (cm != null)
                     {
-                        var cm = _combat.CombatManagerInstance.GetValue(null);
-                        if (cm != null)
+                        // Null out the private _state field before
+                        // SetUpCombat so the "already setup" assertion
+                        // doesn't fire across sweep iterations. We can't
+                        // call Reset(true) — its body NREs in headless
+                        // due to other null dependencies.
+                        if (_combat.CombatManagerStateField != null)
                         {
-                            _combat.CombatManagerSetUpCombat.Invoke(
-                                cm, new[] { inst });
+                            _combat.CombatManagerStateField.SetValue(cm, null);
                         }
+                        _combat.CombatManagerSetUpCombat.Invoke(
+                            cm, new[] { inst });
                     }
-                    catch { /* best-effort */ }
                 }
                 var handle = _nextHandle++;
                 _instances[handle] = inst!;
@@ -1488,11 +1493,53 @@ internal static class GodotBypass
         // revisit this with targeted patches per hook.)
         PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Hooks.Hook");
+        // Hook.Modify* family (decimal-returning) was skipped by
+        // PatchAllStaticMethodsToNoOp. Patch each to return the input
+        // amount unchanged (identity). Mirrors the "no hook listeners
+        // registered" semantics. Many cards rely on these
+        // (OstyCmd.Summon → ModifySummonAmount, DamageCmd → ModifyDamage,
+        // etc.).
+        var hookType = asm.GetType("MegaCrit.Sts2.Core.Hooks.Hook",
+            throwOnError: false);
+        if (hookType != null)
+        {
+            foreach (var m in hookType.GetMethods(
+                BindingFlags.Public | BindingFlags.Static
+                    | BindingFlags.DeclaredOnly))
+            {
+                if (m.ReturnType != typeof(decimal)) continue;
+                // Find the `decimal amount` parameter — its position
+                // varies, but the prefix's `amount` parameter name
+                // must match a parameter on the target. We name the
+                // prefix parameter `amount`; Harmony binds by name.
+                if (!m.GetParameters().Any(p => p.ParameterType == typeof(decimal)
+                        && p.Name == "amount"))
+                    continue;
+                try
+                {
+                    HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                        m, typeof(SaveManagerPrefix),
+                        nameof(SaveManagerPrefix.ModifyDecimalIdentityPrefix));
+                }
+                catch { /* skip per-method failures */ }
+            }
+        }
         // LocManager static init touches Godot resource paths. Patch
         // any static method on it that might be called during the
         // dispatch's interactive paths (Loc strings).
         PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Localization.LocManager");
+        // TestMode.IsOn = true skips Godot-scene access in many
+        // C# code paths (`if (TestMode.IsOff) { NCombatRoom.Instance.…}`).
+        // Unblocks pet-summon / animation cards (Afterlife/Bodyguard/
+        // Reanimate etc.). The combat_new RPC null-clears _state
+        // before SetUpCombat so the TestMode-aware "already setup"
+        // assertion doesn't trip across sweep iterations.
+        var testModeType = asm.GetType(
+            "MegaCrit.Sts2.Core.TestSupport.TestMode", throwOnError: false);
+        var testModeIsOn = testModeType?.GetProperty("IsOn",
+            BindingFlags.Public | BindingFlags.Static);
+        try { testModeIsOn?.SetValue(null, true); } catch { }
         // LocManager.Instance property getter — patch to return null.
         // Accessing the property normally triggers the static cctor
         // which throws on Godot resource init. Returning null upfront
@@ -1724,6 +1771,17 @@ internal static class SaveManagerPrefix
     public static bool EmptyStringPrefix(ref string __result)
     {
         __result = string.Empty;
+        return false;
+    }
+    /// Hook.Modify* prefix for `decimal Modify*(state, ..., decimal amount, ...)`
+    /// Returns the input amount unchanged. PatchAllStaticMethodsToNoOp
+    /// skips decimal-returning methods because there's no sane default;
+    /// for Modify* family the identity is "return the input amount,"
+    /// which preserves caller semantics without iterating hook listeners.
+    public static bool ModifyDecimalIdentityPrefix(
+        ref decimal __result, decimal amount)
+    {
+        __result = amount;
         return false;
     }
     /// Toggleable IsInProgress prefix — default `true` so combat
@@ -1967,6 +2025,8 @@ internal sealed class CombatReflectionBundle
     public MethodInfo? TestCardSelectorPrepareIndices { get; init; }
     public PropertyInfo? CombatManagerInstance { get; init; }
     public MethodInfo? CombatManagerSetUpCombat { get; init; }
+    public MethodInfo? CombatManagerReset { get; init; }
+    public FieldInfo? CombatManagerStateField { get; init; }
 
     public object GetCharacterById(string id)
     {
@@ -2298,6 +2358,11 @@ internal sealed class CombatReflectionBundle
         var combatManagerSetUpCombat = combatManagerType?.GetMethod("SetUpCombat",
             BindingFlags.Public | BindingFlags.Instance,
             new[] { combatStateType });
+        var combatManagerReset = combatManagerType?.GetMethod("Reset",
+            BindingFlags.Public | BindingFlags.Instance,
+            new[] { typeof(bool) });
+        var combatManagerStateField = combatManagerType?.GetField("_state",
+            BindingFlags.NonPublic | BindingFlags.Instance);
         var cardSelectCmdType = asm.GetType(
             "MegaCrit.Sts2.Core.Commands.CardSelectCmd",
             throwOnError: false);
@@ -2379,6 +2444,8 @@ internal sealed class CombatReflectionBundle
             TestCardSelectorPrepareIndices = testCardSelectorPrepareIndices,
             CombatManagerInstance = combatManagerInstance,
             CombatManagerSetUpCombat = combatManagerSetUpCombat,
+            CombatManagerReset = combatManagerReset,
+            CombatManagerStateField = combatManagerStateField,
         };
     }
 }
