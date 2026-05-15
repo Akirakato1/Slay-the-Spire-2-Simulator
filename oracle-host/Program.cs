@@ -716,6 +716,7 @@ internal sealed class Dispatcher
                 var handIdx = p["hand_idx"]!.GetValue<int>();
                 var playerIdx = p["player_idx"]?.GetValue<int>() ?? 0;
                 var targetIdx = p["target_idx"]?.GetValue<int?>();
+                var allyTargetIdx = p["ally_target_idx"]?.GetValue<int?>();
                 var allies = (System.Collections.IList)_combat.Allies.GetValue(combat)!;
                 var ownerCreature = allies[playerIdx]!;
                 var ownerPlayer = _combat.CreaturePlayer.GetValue(ownerCreature)!;
@@ -728,10 +729,14 @@ internal sealed class Dispatcher
                     return new JsonObject { ["error"] = $"hand index {handIdx} out of range (size {handCards.Count})" };
                 }
                 var card = handCards[handIdx]!;
-                // Resolve target Creature (if any). Target is an enemy
-                // by index into the enemies list.
+                // Resolve target Creature. target_idx is enemies index;
+                // ally_target_idx is allies index (for AnyAlly cards).
                 object? target = null;
-                if (targetIdx is int t)
+                if (allyTargetIdx is int at && at >= 0 && at < allies.Count)
+                {
+                    target = allies[at]!;
+                }
+                else if (targetIdx is int t)
                 {
                     var enemies = (System.Collections.IList)_combat.Enemies.GetValue(combat)!;
                     if (t >= 0 && t < enemies.Count) target = enemies[t]!;
@@ -943,14 +948,24 @@ internal sealed class Dispatcher
 
     private JsonArray SerializePile(object? pile)
     {
-        var arr = new JsonArray();
-        if (pile == null) return arr;
+        if (pile == null) return new JsonArray();
         var cards = (System.Collections.IEnumerable?)_combat.PileCards.GetValue(pile);
-        if (cards == null) return arr;
+        if (cards == null) return new JsonArray();
+        // Sort pile contents by id so parity diffs ignore within-pile
+        // ordering. Rust pops from end-of-Vec, C# from index 0 — the
+        // conventions are inverse, so without sorting the same card
+        // movement looks like a divergence.
+        var tmp = new List<(string key, JsonObject node)>();
         foreach (var c in cards)
         {
-            arr.Add(SerializeCard(c));
+            var node = SerializeCard(c);
+            var key = (node["id"]?.GetValue<string>() ?? "") + "/" +
+                      (node["upgrade_level"]?.GetValue<int>().ToString() ?? "0");
+            tmp.Add((key, node));
         }
+        tmp.Sort((a, b) => string.CompareOrdinal(a.key, b.key));
+        var arr = new JsonArray();
+        foreach (var (_, node) in tmp) arr.Add(node);
         return arr;
     }
 
@@ -1232,6 +1247,20 @@ internal static class GodotBypass
         // alive when game code logs informationally.
         PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Logging.Log");
+        // Hook.* iterators (BeforeAttack, BeforeDamageReceived,
+        // ModifyDamage, AfterCardPlayed, etc.) walk
+        // CombatState.IterateHookListeners → Contains which NREs on
+        // partially-initialized models in our headless setup. No
+        // relics in our scenario register these hooks, so a no-op
+        // patch preserves behavior. (When we test relic parity, we'll
+        // revisit this with targeted patches per hook.)
+        PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Hooks.Hook");
+        // LocManager static init touches Godot resource paths. Patch
+        // any static method on it that might be called during the
+        // dispatch's interactive paths (Loc strings).
+        PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Localization.LocManager");
     }
 
     /// Patch every public static method on `typeName` to a no-op

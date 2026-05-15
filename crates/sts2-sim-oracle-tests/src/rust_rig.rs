@@ -57,6 +57,19 @@ impl RustRig {
     pub fn play_card(&mut self, hand_idx: usize, target_idx: Option<usize>) -> bool {
         combat_play_card(&mut self.combat, hand_idx, target_idx)
     }
+    /// Play a card targeting an ally (Self/AnyAlly cards).
+    pub fn play_card_ally(&mut self, hand_idx: usize, ally_idx: Option<usize>) -> bool {
+        let target = ally_idx.map(|i| (CombatSide::Player, i));
+        // Credit energy for the play.
+        {
+            let ps = self.combat.allies[0].player.as_ref().unwrap();
+            let Some(c) = ps.hand.cards.get(hand_idx) else { return false };
+            let cost = card::by_id(&c.id).map(|d| d.energy_cost).unwrap_or(1).max(0);
+            let ps_mut = self.combat.allies[0].player.as_mut().unwrap();
+            ps_mut.energy = ps_mut.energy.max(cost);
+        }
+        matches!(self.combat.play_card(0, hand_idx, target), PlayResult::Ok | PlayResult::Unhandled)
+    }
     pub fn dump(&self) -> Value {
         combat_dump_with_master(&self.combat, &self.master_deck)
     }
@@ -272,13 +285,26 @@ fn serialize_creature_with_master(c: &Creature, master_deck: &[(String, i32)]) -
 }
 
 fn serialize_player(ps: &PlayerState, master_deck: &[(String, i32)]) -> Value {
-    let master: Vec<Value> = master_deck
+    // Match serialize_pile's sort key so master_deck has the same
+    // ordering convention.
+    let mut master: Vec<Value> = master_deck
         .iter()
         .map(|(id, upg)| json!({
             "id": rust_to_modelid(id, "CARD"),
             "upgrade_level": upg,
         }))
         .collect();
+    master.sort_by(|a, b| {
+        let ka = (
+            a["id"].as_str().unwrap_or(""),
+            a["upgrade_level"].as_i64().unwrap_or(0),
+        );
+        let kb = (
+            b["id"].as_str().unwrap_or(""),
+            b["upgrade_level"].as_i64().unwrap_or(0),
+        );
+        ka.cmp(&kb)
+    });
     json!({
         "max_energy_base": ps.turn_energy,
         "energy": ps.energy,
@@ -295,7 +321,21 @@ fn serialize_player(ps: &PlayerState, master_deck: &[(String, i32)]) -> Value {
 }
 
 fn serialize_pile(p: &CardPile) -> Value {
-    Value::Array(p.cards.iter().map(serialize_card).collect())
+    // Sort by (id, upgrade_level) so parity diffs ignore within-pile
+    // ordering (Rust internal Vec orientation differs from C#'s).
+    let mut cards: Vec<Value> = p.cards.iter().map(serialize_card).collect();
+    cards.sort_by(|a, b| {
+        let ka = (
+            a["id"].as_str().unwrap_or(""),
+            a["upgrade_level"].as_i64().unwrap_or(0),
+        );
+        let kb = (
+            b["id"].as_str().unwrap_or(""),
+            b["upgrade_level"].as_i64().unwrap_or(0),
+        );
+        ka.cmp(&kb)
+    });
+    Value::Array(cards)
 }
 
 fn serialize_card(c: &CardInstance) -> Value {

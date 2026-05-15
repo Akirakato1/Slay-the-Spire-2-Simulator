@@ -1641,7 +1641,12 @@ impl CombatState {
                     rng.shuffle(&mut ps.draw.cards);
                     did_reshuffle = true;
                 }
-                if let Some(card) = ps.draw.cards.pop() {
+                // Draw from index 0 — top of deck per C# convention
+                // (`drawPile.Cards.FirstOrDefault()` in CardPileCmd.Draw).
+                // Rust's CardPile.cards is ordered with the next-to-draw
+                // at index 0; end-of-Vec is the bottom of the pile.
+                if !ps.draw.cards.is_empty() {
+                    let card = ps.draw.cards.remove(0);
                     drawn_ids.push(card.id.clone());
                     ps.hand.cards.push(card);
                 }

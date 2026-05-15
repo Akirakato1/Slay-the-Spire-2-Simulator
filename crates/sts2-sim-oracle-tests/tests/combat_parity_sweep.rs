@@ -97,15 +97,13 @@ fn fresh_rust() -> rust_rig::RustRig {
     r
 }
 
-/// Pick a target index. AnyEnemy needs a specific target; other
-/// target_types don't. We default to enemy[0] when no target is
-/// strictly required — some C# OnPlay bodies still read cardPlay.Target
-/// defensively (e.g., RandomEnemy cards). Mismatch noise comes back as
-/// false positives but those are rare.
-fn pick_target(t: TargetType) -> Option<usize> {
+/// Target selection. Returns (enemy_idx, ally_idx). At most one is
+/// Some — the C# host preferentially uses ally_target_idx if set.
+fn pick_target(t: TargetType) -> (Option<usize>, Option<usize>) {
     match t {
-        TargetType::AnyEnemy | TargetType::RandomEnemy => Some(0),
-        _ => None,
+        TargetType::AnyEnemy | TargetType::RandomEnemy => (Some(0), None),
+        TargetType::AnyAlly => (None, Some(0)),
+        _ => (None, None),
     }
 }
 
@@ -233,15 +231,16 @@ fn run_one_card(oracle: &mut Oracle, card: &CardData) -> SweepResult {
     rust.force_card_to_hand(&modelid, 0);
 
     // Play the card with appropriate target.
-    let target_idx = pick_target(card.target_type);
+    let (enemy_idx, ally_idx) = pick_target(card.target_type);
+    let mut play_params = json!({ "handle": h, "hand_idx": 0 });
+    if let Some(t) = enemy_idx {
+        play_params["target_idx"] = json!(t);
+    }
+    if let Some(a) = ally_idx {
+        play_params["ally_target_idx"] = json!(a);
+    }
     let oracle_play_resp = oracle
-        .call(
-            "combat_play_card",
-            match target_idx {
-                Some(t) => json!({ "handle": h, "hand_idx": 0, "target_idx": t }),
-                None => json!({ "handle": h, "hand_idx": 0 }),
-            },
-        )
+        .call("combat_play_card", play_params)
         .unwrap_or_else(|e| json!({"error": e.to_string()}));
     if let Some(err) = oracle_play_resp.get("error") {
         return SweepResult {
@@ -262,7 +261,11 @@ fn run_one_card(oracle: &mut Oracle, card: &CardData) -> SweepResult {
             diffs: Vec::new(),
         };
     }
-    let rust_ok = rust.play_card(0, target_idx);
+    let rust_ok = if ally_idx.is_some() {
+        rust.play_card_ally(0, ally_idx)
+    } else {
+        rust.play_card(0, enemy_idx)
+    };
     if !rust_ok {
         return SweepResult {
             card_id,

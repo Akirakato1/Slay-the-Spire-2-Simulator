@@ -5810,7 +5810,10 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "BallLightning" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "BansheesCry" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
         "Barrage" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
-        "BattleTrance" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "BattleTrance" => Some(vec![
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+            Effect::ApplyPower { power_id: "NoDrawPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
+        ]),
         "BeaconOfHope" => Some(vec![Effect::ApplyPower { power_id: "BeaconOfHopePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "BeatIntoShape" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Beckon" => Some(vec![]),
@@ -5869,7 +5872,10 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Doubt" => Some(vec![]),
         "DrainPower" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "DramaticEntrance" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
-        "DrumOfBattle" => Some(vec![Effect::ApplyPower { power_id: "DrumOfBattlePower".to_string(), amount: AmountSpec::Canonical("DrumOfBattlePower".to_string()), target: Target::SelfPlayer }]),
+        "DrumOfBattle" => Some(vec![
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+            Effect::ApplyPower { power_id: "DrumOfBattlePower".to_string(), amount: AmountSpec::Canonical("DrumOfBattlePower".to_string()), target: Target::SelfPlayer },
+        ]),
         "EchoForm" => Some(vec![Effect::ApplyPower { power_id: "EchoFormPower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
         "EchoingSlash" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
         "Enthralled" => Some(vec![]),
@@ -5917,7 +5923,12 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "HeirloomHammer" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "HelloWorld" => Some(vec![Effect::ApplyPower { power_id: "HelloWorldPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "Hellraiser" => Some(vec![Effect::ApplyPower { power_id: "HellraiserPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
-        "Hemokinesis" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        "Hemokinesis" => Some(vec![
+            // C# Hemokinesis.cs: self-damage HpLoss (Unblockable +
+            // Unpowered), then attack ChosenEnemy for Damage.
+            Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        ]),
         "HowlFromBeyond" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
         "IAmInvincible" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
         "Impatience" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
@@ -7203,11 +7214,16 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         hits: 1,
         }]),
         "DecisionsDecisions" => Some(vec![]),
-        "Omnislice" => Some(vec![Effect::DealDamage {
-        amount: AmountSpec::Canonical("Damage".to_string()),
-        target: Target::ChosenEnemy,
-        hits: 1,
-        }]),
+        "Omnislice" => Some(vec![
+            // C# Omnislice.cs L47-65: hit ChosenEnemy, then hit each of
+            // its teammates. With 2 BigDummies, this means hit both
+            // enemies for Damage. AllEnemies is the closest primitive.
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::AllEnemies,
+                hits: 1,
+            },
+        ]),
         "Rattle" => Some(vec![Effect::Conditional {
         condition: Condition::Not(Box::new(Condition::IsOstyMissing)),
         then_branch: vec![Effect::DamageFromOsty {
@@ -7512,9 +7528,12 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             let count = n.resolve(ctx, cs).max(0) as usize;
             if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
                 for _ in 0..count {
-                    if let Some(card) = ps.draw.cards.pop() {
-                        ps.discard.cards.push(card);
+                    if ps.draw.cards.is_empty() {
+                        break;
                     }
+                    // Mill from top (index 0) to mirror C# convention.
+                    let card = ps.draw.cards.remove(0);
+                    ps.discard.cards.push(card);
                 }
             }
         }
