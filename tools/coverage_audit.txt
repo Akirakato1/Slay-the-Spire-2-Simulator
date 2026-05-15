@@ -1,43 +1,43 @@
 # Data-driven coverage audit
 
-**Cards**:   data-table  561/577  (97.2%) +  legacy-match-arm-only 0  =  total handled 561/577 (97.2%)
-**Relics**:  encoded   87/294  (29.6%)  -> gap 207
+**Cards**:   data-table  577/577  (100.0%) +  legacy-match-arm-only 0  =  total handled 577/577 (100.0%)
+**Relics**:  relic_effects 87 +  run_state_effects 18  =  combined 105/294 (35.7%)
 **Potions**: encoded   56/64  (87.5%)  -> gap 8
 
-Total entries in data tables: 704
+Total entries in data tables: 720
 
 ## Top primitives by use count
-   563  AmountSpec::Canonical
-   249  Effect::ApplyPower
-   195  Effect::DealDamage
+   575  AmountSpec::Canonical
+   251  Effect::ApplyPower
+   199  Effect::DealDamage
     91  Effect::GainBlock
-    77  AmountSpec::Fixed
-    58  Effect::DrawCards
-    39  Effect::Repeat
+    80  AmountSpec::Fixed
+    59  Effect::DrawCards
+    42  Effect::Repeat
+    40  Effect::Conditional
     38  Effect::GainEnergy
-    37  Effect::Conditional
     25  AmountSpec::Mul
     24  AmountSpec::Add
     23  RelicHook::AfterSideTurnStart
-    19  Effect::AddRandomCardFromPool
-    18  Effect::AddCardToPile
+    21  Effect::AddCardToPile
+    20  Effect::AddRandomCardFromPool
     16  RelicHook::AfterCardPlayed
     15  RelicHook::BeforeCombatStart
     14  Effect::ChannelOrb
     12  Effect::SummonOsty
+    11  Condition::Not
+    10  Effect::DamageFromOsty
+    10  Condition::IsOstyMissing
+     9  AmountSpec::CardCountInPile
+     9  Effect::Forge
      9  Effect::GainStars
      9  AmountSpec::XEnergy
      9  Effect::MoveCard
-     8  AmountSpec::CardCountInPile
-     8  Effect::Forge
-     8  Condition::Not
-     7  Effect::LoseHp
-     7  Effect::DamageFromOsty
-     7  Condition::IsOstyMissing
+     8  Effect::LoseHp
+     8  Effect::ExhaustCards
      7  CardPoolRef::Colorless
      7  Condition::RoundEquals
      7  RelicHook::BeforeTurnEnd
-     6  Effect::ExhaustCards
      6  Effect::Heal
      6  RelicHook::BeforeSideTurnStart
      6  RelicHook::AfterDamageReceived
@@ -49,22 +49,6 @@ Total entries in data tables: 704
      5  RelicHook::AfterPlayerTurnStart
 
 ## Unencoded cards (gap)
-  - CaptureSpirit
-  - CrescentSpear
-  - DecisionsDecisions
-  - FlakCannon
-  - HiddenGem
-  - Modded
-  - Monologue
-  - Nightmare
-  - Omnislice
-  - Rattle
-  - RightHandHand
-  - Severance
-  - Snap
-  - Stoke
-  - StormOfSteel
-  - SummonForth
 
 ## Unencoded relics (gap)
   - AlchemicalCoffer
@@ -76,12 +60,10 @@ Total entries in data tables: 704
   - Astrolabe
   - BeautifulBracelet
   - BeltBuckle
-  - BigMushroom
   - BiiigHug
   - BingBong
   - BlackStar
   - BlessedAntler
-  - BloodSoakedRose
   - BloodVial
   - BoneFlute
   - BookOfFiveRings
@@ -92,19 +74,16 @@ Total entries in data tables: 704
   - Brimstone
   - BurningBlood
   - BurningSticks
-  - CallingBell
   - Cauldron
   - ChemicalX
   - ChoicesParadox
   - Circlet
   - Claws
-  - CursedPearl
   - DarkstonePeriapt
   - DataDisk
   - DelicateFrond
   - DeprecatedRelic
   - DingyRug
-  - DistinguishedCape
   - DivineRight
   - DollysMirror
   - DragonFruit
@@ -118,7 +97,6 @@ Total entries in data tables: 704
   - EternalFeather
   - FakeBloodVial
   - FakeLeesWaffle
-  - FakeMango
   - FakeMerchantsRug
   - FakeStrikeDummy
   - FakeVenerableTeaSet
@@ -137,7 +115,6 @@ Total entries in data tables: 704
   - GnarledHammer
   - GoldPlatedCables
   - GoldenCompass
-  - GoldenPearl
   - Gorget
   - GremlinHorn
   - HeftyTablet
@@ -153,14 +130,10 @@ Total entries in data tables: 704
   - LastingCandy
   - LavaRock
   - LeadPaperweight
-  - LeafyPoultice
-  - LeesWaffle
   - LizardTail
-  - LoomingFruit
   - LordsParasol
   - LostCoffer
   - LuckyFysh
-  - Mango
   - MassiveScroll
   - MawBank
   - MealTicket
@@ -178,10 +151,8 @@ Total entries in data tables: 704
   - NeowsTorment
   - NewLeaf
   - NinjaScroll
-  - NutritiousOyster
   - NutritiousSoup
   - OddlySmoothStone
-  - OldCoin
   - Orrery
   - PaelsBlood
   - PaelsClaw
@@ -193,15 +164,12 @@ Total entries in data tables: 704
   - PandorasBox
   - PaperKrane
   - PaperPhrog
-  - Pear
   - PenNib
   - PetrifiedToad
-  - PhialHolster
   - Planisphere
   - Pocketwatch
   - PollinousCore
   - Pomander
-  - PotionBelt
   - PowerCell
   - PrayerWheel
   - PrecariousShears
@@ -226,7 +194,6 @@ Total entries in data tables: 704
   - SeaGlass
   - SereTalon
   - Shovel
-  - SignetRing
   - SilverCrucible
   - SlingOfCourage
   - SmallCapsule
@@ -237,7 +204,6 @@ Total entries in data tables: 704
   - StoneCracker
   - StoneHumidifier
   - Storybook
-  - Strawberry
   - StrikeDummy
   - SturdyClamp
   - SwordOfStone

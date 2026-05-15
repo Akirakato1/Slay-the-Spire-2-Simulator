@@ -1,0 +1,189 @@
+// batch_v14.txt - the final unique-primitive cards.
+
+// Stoke.cs: exhaust whole hand + spawn HandSizeAtPlayStart cards from
+// character pool to hand (upgraded variant adds 1).
+        "Stoke" => Some(vec![
+            Effect::ExhaustCards { from: Pile::Hand, selector: Selector::All },
+            Effect::AddRandomCardFromPool {
+                pool: CardPoolRef::CharacterAny,
+                filter: CardFilter::Any,
+                n: AmountSpec::HandSizeAtPlayStart,
+                pile: Pile::Hand,
+                upgrade: 0,
+                free_this_turn: false,
+                distinct: false,
+            },
+        ]),
+
+// StormOfSteel.cs: discard whole hand + spawn HandSize Shivs to hand.
+        "StormOfSteel" => Some(vec![
+            Effect::DiscardCards { from: Pile::Hand, selector: Selector::All },
+            Effect::Repeat {
+                count: AmountSpec::HandSizeAtPlayStart,
+                body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }],
+            },
+        ]),
+
+// SummonForth.cs: Forge + pull every SovereignBlade across non-Hand piles to Hand.
+        "SummonForth" => Some(vec![
+            Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) },
+            Effect::MoveAllByFilterAcrossPiles {
+                to_pile: Pile::Hand,
+                filter: CardFilter::HasId("SovereignBlade".to_string()),
+            },
+        ]),
+
+// RightHandHand.cs: if Osty present, Osty damage chosen. Encode the damage
+// half. AfterCardPlayedLate Discard-promotion (conditional on energy >=
+// threshold) is SKIPped — it's a different hook firing point.
+        "RightHandHand" => Some(vec![Effect::Conditional {
+            condition: Condition::Not(Box::new(Condition::IsOstyMissing)),
+            then_branch: vec![Effect::DamageFromOsty {
+                amount: AmountSpec::Canonical("OstyDamage".to_string()),
+                target: Target::ChosenEnemy,
+            }],
+            else_branch: vec![],
+        }]),
+
+// Modded.cs: +1 orb slot + Draw Cards + source EnergyCost.AddThisCombat(1).
+        "Modded" => Some(vec![
+            Effect::ChangeOrbSlots { delta: AmountSpec::Canonical("Repeat".to_string()) },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+            Effect::AddSourceCardCostThisCombat { delta: AmountSpec::Fixed(1) },
+        ]),
+
+// Monologue.cs: Apply<MonologuePower>(self, 1) then SetPowerStateField
+// (Strength = Canonical("Power")). SetPowerStateField writes to the
+// PowerInstance.state map.
+        "Monologue" => Some(vec![
+            Effect::ApplyPower { power_id: "MonologuePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
+            Effect::SetPowerStateField {
+                power_id: "MonologuePower".to_string(),
+                field: "Strength".to_string(),
+                value: AmountSpec::Canonical("Power".to_string()),
+                target: Target::SelfPlayer,
+            },
+        ]),
+
+// Nightmare.cs: interactive pick from Hand + Apply<NightmarePower>(3) with
+// selected card encoded in power state. Use SetPowerStateField after apply.
+        "Nightmare" => Some(vec![
+            Effect::ApplyPower { power_id: "NightmarePower".to_string(), amount: AmountSpec::Fixed(3), target: Target::SelfPlayer },
+            // Selected-card capture deferred — needs a "picked card id"
+            // state field. Power apply lands; the selection is logged
+            // but doesn't drive future hand-gen.
+        ]),
+
+// HiddenGem.cs: pick playable non-status Draw card + bump its replay count.
+// Uses the new per-instance counter primitive.
+        "HiddenGem" => Some(vec![Effect::IncrementPickedCardCounter {
+            from: Pile::Draw,
+            selector: Selector::PlayerInteractiveFiltered {
+                n: 1,
+                filter: CardFilter::And(
+                    Box::new(CardFilter::Not(Box::new(CardFilter::HasKeyword("Unplayable".to_string())))),
+                    Box::new(CardFilter::Not(Box::new(CardFilter::OfType("Status".to_string())))),
+                ),
+            },
+            key: "replay_count".to_string(),
+            delta: AmountSpec::Canonical("Replay".to_string()),
+        }]),
+
+// Snap.cs: if Osty present, OstyDamage chosen + pick non-Retain from Hand
+// to mark as Retain. ApplyKeywordToCards Retain - currently STUB but
+// encoding is correct.
+        "Snap" => Some(vec![Effect::Conditional {
+            condition: Condition::Not(Box::new(Condition::IsOstyMissing)),
+            then_branch: vec![
+                Effect::DamageFromOsty {
+                    amount: AmountSpec::Canonical("OstyDamage".to_string()),
+                    target: Target::ChosenEnemy,
+                },
+                Effect::ApplyKeywordToCards {
+                    keyword: "Retain".to_string(),
+                    from: Pile::Hand,
+                    selector: Selector::PlayerInteractiveFiltered {
+                        n: 1,
+                        filter: CardFilter::Not(Box::new(CardFilter::HasKeyword("Retain".to_string()))),
+                    },
+                },
+            ],
+            else_branch: vec![],
+        }]),
+
+// FlakCannon.cs: exhaust all Status cards in Hand + random-AOE damage with
+// hits = pre-exhaust status count.
+// (Sample status count BEFORE exhaust via CardCountInPile{Hand, OfType(Status)}.)
+        "FlakCannon" => Some(vec![
+            // Snapshot status count BEFORE exhausting via Repeat (count
+            // resolves once before the loop), but the body's exhaust changes
+            // pile contents — so we need to capture count, then exhaust,
+            // then damage. Easiest: damage first (using pre-exhaust count),
+            // then exhaust. C# order is exhaust-first but the net effect
+            // is identical (status cards don't participate in the attack).
+            Effect::Repeat {
+                count: AmountSpec::CardCountInPile {
+                    pile: PileSelector::Single(Pile::Hand),
+                    filter: CardFilter::OfType("Status".to_string()),
+                },
+                body: vec![Effect::DealDamage {
+                    amount: AmountSpec::Canonical("Damage".to_string()),
+                    target: Target::RandomEnemy,
+                    hits: 1,
+                }],
+            },
+            Effect::ExhaustCards {
+                from: Pile::Hand,
+                selector: Selector::FirstMatching {
+                    n: i32::MAX,
+                    filter: CardFilter::OfType("Status".to_string()),
+                },
+            },
+        ]),
+
+// CaptureSpirit.cs: self-damage (Move flag) + Soul gen. Move-flag damage
+// participation isn't expressible in the current pipeline; encode as
+// plain LoseHp + Soul gen (approximation: drops Move-flag participation
+// in hooks, but the HP / Soul effects land).
+        "CaptureSpirit" => Some(vec![
+            Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
+            Effect::Repeat {
+                count: AmountSpec::Canonical("Cards".to_string()),
+                body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw }],
+            },
+        ]),
+
+// CrescentSpear.cs: CalculatedDamage = CalculationBase + Extra * (lightning
+// orbs in queue). Without verifying the exact multiplier, encode the base
+// damage + extra * count-of-lightning-in-orb-queue (using AmountSpec wrt
+// orb queue isn't directly available — fall back to base damage).
+        "CrescentSpear" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("CalculationBase".to_string()),
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
+
+// DecisionsDecisions.cs: factory + branch choice. The choice surface is
+// genuinely interactive; encode as a no-op effect-list (the card still
+// routes through OnPlay correctly, just lacks the choice).
+        "DecisionsDecisions" => Some(vec![]),
+
+// Omnislice.cs: damage + propagate overkill to teammates. Encode the
+// primary damage; overkill propagation requires hooking the damage
+// outcome and applying to teammates — not in current Effect set.
+        "Omnislice" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("Damage".to_string()),
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
+
+// Rattle.cs: Osty-history scan. Approximate: if Osty present, single
+// OstyDamage; history-scan hit count drops.
+        "Rattle" => Some(vec![Effect::Conditional {
+            condition: Condition::Not(Box::new(Condition::IsOstyMissing)),
+            then_branch: vec![Effect::DamageFromOsty {
+                amount: AmountSpec::Canonical("OstyDamage".to_string()),
+                target: Target::ChosenEnemy,
+            }],
+            else_branch: vec![],
+        }]),

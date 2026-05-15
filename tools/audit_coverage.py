@@ -103,10 +103,14 @@ def main():
     card_arms = parse_table(effects_src, 'card_effects')
     relic_arms = parse_table(effects_src, 'relic_effects')
     potion_arms = parse_table(effects_src, 'potion_effects')
+    run_state_arms = parse_table(effects_src, 'run_state_effects')
+    monster_move_arms = parse_table(effects_src, 'monster_move_effects')
 
     card_encoded = set(n for n, _ in card_arms)
     relic_encoded = set(n for n, _ in relic_arms)
     potion_encoded = set(n for n, _ in potion_arms)
+    run_state_encoded = set(n for n, _ in run_state_arms)
+    relic_combined = relic_encoded | run_state_encoded
 
     # Cards still on the legacy combat.rs::dispatch_on_play match-arm
     # (pre-Effect-VM port). These ARE implemented at runtime, just not
@@ -128,7 +132,7 @@ def main():
             prim_counts[p] += 1
 
     # Coverage gap.
-    relic_gap = sorted(relic_ids - relic_encoded)
+    relic_gap = sorted(relic_ids - relic_combined)
     potion_gap = sorted(potion_ids - potion_encoded)
 
     card_gap = sorted(card_ids - fully_handled)  # only truly unimplemented
@@ -136,7 +140,7 @@ def main():
     print('# Data-driven coverage audit')
     print()
     print(f'**Cards**:   data-table {len(card_encoded):>4}/{len(card_ids)}  ({100*len(card_encoded)/len(card_ids):.1f}%) +  legacy-match-arm-only {len(legacy_only)}  =  total handled {len(fully_handled)}/{len(card_ids)} ({100*len(fully_handled)/len(card_ids):.1f}%)')
-    print(f'**Relics**:  encoded {len(relic_encoded):>4}/{len(relic_ids)}  ({100*len(relic_encoded)/len(relic_ids):.1f}%)  -> gap {len(relic_ids)-len(relic_encoded)}')
+    print(f'**Relics**:  relic_effects {len(relic_encoded)} +  run_state_effects {len(run_state_encoded)}  =  combined {len(relic_combined)}/{len(relic_ids)} ({100*len(relic_combined)/len(relic_ids):.1f}%)')
     print(f'**Potions**: encoded {len(potion_encoded):>4}/{len(potion_ids)}  ({100*len(potion_encoded)/len(potion_ids):.1f}%)  -> gap {len(potion_ids)-len(potion_encoded)}')
     print()
     print(f'Total entries in data tables: {len(card_arms)+len(relic_arms)+len(potion_arms)}')

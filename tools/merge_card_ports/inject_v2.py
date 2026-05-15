@@ -91,7 +91,7 @@ def collect_existing(effects_src):
 
 
 def main():
-    batch_files = ['batch_v2_1.txt', 'batch_v2_2.txt', 'batch_v2_3.txt', 'batch_v2_4.txt', 'batch_v3.txt', 'batch_v4.txt', 'batch_v5.txt', 'batch_v6.txt', 'batch_v7.txt', 'batch_v8.txt', 'batch_v9.txt', 'batch_v10.txt', 'batch_v11.txt', 'batch_v12.txt', 'batch_v13.txt']
+    batch_files = ['batch_v2_1.txt', 'batch_v2_2.txt', 'batch_v2_3.txt', 'batch_v2_4.txt', 'batch_v3.txt', 'batch_v4.txt', 'batch_v5.txt', 'batch_v6.txt', 'batch_v7.txt', 'batch_v8.txt', 'batch_v9.txt', 'batch_v10.txt', 'batch_v11.txt', 'batch_v12.txt', 'batch_v13.txt', 'batch_v14.txt', 'batch_v15.txt']
     all_arms = []
     for fname in batch_files:
         p = os.path.join(here, fname)

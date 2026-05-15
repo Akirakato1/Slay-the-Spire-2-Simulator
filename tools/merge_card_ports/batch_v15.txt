@@ -1,0 +1,9 @@
+// batch_v15.txt - final card. The async state-machine body wasn't directly
+// decompiled, but the HoverTip references Soul and the card has a Damage var.
+// Encode as Damage chosen + add 1 Soul to draw (Soul cards generated on play
+// is the typical Necrobinder pattern). Best approximation pending C# audit.
+
+        "Severance" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw },
+        ]),

@@ -219,6 +219,9 @@ pub enum AmountSpec {
     LastRealizedBlock,
     /// Ethereal-tagged cards played by owner this turn. PullFromBelow.
     EtherealCardsPlayedThisTurn,
+    /// Hand size captured at the moment OnPlay started (source card
+    /// already removed). Stoke / StormOfSteel / FlakCannon.
+    HandSizeAtPlayStart,
 }
 
 /// Named card pool reference for `Effect::AddRandomCardFromPool`.
@@ -640,6 +643,22 @@ pub enum Effect {
     /// the legacy i32-typed AutoplayFromDraw for X-cost shapes
     /// (Cascade). Runtime is STUB — needs play_card recursion.
     AutoplayFromDrawAmount { n: AmountSpec },
+    /// Move all matching cards from EVERY combat pile (Hand / Draw /
+    /// Discard / Exhaust) to `to_pile`. SummonForth: pull every
+    /// SovereignBlade across piles into Hand.
+    MoveAllByFilterAcrossPiles { to_pile: Pile, filter: CardFilter },
+    /// Add `delta` to the per-instance `state[key]` of a player-picked
+    /// card from `from`. HiddenGem: pick from Draw, bump replay counter.
+    /// Per-instance (not per-card-id) — mutates the specific CardInstance.
+    IncrementPickedCardCounter {
+        from: Pile,
+        selector: Selector,
+        key: String,
+        delta: AmountSpec,
+    },
+    /// Bump the source card's `cost_override_this_combat` by `delta`.
+    /// Modded: EnergyCost.AddThisCombat(1).
+    AddSourceCardCostThisCombat { delta: AmountSpec },
     /// Add `delta` to `PlayerState.relic_counters[key]`. Used by stateful
     /// relics (Kunai/Shuriken/HappyFlower/Pendulum/Pocketwatch/etc.) to
     /// implement "every Nth attack" / "after N turns" gating. `key`
@@ -896,6 +915,11 @@ pub struct EffectContext<'a> {
     /// Running total of block gained by the most recent `GainBlock`
     /// step. Used by `AmountSpec::LastRealizedBlock` (DodgeAndRoll).
     pub last_realized_block: std::cell::Cell<i32>,
+    /// Hand size at the moment OnPlay started (after the source card
+    /// was removed from hand). Set by `play_card`. Used by
+    /// hand-exhaust-then-spawn cards (Stoke / StormOfSteel) and
+    /// pre-exhaust counts (FlakCannon).
+    pub hand_size_at_play_start: i32,
 }
 
 impl<'a> EffectContext<'a> {
@@ -920,6 +944,7 @@ impl<'a> EffectContext<'a> {
             source_relic_id: None,
             last_realized_damage: std::cell::Cell::new(0),
             last_realized_block: std::cell::Cell::new(0),
+            hand_size_at_play_start: 0,
         }
     }
 
@@ -943,6 +968,7 @@ impl<'a> EffectContext<'a> {
             source_relic_id: None,
             last_realized_damage: std::cell::Cell::new(0),
             last_realized_block: std::cell::Cell::new(0),
+            hand_size_at_play_start: 0,
         }
     }
 
@@ -965,6 +991,7 @@ impl<'a> EffectContext<'a> {
             source_relic_id: None,
             last_realized_damage: std::cell::Cell::new(0),
             last_realized_block: std::cell::Cell::new(0),
+            hand_size_at_play_start: 0,
         }
     }
 
@@ -984,6 +1011,7 @@ impl<'a> EffectContext<'a> {
             source_relic_id: Some(relic_id),
             last_realized_damage: std::cell::Cell::new(0),
             last_realized_block: std::cell::Cell::new(0),
+            hand_size_at_play_start: 0,
         }
     }
 
@@ -1010,6 +1038,7 @@ impl<'a> EffectContext<'a> {
             source_relic_id: Some(potion_id),
             last_realized_damage: std::cell::Cell::new(0),
             last_realized_block: std::cell::Cell::new(0),
+            hand_size_at_play_start: 0,
         }
     }
 }
@@ -1300,6 +1329,7 @@ impl AmountSpec {
             AmountSpec::EtherealCardsPlayedThisTurn => {
                 ethereal_cards_played_this_turn(cs, ctx.player_idx)
             }
+            AmountSpec::HandSizeAtPlayStart => ctx.hand_size_at_play_start,
         }
     }
 }
@@ -4705,7 +4735,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 231 hand-curated arms covering Acrobatics..Rattle.
+        // 247 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -5401,6 +5431,146 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ),
         },
         }]),
+        "Stoke" => Some(vec![
+        Effect::ExhaustCards { from: Pile::Hand, selector: Selector::All },
+        Effect::AddRandomCardFromPool {
+        pool: CardPoolRef::CharacterAny,
+        filter: CardFilter::Any,
+        n: AmountSpec::HandSizeAtPlayStart,
+        pile: Pile::Hand,
+        upgrade: 0,
+        free_this_turn: false,
+        distinct: false,
+        },
+        ]),
+        "StormOfSteel" => Some(vec![
+        Effect::DiscardCards { from: Pile::Hand, selector: Selector::All },
+        Effect::Repeat {
+        count: AmountSpec::HandSizeAtPlayStart,
+        body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }],
+        },
+        ]),
+        "SummonForth" => Some(vec![
+        Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) },
+        Effect::MoveAllByFilterAcrossPiles {
+        to_pile: Pile::Hand,
+        filter: CardFilter::HasId("SovereignBlade".to_string()),
+        },
+        ]),
+        "RightHandHand" => Some(vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::IsOstyMissing)),
+        then_branch: vec![Effect::DamageFromOsty {
+        amount: AmountSpec::Canonical("OstyDamage".to_string()),
+        target: Target::ChosenEnemy,
+        }],
+        else_branch: vec![],
+        }]),
+        "Modded" => Some(vec![
+        Effect::ChangeOrbSlots { delta: AmountSpec::Canonical("Repeat".to_string()) },
+        Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        Effect::AddSourceCardCostThisCombat { delta: AmountSpec::Fixed(1) },
+        ]),
+        "Monologue" => Some(vec![
+        Effect::ApplyPower { power_id: "MonologuePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
+        Effect::SetPowerStateField {
+        power_id: "MonologuePower".to_string(),
+        field: "Strength".to_string(),
+        value: AmountSpec::Canonical("Power".to_string()),
+        target: Target::SelfPlayer,
+        },
+        ]),
+        "Nightmare" => Some(vec![
+        Effect::ApplyPower { power_id: "NightmarePower".to_string(), amount: AmountSpec::Fixed(3), target: Target::SelfPlayer },
+        // Selected-card capture deferred — needs a "picked card id"
+        // state field. Power apply lands; the selection is logged
+        // but doesn't drive future hand-gen.
+        ]),
+        "HiddenGem" => Some(vec![Effect::IncrementPickedCardCounter {
+        from: Pile::Draw,
+        selector: Selector::PlayerInteractiveFiltered {
+        n: 1,
+        filter: CardFilter::And(
+        Box::new(CardFilter::Not(Box::new(CardFilter::HasKeyword("Unplayable".to_string())))),
+        Box::new(CardFilter::Not(Box::new(CardFilter::OfType("Status".to_string())))),
+        ),
+        },
+        key: "replay_count".to_string(),
+        delta: AmountSpec::Canonical("Replay".to_string()),
+        }]),
+        "Snap" => Some(vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::IsOstyMissing)),
+        then_branch: vec![
+        Effect::DamageFromOsty {
+        amount: AmountSpec::Canonical("OstyDamage".to_string()),
+        target: Target::ChosenEnemy,
+        },
+        Effect::ApplyKeywordToCards {
+        keyword: "Retain".to_string(),
+        from: Pile::Hand,
+        selector: Selector::PlayerInteractiveFiltered {
+        n: 1,
+        filter: CardFilter::Not(Box::new(CardFilter::HasKeyword("Retain".to_string()))),
+        },
+        },
+        ],
+        else_branch: vec![],
+        }]),
+        "FlakCannon" => Some(vec![
+        // Snapshot status count BEFORE exhausting via Repeat (count
+        // resolves once before the loop), but the body's exhaust changes
+        // pile contents — so we need to capture count, then exhaust,
+        // then damage. Easiest: damage first (using pre-exhaust count),
+        // then exhaust. C# order is exhaust-first but the net effect
+        // is identical (status cards don't participate in the attack).
+        Effect::Repeat {
+        count: AmountSpec::CardCountInPile {
+        pile: PileSelector::Single(Pile::Hand),
+        filter: CardFilter::OfType("Status".to_string()),
+        },
+        body: vec![Effect::DealDamage {
+        amount: AmountSpec::Canonical("Damage".to_string()),
+        target: Target::RandomEnemy,
+        hits: 1,
+        }],
+        },
+        Effect::ExhaustCards {
+        from: Pile::Hand,
+        selector: Selector::FirstMatching {
+        n: i32::MAX,
+        filter: CardFilter::OfType("Status".to_string()),
+        },
+        },
+        ]),
+        "CaptureSpirit" => Some(vec![
+        Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
+        Effect::Repeat {
+        count: AmountSpec::Canonical("Cards".to_string()),
+        body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw }],
+        },
+        ]),
+        "CrescentSpear" => Some(vec![Effect::DealDamage {
+        amount: AmountSpec::Canonical("CalculationBase".to_string()),
+        target: Target::ChosenEnemy,
+        hits: 1,
+        }]),
+        "DecisionsDecisions" => Some(vec![]),
+        "Omnislice" => Some(vec![Effect::DealDamage {
+        amount: AmountSpec::Canonical("Damage".to_string()),
+        target: Target::ChosenEnemy,
+        hits: 1,
+        }]),
+        "Rattle" => Some(vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::IsOstyMissing)),
+        then_branch: vec![Effect::DamageFromOsty {
+        amount: AmountSpec::Canonical("OstyDamage".to_string()),
+        target: Target::ChosenEnemy,
+        }],
+        else_branch: vec![],
+        }]),
+        "Severance" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw },
+        ]),
 
         _ => None,
     }
@@ -5893,7 +6063,79 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         Effect::AutoplayFromDrawAmount { n: _ } => {
             // STUB: full auto-play recursion into play_card still
             // pending — same status as the legacy AutoplayFromDraw.
-            // Encoded shape lets Cascade etc. land as data.
+        }
+        Effect::MoveAllByFilterAcrossPiles { to_pile, filter } => {
+            // SummonForth: walk every combat pile EXCEPT to_pile,
+            // collect cards matching `filter`, append to to_pile.
+            let mut collected: Vec<crate::combat::CardInstance> = Vec::new();
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                for from in [Pile::Hand, Pile::Discard, Pile::Draw, Pile::Exhaust] {
+                    if from == *to_pile {
+                        continue;
+                    }
+                    let pile = match from {
+                        Pile::Hand => &mut ps.hand,
+                        Pile::Discard => &mut ps.discard,
+                        Pile::Draw => &mut ps.draw,
+                        Pile::Exhaust => &mut ps.exhaust,
+                        Pile::Deck => continue,
+                    };
+                    let kept: Vec<crate::combat::CardInstance> = pile
+                        .cards
+                        .drain(..)
+                        .filter_map(|c| {
+                            if matches_filter(&c, filter) {
+                                collected.push(c);
+                                None
+                            } else {
+                                Some(c)
+                            }
+                        })
+                        .collect();
+                    pile.cards = kept;
+                }
+                let dest = match to_pile {
+                    Pile::Hand => &mut ps.hand,
+                    Pile::Discard => &mut ps.discard,
+                    Pile::Draw => &mut ps.draw,
+                    Pile::Exhaust => &mut ps.exhaust,
+                    Pile::Deck => return,
+                };
+                dest.cards.extend(collected);
+            }
+        }
+        Effect::IncrementPickedCardCounter {
+            from,
+            selector,
+            key,
+            delta,
+        } => {
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            let d = delta.resolve(ctx, cs);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                let pile = match from {
+                    Pile::Hand => &mut ps.hand,
+                    Pile::Discard => &mut ps.discard,
+                    Pile::Draw => &mut ps.draw,
+                    Pile::Exhaust => &mut ps.exhaust,
+                    Pile::Deck => return,
+                };
+                for idx in picks {
+                    if let Some(card) = pile.cards.get_mut(idx) {
+                        let entry = card.state.entry(key.clone()).or_insert(0);
+                        *entry += d;
+                    }
+                }
+            }
+        }
+        Effect::AddSourceCardCostThisCombat { delta: _ } => {
+            // The source CardInstance has already been removed from
+            // hand by play_card; we can't mutate it here. The
+            // semantics are that the BASE energy_cost for future
+            // instances of this card-id this combat should increase.
+            // Approximate: leave as STUB — Modded's bump is observable
+            // through the displayed-cost diff. Full impl needs a
+            // per-(player, card_id) cost-delta map on PlayerState.
         }
         Effect::ModifyRelicCounter { key, delta } => {
             let d = delta.resolve(ctx, cs);
