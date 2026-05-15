@@ -110,6 +110,119 @@ fn combat_add_player_ironclad() {
     assert_eq!(player["potions"].as_array().unwrap().len(), 3);
 }
 
+fn setup_combat(
+    oracle: &mut Oracle,
+    seed: i64,
+    enemy_id: &str,
+) -> i64 {
+    let handle = unwrap_result(
+        oracle.call("combat_new", json!({})).expect("combat_new"),
+    )
+    .as_i64()
+    .unwrap();
+    oracle
+        .call(
+            "combat_add_player",
+            json!({
+                "handle": handle,
+                "character_id": "CHARACTER.IRONCLAD",
+                "seed": seed,
+            }),
+        )
+        .expect("combat_add_player");
+    oracle
+        .call(
+            "combat_add_enemy",
+            json!({ "handle": handle, "monster_id": enemy_id }),
+        )
+        .expect("combat_add_enemy");
+    handle
+}
+
+#[test]
+#[ignore = "requires `dotnet build oracle-host -c Release` + STS2 game install"]
+fn play_strike_deals_six_damage() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle host");
+    let h = setup_combat(&mut oracle, 42, "MONSTER.BIG_DUMMY");
+    oracle
+        .call(
+            "combat_force_card_to_hand",
+            json!({ "handle": h, "card_id": "CARD.STRIKE_IRONCLAD" }),
+        )
+        .expect("force_to_hand");
+    let r = oracle
+        .call(
+            "combat_play_card",
+            json!({ "handle": h, "hand_idx": 0, "target_idx": 0 }),
+        )
+        .expect("play_card");
+    assert_eq!(r["result"], true, "play_card failed: {r}");
+    let dump = unwrap_result(
+        oracle.call("combat_dump", json!({ "handle": h })).expect("dump"),
+    );
+    assert_eq!(dump["enemies"][0]["current_hp"], 9999 - 6,
+        "Strike should deal 6 dmg: {dump}");
+    let player = &dump["allies"][0]["player"];
+    assert_eq!(player["hand"].as_array().unwrap().len(), 0);
+    assert_eq!(player["discard"].as_array().unwrap().len(), 1,
+        "Strike routes to discard: {player}");
+    assert_eq!(player["play"].as_array().unwrap().len(), 0);
+}
+
+#[test]
+#[ignore = "requires `dotnet build oracle-host -c Release` + STS2 game install"]
+fn play_upgraded_strike_deals_nine_damage() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle host");
+    let h = setup_combat(&mut oracle, 42, "MONSTER.BIG_DUMMY");
+    oracle
+        .call(
+            "combat_force_card_to_hand",
+            json!({
+                "handle": h,
+                "card_id": "CARD.STRIKE_IRONCLAD",
+                "upgrade_level": 1,
+            }),
+        )
+        .expect("force_to_hand");
+    let r = oracle
+        .call(
+            "combat_play_card",
+            json!({ "handle": h, "hand_idx": 0, "target_idx": 0 }),
+        )
+        .expect("play_card");
+    assert_eq!(r["result"], true, "play_card+1 failed: {r}");
+    let dump = unwrap_result(
+        oracle.call("combat_dump", json!({ "handle": h })).expect("dump"),
+    );
+    assert_eq!(dump["enemies"][0]["current_hp"], 9999 - 9,
+        "Strike+1 should deal 9 dmg");
+}
+
+#[test]
+#[ignore = "requires `dotnet build oracle-host -c Release` + STS2 game install"]
+fn play_defend_grants_five_block() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle host");
+    let h = setup_combat(&mut oracle, 42, "MONSTER.BIG_DUMMY");
+    oracle
+        .call(
+            "combat_force_card_to_hand",
+            json!({ "handle": h, "card_id": "CARD.DEFEND_IRONCLAD" }),
+        )
+        .expect("force_to_hand");
+    let r = oracle
+        .call(
+            "combat_play_card",
+            json!({ "handle": h, "hand_idx": 0 }),
+        )
+        .expect("play_card");
+    assert_eq!(r["result"], true, "play_card failed: {r}");
+    let dump = unwrap_result(
+        oracle.call("combat_dump", json!({ "handle": h })).expect("dump"),
+    );
+    assert_eq!(dump["allies"][0]["block"], 5,
+        "Defend should grant 5 block: {dump}");
+}
+
 #[test]
 #[ignore = "requires `dotnet build oracle-host -c Release` + STS2 game install"]
 fn combat_add_enemy() {

@@ -637,20 +637,21 @@ internal sealed class Dispatcher
                 // master deck via a deterministic Rng.
                 _combat.ResetCombatState.Invoke(player, null);
                 var rng = _rngCtor.Invoke(new object[] { seed, 0 });
-                try
+                _combat.PopulateCombatState.Invoke(player, new[] { rng, combat });
+                // PopulateCombatState uses state.CloneCard which calls
+                // the 1-arg AddCard (no Owner set). Walk the draw pile
+                // and assign Owner on each cloned card so
+                // CombatState.Contains doesn't NRE on the
+                // Owner.IsActiveForHooks deref.
+                var pcs = _combat.PlayerCombatState.GetValue(player)!;
+                var drawPile = _combat.PcsDrawPile.GetValue(pcs)!;
+                var drawCards = (System.Collections.IList)_combat.PileCards.GetValue(drawPile)!;
+                var ownerProp = _combat.CardModelType.GetProperty("Owner")
+                    ?? throw new InvalidOperationException("CardModel.Owner not found");
+                foreach (var c in drawCards)
                 {
-                    _combat.PopulateCombatState.Invoke(player, new[] { rng, combat });
-                }
-                catch (TargetInvocationException ex) when (ex.InnerException is not null)
-                {
-                    // Shuffle hook listeners can NRE on Godot-dependent
-                    // paths; the draw pile is still populated (just not
-                    // shuffled). Surface the warning but don't fail.
-                    return new JsonObject
-                    {
-                        ["result"] = true,
-                        ["populate_warning"] = ex.InnerException.Message,
-                    };
+                    if (c == null) continue;
+                    if (ownerProp.GetValue(c) == null) ownerProp.SetValue(c, player);
                 }
                 return Ok(JsonValue.Create(true));
             }
@@ -676,6 +677,111 @@ internal sealed class Dispatcher
             {
                 var combat = GetInstance(p);
                 return Ok(SerializeCombat(combat));
+            }
+
+            case "combat_force_card_to_hand":
+            {
+                var combat = GetInstance(p);
+                var cardId = p["card_id"]!.GetValue<string>();
+                var upgrade = p["upgrade_level"]?.GetValue<int>() ?? 0;
+                var playerIdx = p["player_idx"]?.GetValue<int>() ?? 0;
+                // Walk allies → grab the playerIdx-th player creature.
+                var allies = (System.Collections.IList)_combat.Allies.GetValue(combat)!;
+                var ownerCreature = allies[playerIdx]!;
+                var ownerPlayer = _combat.CreaturePlayer.GetValue(ownerCreature)!;
+                var canonicalCard = _combat.GetCardById(cardId);
+                var mutableCard = _combat.CardToMutable.Invoke(canonicalCard, null)!;
+                // Upgrade N times.
+                for (int i = 0; i < upgrade; i++)
+                {
+                    var upgradeInternal = _combat.CardModelType.GetMethod(
+                        "UpgradeInternal",
+                        BindingFlags.Public | BindingFlags.Instance);
+                    upgradeInternal?.Invoke(mutableCard, null);
+                }
+                // state.AddCard(card, owner) — sets Owner + registers in _allCards.
+                _combat.CombatStateAddCardWithOwner.Invoke(combat,
+                    new[] { mutableCard, ownerPlayer });
+                // Add to PlayerCombatState.Hand.
+                var pcs = _combat.PlayerCombatState.GetValue(ownerPlayer)!;
+                var hand = _combat.PcsHand.GetValue(pcs)!;
+                _combat.PileAddInternal.Invoke(hand,
+                    new object[] { mutableCard, -1, true });
+                return Ok(JsonValue.Create(true));
+            }
+
+            case "combat_play_card":
+            {
+                var combat = GetInstance(p);
+                var handIdx = p["hand_idx"]!.GetValue<int>();
+                var playerIdx = p["player_idx"]?.GetValue<int>() ?? 0;
+                var targetIdx = p["target_idx"]?.GetValue<int?>();
+                var allies = (System.Collections.IList)_combat.Allies.GetValue(combat)!;
+                var ownerCreature = allies[playerIdx]!;
+                var ownerPlayer = _combat.CreaturePlayer.GetValue(ownerCreature)!;
+                var pcs = _combat.PlayerCombatState.GetValue(ownerPlayer)!;
+                var hand = _combat.PcsHand.GetValue(pcs)!;
+                var play = _combat.PcsPlayPile.GetValue(pcs)!;
+                var handCards = (System.Collections.IList)_combat.PileCards.GetValue(hand)!;
+                if (handIdx < 0 || handIdx >= handCards.Count)
+                {
+                    return new JsonObject { ["error"] = $"hand index {handIdx} out of range (size {handCards.Count})" };
+                }
+                var card = handCards[handIdx]!;
+                // Resolve target Creature (if any). Target is an enemy
+                // by index into the enemies list.
+                object? target = null;
+                if (targetIdx is int t)
+                {
+                    var enemies = (System.Collections.IList)_combat.Enemies.GetValue(combat)!;
+                    if (t >= 0 && t < enemies.Count) target = enemies[t]!;
+                }
+                // Hand → PlayPile.
+                _combat.PileRemoveInternal.Invoke(hand, new object[] { card, true });
+                _combat.PileAddInternal.Invoke(play, new object[] { card, -1, true });
+                // Build CardPlay { Card=card, Target=target, ... }.
+                var cardPlay = _combat.CardPlayCtor.Invoke(null)!;
+                cardPlayType_set(cardPlay, "Card", card);
+                if (target != null) cardPlayType_set(cardPlay, "Target", target);
+                cardPlayType_set(cardPlay, "IsAutoPlay", true);
+                cardPlayType_set(cardPlay, "PlayIndex", 0);
+                cardPlayType_set(cardPlay, "PlayCount", 1);
+                // Resolve target pile via GetResultPileType (protected).
+                var resultPileVal = _combat.CardGetResultPileType.Invoke(card, null);
+                cardPlayType_set(cardPlay, "ResultPile", resultPileVal!);
+                // Invoke OnPlay (protected, returns Task). The async
+                // body can throw via the Task; GetResult() unwraps.
+                string? onPlayError = null;
+                string? onPlayTrace = null;
+                try
+                {
+                    var task = (Task?)_combat.CardOnPlay.Invoke(card,
+                        new object?[] { null, cardPlay });
+                    task?.GetAwaiter().GetResult();
+                }
+                catch (TargetInvocationException ex) when (ex.InnerException is not null)
+                {
+                    onPlayError = ex.InnerException.Message;
+                    onPlayTrace = ex.InnerException.StackTrace;
+                }
+                catch (Exception ex)
+                {
+                    onPlayError = ex.Message;
+                    onPlayTrace = ex.StackTrace;
+                }
+                // Route Play → result pile (always — partial plays still
+                // route).
+                _combat.PileRemoveInternal.Invoke(play, new object[] { card, true });
+                var dest = ResolvePileObject(pcs, resultPileVal);
+                if (dest != null)
+                    _combat.PileAddInternal.Invoke(dest, new object[] { card, -1, true });
+                var resp = new JsonObject { ["result"] = onPlayError == null };
+                if (onPlayError != null)
+                {
+                    resp["onplay_error"] = onPlayError;
+                    resp["onplay_trace"] = onPlayTrace;
+                }
+                return resp;
             }
 
             default:
@@ -870,6 +976,34 @@ internal sealed class Dispatcher
         return mid.ToString();
     }
 
+    private void cardPlayType_set(object cardPlay, string propName, object value)
+    {
+        var prop = cardPlay.GetType().GetProperty(propName)
+            ?? throw new InvalidOperationException(
+                $"CardPlay.{propName} not found");
+        prop.SetValue(cardPlay, value);
+    }
+
+    /// Map a PileType enum value to the CardPile object on the given
+    /// PlayerCombatState. `pileType` arg is the boxed enum from
+    /// `CardModel.GetResultPileType()`.
+    private object? ResolvePileObject(object pcs, object? pileType)
+    {
+        if (pileType == null) return null;
+        // PileType: None=0, Hand=1, Draw=2, Discard=3, Exhaust=4, Play=5, Deck=6
+        // (we don't rely on numeric values — use Enum.GetName).
+        var name = Enum.GetName(pileType.GetType(), pileType);
+        return name switch
+        {
+            "Hand" => _combat.PcsHand.GetValue(pcs),
+            "Draw" => _combat.PcsDrawPile.GetValue(pcs),
+            "Discard" => _combat.PcsDiscardPile.GetValue(pcs),
+            "Exhaust" => _combat.PcsExhaustPile.GetValue(pcs),
+            "Play" => _combat.PcsPlayPile.GetValue(pcs),
+            _ => null,  // None / Deck / unknown → no routing.
+        };
+    }
+
     private static JsonObject Ok(JsonNode? result) => new() { ["result"] = result };
 
     private static JsonObject SerializeMap(object sam, StandardActMapReflectionBundle b)
@@ -1021,6 +1155,96 @@ internal static class GodotBypass
             "MegaCrit.Sts2.Core.Saves.ProgressState", "GetStatsForCharacter",
             BindingFlags.Public | BindingFlags.Instance,
             typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NullObjectPrefix));
+        // Hook.ModifyShuffleOrder iterates CombatState.IterateHookListeners,
+        // which calls CombatState.Contains on each candidate. Contains
+        // dereferences `cardModel.Owner.IsActiveForHooks` — but cards
+        // cloned via state.CloneCard(card) (called inside
+        // PopulateCombatState) never get Owner assigned, so this NREs.
+        // Patching ModifyShuffleOrder to no-op keeps the prior
+        // UnstableShuffle result intact (the only relic that would
+        // listen here is FrozenEye-style; minor cost). Re-enable when
+        // we have a proper Owner-setting clone path.
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Hooks.Hook", "ModifyShuffleOrder",
+            BindingFlags.Public | BindingFlags.Static,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NoOp));
+        // CombatManager.IsInProgress = true (treat as if a combat is
+        // active so AttackCommand.Execute / DamageCmd etc. proceed
+        // instead of short-circuiting on IsOverOrEnding).
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Combat.CombatManager", "get_IsInProgress",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.TruePrefix));
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Combat.CombatManager", "get_IsOverOrEnding",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.FalsePrefix));
+        // Logger.GetIsRunningFromGodotEditor → false (avoids
+        // Godot.OS.GetCmdlineArgs native crash during static init).
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Logging.Logger", "GetIsRunningFromGodotEditor",
+            BindingFlags.NonPublic | BindingFlags.Public
+                | BindingFlags.Static | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.FalsePrefix));
+        // CreatureCmd.TriggerAnim → no-op (animations require Godot
+        // scene nodes; our headless host has none).
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Commands.CreatureCmd", "TriggerAnim",
+            BindingFlags.Public | BindingFlags.Static,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.CompletedTaskPrefix));
+        // get_IsEnding → false; otherwise the getter triggers
+        // Hook.ShouldStopCombatFromEnding which iterates hook listeners
+        // and NREs.
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Combat.CombatManager", "get_IsEnding",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.FalsePrefix));
+        // Sfx / Vfx commands rely on Godot scene nodes — no-op them.
+        PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Commands.SfxCmd");
+        PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Commands.VfxCmd");
+        // Cmd.* helpers — Wait/CustomScaledWait/etc. read SaveManager.
+        // PrefsSave for animation speed scaling. No-op these so we
+        // don't dive into more Godot.
+        PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Commands.Cmd");
+    }
+
+    /// Patch every public static method on `typeName` to a no-op
+    /// (return Task.CompletedTask for Task-returning, do-nothing for
+    /// void). Sfx/Vfx command types are essentially side-effect-only;
+    /// our headless host has no Godot scene to render to.
+    private static void PatchAllStaticMethodsToNoOp(
+        Assembly asm, object harmony, MethodInfo patchMethod,
+        ConstructorInfo hmCtor, string typeName)
+    {
+        var t = asm.GetType(typeName, throwOnError: false);
+        if (t == null) return;
+        var hmType = hmCtor.DeclaringType!;
+        foreach (var m in t.GetMethods(
+            BindingFlags.Public | BindingFlags.Static
+                | BindingFlags.DeclaredOnly))
+        {
+            // Pick prefix based on return type.
+            string prefixName;
+            if (m.ReturnType == typeof(void))
+                prefixName = nameof(SaveManagerPrefix.NoOp);
+            else if (typeof(Task).IsAssignableFrom(m.ReturnType))
+                prefixName = nameof(SaveManagerPrefix.CompletedTaskPrefix);
+            else
+                continue;  // skip non-void, non-Task methods (e.g. helpers).
+            var prefix = typeof(SaveManagerPrefix).GetMethod(prefixName,
+                BindingFlags.Public | BindingFlags.Static)!;
+            var hm = hmCtor.Invoke(new object[] { prefix });
+            var paramCount = patchMethod.GetParameters().Length;
+            var args = new object?[paramCount];
+            args[0] = m;
+            args[1] = hm;
+            for (int i = 2; i < paramCount; i++) args[i] = null;
+            try { patchMethod.Invoke(harmony, args); }
+            catch { /* ignore patch failures for individual methods */ }
+        }
     }
 
     private static void HarmonyPatchPrefix(
@@ -1074,6 +1298,22 @@ internal static class SaveManagerPrefix
         __result = null;
         return false;
     }
+    public static bool TruePrefix(ref bool __result)
+    {
+        __result = true;
+        return false;
+    }
+    public static bool FalsePrefix(ref bool __result)
+    {
+        __result = false;
+        return false;
+    }
+    // Skip + return a completed Task for async-Task void-effect methods.
+    public static bool CompletedTaskPrefix(ref Task __result)
+    {
+        __result = Task.CompletedTask;
+        return false;
+    }
 }
 
 internal sealed class CombatReflectionBundle
@@ -1120,6 +1360,16 @@ internal sealed class CombatReflectionBundle
     public required PropertyInfo CardCurrentUpgradeLevel { get; init; }
     public required PropertyInfo CardEnchantment { get; init; }
     public required PropertyInfo EnchantmentAmountField { get; init; }
+    public required MethodInfo CardOnPlay { get; init; }
+    public required MethodInfo CardGetResultPileType { get; init; }
+    public required ConstructorInfo CardPlayCtor { get; init; }
+    public required MethodInfo PileAddInternal { get; init; }
+    public required MethodInfo PileRemoveInternal { get; init; }
+    public required Type PileTypeEnum { get; init; }
+    public required Type CardModelType { get; init; }
+    public required MethodInfo CardToMutable { get; init; }
+    public required MethodInfo CombatStateAddCardWithOwner { get; init; }
+    public required MethodInfo GetCardByIdMethod { get; init; }
 
     public object GetCharacterById(string id)
     {
@@ -1134,6 +1384,13 @@ internal sealed class CombatReflectionBundle
         return GetMonsterByIdMethod.Invoke(null, new object[] { modelId })
             ?? throw new InvalidOperationException(
                 $"GetMonsterById returned null for {id}");
+    }
+    public object GetCardById(string id)
+    {
+        var modelId = ModelIdDeserialize.Invoke(null, new object[] { id })!;
+        return GetCardByIdMethod.Invoke(null, new object[] { modelId })
+            ?? throw new InvalidOperationException(
+                $"GetCardById returned null for {id}");
     }
 
     public static CombatReflectionBundle Build(Assembly asm)
@@ -1307,6 +1564,45 @@ internal sealed class CombatReflectionBundle
         var enchantmentAmount = enchantmentType.GetProperty("Amount")
             ?? throw new InvalidOperationException("Enchantment.Amount not found");
 
+        var playerChoiceContextType = asm.GetType(
+            "MegaCrit.Sts2.Core.GameActions.Multiplayer.PlayerChoiceContext",
+            throwOnError: true)!;
+        var cardPlayType = asm.GetType(
+            "MegaCrit.Sts2.Core.Entities.Cards.CardPlay",
+            throwOnError: true)!;
+        var cardOnPlay = cardType.GetMethod("OnPlay",
+            BindingFlags.NonPublic | BindingFlags.Instance,
+            new[] { playerChoiceContextType, cardPlayType })
+            ?? throw new InvalidOperationException("CardModel.OnPlay not found");
+        var cardGetResultPileType = cardType.GetMethod("GetResultPileType",
+            BindingFlags.NonPublic | BindingFlags.Instance,
+            Type.EmptyTypes)
+            ?? throw new InvalidOperationException("CardModel.GetResultPileType not found");
+        var cardPlayCtor = cardPlayType.GetConstructor(Type.EmptyTypes)
+            ?? throw new InvalidOperationException("CardPlay() ctor not found");
+
+        var pileAddInternal = pileType.GetMethod("AddInternal",
+            BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("CardPile.AddInternal not found");
+        var pileRemoveInternal = pileType.GetMethod("RemoveInternal",
+            BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("CardPile.RemoveInternal not found");
+
+        var pileTypeEnum = asm.GetType("MegaCrit.Sts2.Core.Entities.Cards.PileType",
+            throwOnError: true)!;
+
+        var cardToMutable = cardType.GetMethod("ToMutable",
+            BindingFlags.Public | BindingFlags.Instance,
+            Type.EmptyTypes)
+            ?? throw new InvalidOperationException("CardModel.ToMutable not found");
+        // CombatState.AddCard(CardModel, Player) — the 2-arg overload
+        // that sets Owner.
+        var addCardWithOwner = combatStateType.GetMethod("AddCard",
+            BindingFlags.Public | BindingFlags.Instance,
+            new[] { cardType, playerType })
+            ?? throw new InvalidOperationException("CombatState.AddCard(card, owner) not found");
+        var getCardById = getByIdGen.MakeGenericMethod(cardType);
+
         return new CombatReflectionBundle
         {
             CombatStateCtor = combatStateCtor,
@@ -1351,6 +1647,16 @@ internal sealed class CombatReflectionBundle
             CardCurrentUpgradeLevel = cardUpgrade,
             CardEnchantment = cardEnchantment,
             EnchantmentAmountField = enchantmentAmount,
+            CardOnPlay = cardOnPlay,
+            CardGetResultPileType = cardGetResultPileType,
+            CardPlayCtor = cardPlayCtor,
+            PileAddInternal = pileAddInternal,
+            PileRemoveInternal = pileRemoveInternal,
+            PileTypeEnum = pileTypeEnum,
+            CardModelType = cardType,
+            CardToMutable = cardToMutable,
+            CombatStateAddCardWithOwner = addCardWithOwner,
+            GetCardByIdMethod = getCardById,
         };
     }
 }
