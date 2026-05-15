@@ -6351,7 +6351,10 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ]),
         "MomentumStrike" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "MonarchsGaze" => Some(vec![Effect::ApplyPower { power_id: "MonarchsGazePower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
-        "NecroMastery" => Some(vec![Effect::ApplyPower { power_id: "NecroMasteryPower".to_string(), amount: AmountSpec::Canonical("Summon".to_string()), target: Target::SelfPlayer }]),
+        "NecroMastery" => Some(vec![
+        Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) },
+        Effect::ApplyPower { power_id: "NecroMasteryPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
+        ]),
         "NegativePulse" => Some(vec![
         Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
         Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("DoomPower".to_string()), target: Target::AllEnemies },
@@ -7077,9 +7080,15 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ]),
         "NoEscape" => Some(vec![Effect::ApplyPower {
         power_id: "DoomPower".to_string(),
-        amount: AmountSpec::FloorDiv {
+        amount: AmountSpec::Add {
+        left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())),
+        right: Box::new(AmountSpec::Mul {
+        left: Box::new(AmountSpec::Canonical("CalculationExtra".to_string())),
+        right: Box::new(AmountSpec::FloorDiv {
         left: Box::new(AmountSpec::TargetPowerAmount { power_id: "DoomPower".to_string() }),
         right: Box::new(AmountSpec::Canonical("DoomThreshold".to_string())),
+        }),
+        }),
         },
         target: Target::ChosenEnemy,
         }]),

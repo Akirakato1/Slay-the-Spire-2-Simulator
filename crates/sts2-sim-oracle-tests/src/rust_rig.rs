@@ -349,13 +349,16 @@ pub fn combat_dump_with_master(cs: &CombatState, master_deck: &[(String, i32)]) 
     // oracle dump for BoundPhylactery / PhylacteryUnbound / etc.).
     if let Some(ps) = cs.allies.first().and_then(|c| c.player.as_ref()) {
         if let Some(osty) = ps.osty.as_ref() {
+            // C# OstyModel is summoned with a DieForYouPower(amount=1)
+            // automatically (PetOwner redirect-damage power). The Rust
+            // sim treats this as implicit on the OstyState struct.
             allies.push(json!({
                 "name": null,
                 "current_hp": osty.current_hp,
                 "max_hp": osty.max_hp,
                 "block": osty.block,
                 "is_player": false,
-                "powers": Value::Array(Vec::new()),
+                "powers": json!([{"id": "POWER.DIE_FOR_YOU_POWER", "amount": 1}]),
             }));
         }
     }
