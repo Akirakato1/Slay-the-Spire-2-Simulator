@@ -316,6 +316,9 @@ pub enum Condition {
     XEnergyGe { n: i32 },
     /// `EffectContext::x_value == n` (rare; HeavenlyDrill edge).
     XEnergyEq { n: i32 },
+    /// `target.current_hp > 0`. MoltenFist gates its Vulnerable re-apply
+    /// on target-still-alive after the damage step.
+    TargetIsAlive,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3767,7 +3770,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 160 hand-curated arms covering Acrobatics..Rattle.
+        // 189 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -4081,6 +4084,111 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         filter: CardFilter::OfType("Attack".to_string()),
         },
         }]),
+        "Anger" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::AddCardToPile { card_id: "Anger".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+        "GraveWarden" => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        Effect::Repeat { count: AmountSpec::Canonical("Cards".to_string()), body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw }] },
+        ]),
+        "BlightStrike" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy },
+        ]),
+        "CollisionCourse" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::AddCardToPile { card_id: "Debris".to_string(), upgrade: 0, pile: Pile::Hand },
+        ]),
+        "BladeDance" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Cards".to_string()), body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }] }]),
+        "Snakebite" => Some(vec![Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("Poison".to_string()), target: Target::ChosenEnemy }]),
+        "Anticipate" => Some(vec![
+        Effect::ApplyPower { power_id: "AnticipatePower".to_string(), amount: AmountSpec::Canonical("Dexterity".to_string()), target: Target::SelfPlayer },
+        Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("Dexterity".to_string()), target: Target::SelfPlayer },
+        ]),
+        "Ricochet" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }] }]),
+        "CloakAndDagger" => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        Effect::Repeat { count: AmountSpec::Canonical("Cards".to_string()), body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }] },
+        ]),
+        "LeadingStrike" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::Repeat { count: AmountSpec::Canonical("Shivs".to_string()), body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }] },
+        ]),
+        "DaggerSpray" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 2 }]),
+        "PoisonedStab" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("Poison".to_string()), target: Target::ChosenEnemy },
+        ]),
+        "FiendFire" => Some(vec![Effect::Repeat {
+        count: AmountSpec::HandCount,
+        body: vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ExhaustRandomInHand { amount: AmountSpec::Fixed(1) },
+        ],
+        }]),
+        "Mangle" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "ManglePower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::ChosenEnemy },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("StrengthLoss".to_string())), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::ChosenEnemy },
+        ]),
+        "SetupStrike" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "SetupStrikePower".to_string(), amount: AmountSpec::Canonical("Strength".to_string()), target: Target::SelfPlayer },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("Strength".to_string()), target: Target::SelfPlayer },
+        ]),
+        "Feed" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::Conditional {
+        condition: Condition::AttackKilledTarget,
+        then_branch: vec![
+        Effect::ChangeMaxHp { amount: AmountSpec::Canonical("MaxHp".to_string()), target: Target::SelfPlayer },
+        Effect::Heal { amount: AmountSpec::Canonical("MaxHp".to_string()), target: Target::SelfPlayer },
+        ],
+        else_branch: vec![],
+        },
+        ]),
+        "Barricade" => Some(vec![Effect::ApplyPower { power_id: "BarricadePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+        "SwordBoomerang" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }] }]),
+        "Cinder" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ExhaustRandomInHand { amount: AmountSpec::Fixed(1) },
+        ]),
+        "TrueGrit" => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        Effect::ExhaustRandomInHand { amount: AmountSpec::Fixed(1) },
+        ]),
+        "PommelStrike" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        ]),
+        "DemonForm" => Some(vec![Effect::ApplyPower { power_id: "DemonFormPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
+        "Breakthrough" => Some(vec![
+        Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 },
+        ]),
+        "BloodWall" => Some(vec![
+        Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        ]),
+        "Tremble" => Some(vec![Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Vulnerable".to_string()), target: Target::ChosenEnemy }]),
+        "Apparition" => Some(vec![Effect::ApplyPower { power_id: "IntangiblePower".to_string(), amount: AmountSpec::Canonical("IntangiblePower".to_string()), target: Target::SelfPlayer }]),
+        "MoltenFist" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::Conditional {
+        condition: Condition::And(
+        Box::new(Condition::TargetIsAlive),
+        Box::new(Condition::HasPowerOnTarget { power_id: "VulnerablePower".to_string() }),
+        ),
+        then_branch: vec![Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::TargetPowerAmount { power_id: "VulnerablePower".to_string() }, target: Target::ChosenEnemy }],
+        else_branch: vec![],
+        },
+        ]),
+        "Whirlwind" => Some(vec![Effect::Repeat { count: AmountSpec::XEnergy, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }] }]),
+        "LegSweep" => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Weak".to_string()), target: Target::ChosenEnemy },
+        ]),
 
         _ => None,
     }
@@ -4705,11 +4813,27 @@ pub fn evaluate_condition(
             };
             compare(n, *op, *value)
         }
-        Condition::OwnerLostHpThisTurn | Condition::AttackKilledTarget => {
-            // STUB: history-derived predicates need a per-turn HP-delta
-            // scan that combat_log doesn't index yet. Returns false so
-            // encoded cards stay safe.
+        Condition::OwnerLostHpThisTurn => {
+            // STUB: history-derived predicate needs a per-turn HP-delta
+            // scan. Returns false so encoded cards stay safe.
             false
+        }
+        Condition::AttackKilledTarget => {
+            // True iff the current EffectContext::target is at 0 HP.
+            // Used in `Effect::Conditional` right after a DealDamage
+            // step: if the damage killed the target, the conditional
+            // body fires. Mirrors the legacy `outcome.fatal` check in
+            // Feed / HandOfGreed. Caller orders this immediately after
+            // the DealDamage step so the predicate sees post-damage HP.
+            let Some((side, idx)) = ctx.target else {
+                return false;
+            };
+            let creature = match side {
+                CombatSide::Player => cs.allies.get(idx),
+                CombatSide::Enemy => cs.enemies.get(idx),
+                CombatSide::None => None,
+            };
+            creature.map(|c| c.current_hp == 0).unwrap_or(false)
         }
         Condition::HandHasCardMatching(filter) => {
             let Some(ps) = cs
@@ -4794,6 +4918,17 @@ pub fn evaluate_condition(
         }
         Condition::XEnergyGe { n } => ctx.x_value >= *n,
         Condition::XEnergyEq { n } => ctx.x_value == *n,
+        Condition::TargetIsAlive => {
+            let Some((side, idx)) = ctx.target else {
+                return false;
+            };
+            let creature = match side {
+                CombatSide::Player => cs.allies.get(idx),
+                CombatSide::Enemy => cs.enemies.get(idx),
+                CombatSide::None => None,
+            };
+            creature.map(|c| c.current_hp > 0).unwrap_or(false)
+        }
     }
 }
 

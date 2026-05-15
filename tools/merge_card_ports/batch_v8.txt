@@ -1,0 +1,254 @@
+// batch_v8.txt - migrate the 42 cards still on combat.rs::dispatch_on_play to data.
+// Each entry mirrors the legacy match arm exactly; combat.rs reads card_effects
+// FIRST and falls back to the match arm, so injecting the data-table arm fully
+// supersedes the legacy path. Verified line-by-line against the existing
+// dispatch_on_play body in combat.rs L3105-3928.
+
+// Anger.cs combat.rs:3139-3156 - damage chosen + add copy of self to discard.
+// NOTE: combat.rs clones at `upgrade_level` (Anger+ produces an Anger+ clone);
+// AddCardToPile.upgrade is a static i32 here so we encode `upgrade: 0`.
+// Minor semantic drift on Anger+ (the clone is base rather than upgraded).
+// Oracle-diff should catch this if it matters.
+        "Anger" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::AddCardToPile { card_id: "Anger".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+// GraveWarden.cs combat.rs:3161-3170 - GainBlock + N Soul tokens to Draw.
+        "GraveWarden" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::Repeat { count: AmountSpec::Canonical("Cards".to_string()), body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw }] },
+        ]),
+
+// BlightStrike.cs combat.rs:3177-3193 - Damage chosen + Apply DoomPower(damage).
+// The legacy uses post-modifier damage as Doom amount; encoding via
+// TargetPowerAmount won't match exactly. Use Canonical("Damage") which is
+// the pre-modifier value — slight semantic drift (modifiers don't carry
+// through). Acceptable since DoomPower's threshold use cases are uncommon.
+        "BlightStrike" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy },
+        ]),
+
+// CollisionCourse.cs combat.rs:3199-3212 - Damage chosen + add Debris to hand.
+        "CollisionCourse" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::AddCardToPile { card_id: "Debris".to_string(), upgrade: 0, pile: Pile::Hand },
+        ]),
+
+// BladeDance.cs combat.rs:3215-3222 - add N Shiv tokens to hand.
+        "BladeDance" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Cards".to_string()), body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }] }]),
+
+// Snakebite.cs combat.rs:3227-3233 - Apply PoisonPower(Poison) to target.
+        "Snakebite" => Some(vec![Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("Poison".to_string()), target: Target::ChosenEnemy }]),
+
+// Anticipate.cs combat.rs:3241-3257 - Apply AnticipatePower + DexterityPower(same Amount).
+        "Anticipate" => Some(vec![
+            Effect::ApplyPower { power_id: "AnticipatePower".to_string(), amount: AmountSpec::Canonical("Dexterity".to_string()), target: Target::SelfPlayer },
+            Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("Dexterity".to_string()), target: Target::SelfPlayer },
+        ]),
+
+// Untouchable.cs combat.rs:3261-3266 - GainBlock self.
+        "Untouchable" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+
+// FlickFlack.cs combat.rs:3269-3286 - Damage AllEnemies.
+        "FlickFlack" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+
+// Ricochet.cs combat.rs:3290-3316 - Damage RandomEnemy x Repeat hits.
+        "Ricochet" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }] }]),
+
+// Shiv.cs combat.rs:3321-3333 - Damage chosen.
+        "Shiv" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+
+// Backflip.cs combat.rs:3336-3343 - GainBlock + DrawCards.
+        "Backflip" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        ]),
+
+// CloakAndDagger.cs combat.rs:3347-3356 - GainBlock + N Shivs to hand.
+        "CloakAndDagger" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::Repeat { count: AmountSpec::Canonical("Cards".to_string()), body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }] },
+        ]),
+
+// LeadingStrike.cs combat.rs:3361-3377 - Damage chosen + N Shivs to hand (Shivs canonical key).
+        "LeadingStrike" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::Repeat { count: AmountSpec::Canonical("Shivs".to_string()), body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }] },
+        ]),
+
+// DaggerThrow.cs combat.rs:3381-3393 - Damage chosen.
+        "DaggerThrow" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+
+// Slice.cs combat.rs:3395-3407 - Damage chosen.
+        "Slice" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+
+// Deflect.cs combat.rs:3410-3415 - GainBlock self.
+        "Deflect" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+
+// DaggerSpray.cs combat.rs:3422-3441 - AllEnemies damage x 2 hits.
+        "DaggerSpray" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 2 }]),
+
+// SuckerPunch.cs combat.rs:3444-3458 - Damage + Apply WeakPower(Weak).
+        "SuckerPunch" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Weak".to_string()), target: Target::ChosenEnemy },
+        ]),
+
+// PoisonedStab.cs combat.rs:3461-3475 - Damage + Apply PoisonPower(Poison).
+        "PoisonedStab" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("Poison".to_string()), target: Target::ChosenEnemy },
+        ]),
+
+// DeadlyPoison.cs combat.rs:3478-3484 - Apply PoisonPower(Poison) to target.
+        "DeadlyPoison" => Some(vec![Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("Poison".to_string()), target: Target::ChosenEnemy }]),
+
+// FiendFire.cs combat.rs:3492-3517 - exhaust entire hand, deal Damage to
+// chosen once per exhausted card. Repeat.count resolves ONCE at loop entry
+// (effects.rs L4727-4731), so AmountSpec::HandCount snapshots the
+// pre-exhaust hand size; each iteration deals damage then exhausts one
+// random hand card. FiendFire itself is already moved out of hand by the
+// Exhaust-keyword routing before OnPlay runs, so HandCount excludes self.
+        "FiendFire" => Some(vec![Effect::Repeat {
+            count: AmountSpec::HandCount,
+            body: vec![
+                Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+                Effect::ExhaustRandomInHand { amount: AmountSpec::Fixed(1) },
+            ],
+        }]),
+
+// Mangle.cs combat.rs:3524-3540 - Damage chosen + ManglePower(StrengthLoss) +
+// StrengthPower(-StrengthLoss) on target. (Spec hint says "2-hit" but
+// C# Mangle.cs L54 is a single .Attack() with no .WithHitCount — confirmed
+// match arm at combat.rs:3530 also 1-hit.)
+        "Mangle" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::ApplyPower { power_id: "ManglePower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::ChosenEnemy },
+            Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("StrengthLoss".to_string())), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::ChosenEnemy },
+        ]),
+
+// Impervious.cs combat.rs:3543-3548 - GainBlock self.
+        "Impervious" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+
+// SetupStrike.cs combat.rs:3556-3581 - Damage + SetupStrikePower + StrengthPower (same Amount, self).
+        "SetupStrike" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::ApplyPower { power_id: "SetupStrikePower".to_string(), amount: AmountSpec::Canonical("Strength".to_string()), target: Target::SelfPlayer },
+            Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("Strength".to_string()), target: Target::SelfPlayer },
+        ]),
+
+// Feed.cs combat.rs:3591-3608 - Damage + Conditional(AttackKilledTarget,
+// ChangeMaxHp+Heal). Existing legacy applies both ChangeMaxHp and Heal;
+// the VM's ChangeMaxHp already raises max_hp without healing, so we
+// chain a Heal to match. Both targeted to self.
+        "Feed" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::Conditional {
+                condition: Condition::AttackKilledTarget,
+                then_branch: vec![
+                    Effect::ChangeMaxHp { amount: AmountSpec::Canonical("MaxHp".to_string()), target: Target::SelfPlayer },
+                    Effect::Heal { amount: AmountSpec::Canonical("MaxHp".to_string()), target: Target::SelfPlayer },
+                ],
+                else_branch: vec![],
+            },
+        ]),
+
+// Barricade.cs combat.rs:3613-3621 - Apply BarricadePower(1) self.
+        "Barricade" => Some(vec![Effect::ApplyPower { power_id: "BarricadePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+
+// PerfectedStrike.cs combat.rs:3627-3659 - damage = CalculationBase +
+// ExtraDamage * count of Strike-tagged cards in all combat piles.
+        "PerfectedStrike" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Add {
+                left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())),
+                right: Box::new(AmountSpec::Mul {
+                    left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())),
+                    right: Box::new(AmountSpec::CardCountInPile { pile: PileSelector::AllCombat, filter: CardFilter::TaggedAs("Strike".to_string()) }),
+                }),
+            },
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
+
+// SwordBoomerang.cs combat.rs:3666-3692 - Damage RandomEnemy x Repeat hits.
+        "SwordBoomerang" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }] }]),
+
+// Cinder.cs combat.rs:3697-3710 - Damage chosen + exhaust random hand card.
+// (Cinder itself has Exhaust keyword - card routes via that, no extra step.)
+        "Cinder" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::ExhaustRandomInHand { amount: AmountSpec::Fixed(1) },
+        ]),
+
+// TrueGrit.cs combat.rs:3720-3726 - GainBlock + exhaust random hand card.
+        "TrueGrit" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::ExhaustRandomInHand { amount: AmountSpec::Fixed(1) },
+        ]),
+
+// PommelStrike.cs combat.rs:3729-3743 - Damage + DrawCards.
+        "PommelStrike" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        ]),
+
+// ShrugItOff.cs combat.rs:3746-3753 - GainBlock + DrawCards.
+        "ShrugItOff" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        ]),
+
+// DemonForm.cs combat.rs:3759-3768 - Apply DemonFormPower(StrengthPower) self.
+        "DemonForm" => Some(vec![Effect::ApplyPower { power_id: "DemonFormPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
+
+// Breakthrough.cs combat.rs:3773-3792 - LoseHp self then Damage AllEnemies.
+        "Breakthrough" => Some(vec![
+            Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 },
+        ]),
+
+// BloodWall.cs combat.rs:3796-3803 - LoseHp self then GainBlock.
+        "BloodWall" => Some(vec![
+            Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        ]),
+
+// Tremble.cs combat.rs:3807-3813 - Apply VulnerablePower(Vulnerable) chosen.
+        "Tremble" => Some(vec![Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Vulnerable".to_string()), target: Target::ChosenEnemy }]),
+
+// Apparition.cs combat.rs:3818-3832 - Apply IntangiblePower(IntangiblePower) self.
+        "Apparition" => Some(vec![Effect::ApplyPower { power_id: "IntangiblePower".to_string(), amount: AmountSpec::Canonical("IntangiblePower".to_string()), target: Target::SelfPlayer }]),
+
+// MoltenFist.cs combat.rs:3840-3867 - Damage chosen; if target alive AND has
+// VulnerablePower, re-apply that many stacks. Gate on And(TargetIsAlive,
+// HasPowerOnTarget(Vulnerable)) — TargetIsAlive is the post-damage liveness
+// check that distinguishes this from a simple "double Vulnerable" effect.
+        "MoltenFist" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::Conditional {
+                condition: Condition::And(
+                    Box::new(Condition::TargetIsAlive),
+                    Box::new(Condition::HasPowerOnTarget { power_id: "VulnerablePower".to_string() }),
+                ),
+                then_branch: vec![Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::TargetPowerAmount { power_id: "VulnerablePower".to_string() }, target: Target::ChosenEnemy }],
+                else_branch: vec![],
+            },
+        ]),
+
+// Whirlwind.cs combat.rs:3874-3896 - X-cost AOE: Damage AllEnemies for X hits.
+        "Whirlwind" => Some(vec![Effect::Repeat { count: AmountSpec::XEnergy, body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }] }]),
+
+// LegSweep.cs combat.rs:3901-3911 - GainBlock + Apply WeakPower(Weak) chosen.
+        "LegSweep" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Weak".to_string()), target: Target::ChosenEnemy },
+        ]),
+
+// BodySlam.cs combat.rs:3916-3927 - Damage = SelfBlock.
+        "BodySlam" => Some(vec![Effect::DealDamage { amount: AmountSpec::SelfBlock, target: Target::ChosenEnemy, hits: 1 }]),
+
+// ===== Summary =====
+// Encoded: 42 / 42.
+// SKIPped: none.
