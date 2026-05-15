@@ -80,6 +80,15 @@ impl RustRig {
                     ps.relics[idx] = "BlackBlood".to_string();
                 }
             }
+            // LargeCapsule: AfterObtained calls
+            // RelicFactory.PullNextRelicFromFront(player) twice and
+            // RelicCmd.Obtain on each. In the headless harness those
+            // pulls land on Circlet (the fallback when grab bags are
+            // empty). Mirror by appending 2 Circlets.
+            if relic_rust == "LargeCapsule" {
+                ps.relics.push("Circlet".to_string());
+                ps.relics.push("Circlet".to_string());
+            }
         }
         // Apply the AfterObtained body to the combat-level creature.
         // run_state_effects returns the full hook→body table; we only
@@ -329,11 +338,27 @@ pub fn combat_play_card(
 /// Master deck is supplied separately (the Rust sim doesn't track
 /// it on PlayerState — `RustRig` snapshots it at setup).
 pub fn combat_dump_with_master(cs: &CombatState, master_deck: &[(String, i32)]) -> Value {
-    let allies: Vec<Value> = cs
+    let mut allies: Vec<Value> = cs
         .allies
         .iter()
         .map(|c| serialize_creature_with_master(c, master_deck))
         .collect();
+    // Osty companion: rust stores it on PlayerState.osty (Option) but
+    // the C# game treats it as a separate Creature in CombatState.Allies.
+    // Mirror that here so allies[1] = osty when present (matches the
+    // oracle dump for BoundPhylactery / PhylacteryUnbound / etc.).
+    if let Some(ps) = cs.allies.first().and_then(|c| c.player.as_ref()) {
+        if let Some(osty) = ps.osty.as_ref() {
+            allies.push(json!({
+                "name": null,
+                "current_hp": osty.current_hp,
+                "max_hp": osty.max_hp,
+                "block": osty.block,
+                "is_player": false,
+                "powers": Value::Array(Vec::new()),
+            }));
+        }
+    }
     let enemies: Vec<Value> = cs.enemies.iter().map(|c| serialize_creature_with_master(c, &[])).collect();
     let side_int = match cs.current_side {
         CombatSide::None => 0,

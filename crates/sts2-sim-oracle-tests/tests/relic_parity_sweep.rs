@@ -113,11 +113,15 @@ fn collect_diffs(
 /// differ on first add — oracle prepends starting BurningBlood plus the
 /// granted relic; rust uses a snapshot of the same). Also drops
 /// creature .name diffs (LocString.GetFormattedText patch returns ""
-/// in our headless harness while rust serializes null).
+/// in our headless harness while rust serializes null), and potion
+/// slots (rust doesn't model potion-belt potion contents — the
+/// AlchemicalCoffer / DelicateFrond / PhialHolster diffs all live
+/// there).
 fn is_relic_list_diff(path: &str) -> bool {
     path.starts_with("$.allies[0].relics")
         || path.contains(".master_deck")
         || path.ends_with(".name")
+        || path.contains(".potions[")
 }
 
 #[derive(Clone, Debug)]
