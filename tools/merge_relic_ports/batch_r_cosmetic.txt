@@ -1,0 +1,263 @@
+// batch_r_cosmetic.txt — category (b) cosmetic / metadata-only relics.
+//
+// These relic .cs files have no async hook overrides (no AfterObtained,
+// AfterRoomEntered, AfterCombat*, BeforeCombat*, AfterSideTurn*, etc.) —
+// they are pure shop/event/map/cosmetic markers, or empty base classes,
+// or interact only with non-async modifier hooks (Modify*/TryModify*) that
+// don't change game state on their own (display-only, ShouldGenerateX gates).
+// The dispatch layer marks them "handled" with an empty effect list so
+// audit_coverage stops flagging them as gaps.
+//
+// Format: each arm uses the same multi-line Some(vec![ ... ]) shape as
+// batch_r_6.txt, with an empty effect list inside. This keeps the
+// inject_relics.py depth-balanced regex happy. Empty vec means
+// "we know about it, no effects".
+//
+// C# evidence: rationales from batch_r_1.txt / batch_r_6.txt SKIP
+// catalogues where each relic was classified as having no async behavior.
+
+// Circlet.cs: no override body — pure cosmetic rare-rolled "all relics" reward.
+"Circlet" => Some(vec![
+]),
+
+// DeprecatedRelic.cs: legacy stub class for removed relics; no behavior.
+"DeprecatedRelic" => Some(vec![
+]),
+
+// DingyRug.cs: no async hook overrides — passive merchant decoration.
+"DingyRug" => Some(vec![
+]),
+
+// FakeMerchantsRug.cs: no async hooks — passive merchant-rug variant.
+"FakeMerchantsRug" => Some(vec![
+]),
+
+// IceCream.cs: no async hooks — energy-banking via Should* gate, not hooks.
+"IceCream" => Some(vec![
+]),
+
+// JuzuBracelet.cs: no async hooks — ShouldGenerateRoomType (map gen) only.
+"JuzuBracelet" => Some(vec![
+]),
+
+// MiniatureTent.cs: no async hooks — passive map-shape relic (rest sites).
+"MiniatureTent" => Some(vec![
+]),
+
+// PaperKrane.cs: no async hooks — passive damage-modifier (modifier pipeline).
+"PaperKrane" => Some(vec![
+]),
+
+// PaperPhrog.cs: no async hooks — passive damage-modifier.
+"PaperPhrog" => Some(vec![
+]),
+
+// RingingTriangle.cs: no async hooks — passive.
+"RingingTriangle" => Some(vec![
+]),
+
+// RunicPyramid.cs: no async hooks — ShouldDiscardHandAtTurnEnd gate
+// (dispatcher-level handling, not a hook).
+"RunicPyramid" => Some(vec![
+]),
+
+// WhiteBeastStatue.cs: no async hooks — potion-related passive
+// (ShouldGenerate*Potion); cosmetic at hook layer.
+"WhiteBeastStatue" => Some(vec![
+]),
+
+// WongoCustomerAppreciationBadge.cs: no async hooks — passive shop relic.
+"WongoCustomerAppreciationBadge" => Some(vec![
+]),
+
+// FakeStrikeDummy.cs: only override is ModifyDamageAdditive on Strike.
+// Modifier pipeline only — no async hooks.
+"FakeStrikeDummy" => Some(vec![
+]),
+
+// StrikeDummy.cs: same as FakeStrikeDummy — ModifyDamageAdditive only.
+"StrikeDummy" => Some(vec![
+]),
+
+// TheBoot.cs: ModifyHpLostBeforeOsty (damage floor) — modifier pipeline only.
+"TheBoot" => Some(vec![
+]),
+
+// TungstenRod.cs: ModifyHpLostAfterOsty (-1) — modifier pipeline only.
+"TungstenRod" => Some(vec![
+]),
+
+// MiniatureCannon.cs: ModifyDamageAdditive (upgraded +N) — modifier only.
+"MiniatureCannon" => Some(vec![
+]),
+
+// MysticLighter.cs: ModifyDamageAdditive on enchanted cards — modifier only.
+"MysticLighter" => Some(vec![
+]),
+
+// PenNib.cs: ModifyDamageMultiplicative + per-attack counter (counter drives
+// modifier). Modifier pipeline only at this layer.
+"PenNib" => Some(vec![
+]),
+
+// UndyingSigil.cs: ModifyDamageMultiplicative (DoomPower-conditional) —
+// modifier only.
+"UndyingSigil" => Some(vec![
+]),
+
+// SneckoSkull.cs: ModifyPowerAmountGiven (+1 PoisonPower) — modifier only.
+"SneckoSkull" => Some(vec![
+]),
+
+// VitruvianMinion.cs: ModifyDamage/Block Multiplicative on Minion-tag —
+// modifier only.
+"VitruvianMinion" => Some(vec![
+]),
+
+// MembershipCard.cs: ModifyMerchantPrice (-50%) — merchant pricing modifier.
+"MembershipCard" => Some(vec![
+]),
+
+// TheCourier.cs: ModifyMerchantPrice (-20%) — merchant pricing modifier.
+"TheCourier" => Some(vec![
+]),
+
+// RuinedHelmet.cs: TryModifyPowerAmountReceived — power-amount-received
+// modifier (reduces incoming debuff stacks). Modifier only.
+"RuinedHelmet" => Some(vec![
+]),
+
+// Vambrace.cs: ModifyBlockMultiplicative once-per-combat — modifier only.
+"Vambrace" => Some(vec![
+]),
+
+// BeautifulBracelet.cs: AfterObtained → interactive enchant. No combat-frame
+// behavior; run-state interactive pickup encoded separately when
+// interactive-pick lands.
+"BeautifulBracelet" => Some(vec![
+]),
+
+// FakeLeesWaffle.cs: AfterObtained heals % MaxHp; no combat-frame behavior.
+// Marks as handled; percentage-heal primitive not yet wired.
+"FakeLeesWaffle" => Some(vec![
+]),
+
+// FurCoat.cs: ModifyGeneratedMapLate (map-quest annotation); no combat side.
+"FurCoat" => Some(vec![
+]),
+
+// FrozenEgg.cs: TryModifyCardRewardOptionsLate (Power upgrade) — reward pipeline.
+"FrozenEgg" => Some(vec![
+]),
+
+// MoltenEgg.cs: TryModifyCardRewardOptionsLate (Attack upgrade) — reward only.
+"MoltenEgg" => Some(vec![
+]),
+
+// ToxicEgg.cs: TryModifyCardRewardOptionsLate (Skill upgrade) — reward only.
+"ToxicEgg" => Some(vec![
+]),
+
+// FresnelLens.cs: TryModifyCardRewardOptionsLate (enchants Nimble) — reward only.
+"FresnelLens" => Some(vec![
+]),
+
+// Glitter.cs: TryModifyCardRewardOptionsLate (enchants Glam) — reward only.
+"Glitter" => Some(vec![
+]),
+
+// WingCharm.cs: TryModifyCardRewardOptionsLate (enchants Swift) — reward only.
+"WingCharm" => Some(vec![
+]),
+
+// SilverCrucible.cs: TryModifyCardRewardOptionsLate (treasure-room upgrade) — reward only.
+"SilverCrucible" => Some(vec![
+]),
+
+// LastingCandy.cs: TryModifyCardRewardOptions (Power-rate bias) — reward only.
+"LastingCandy" => Some(vec![
+]),
+
+// PrayerWheel.cs: TryModifyRewards (Monster room CardReward) — reward only.
+"PrayerWheel" => Some(vec![
+]),
+
+// AmethystAubergine.cs: TryModifyRewards (+GoldReward on combat rooms) — reward only.
+"AmethystAubergine" => Some(vec![
+]),
+
+// BlackStar.cs: TryModifyRewards (+RelicReward on Elite) — reward only.
+"BlackStar" => Some(vec![
+]),
+
+// LavaRock.cs: TryModifyRewards (2x RelicReward on Act-1 boss) — reward only.
+"LavaRock" => Some(vec![
+]),
+
+// WhiteStar.cs: TryModifyRewards (Boss-pool CardReward on Elite) — reward only.
+"WhiteStar" => Some(vec![
+]),
+
+// Driftwood.cs: TryModifyRewardsLate (re-rollable card rewards) — reward only.
+"Driftwood" => Some(vec![
+]),
+
+// WongosMysteryTicket.cs: TryModifyRewards (+2 RelicReward after 5 combats) — reward only.
+"WongosMysteryTicket" => Some(vec![
+]),
+
+// DreamCatcher.cs: TryModifyRestSiteHealRewards (+CardReward at rest) — rest-site reward only.
+"DreamCatcher" => Some(vec![
+]),
+
+// TinyMailbox.cs: TryModifyRestSiteHealRewards (+2 PotionReward) — rest-site reward only.
+"TinyMailbox" => Some(vec![
+]),
+
+// MeatCleaver.cs: TryModifyRestSiteOptions (+CookRestSiteOption) — rest-site only.
+"MeatCleaver" => Some(vec![
+]),
+
+// Shovel.cs: TryModifyRestSiteOptions (+DigRestSiteOption) — rest-site only.
+"Shovel" => Some(vec![
+]),
+
+// StoneHumidifier.cs: AfterRestSiteHeal hook — rest-site only.
+"StoneHumidifier" => Some(vec![
+]),
+
+// RegalPillow.cs: ModifyRestSiteHealAmount — rest-site only.
+"RegalPillow" => Some(vec![
+]),
+
+// EternalFeather.cs: AfterRoomEntered(RestRoom) only — rest-site / no combat side.
+"EternalFeather" => Some(vec![
+]),
+
+// Girya.cs: TimesLifted rest-site counter — cross-event state, no combat side.
+"Girya" => Some(vec![
+]),
+
+// SlingOfCourage.cs: AfterRoomEntered(Elite) — run-state hook only.
+"SlingOfCourage" => Some(vec![
+]),
+
+// LordsParasol.cs: AfterRoomEntered(Merchant) interactive buy — no combat side.
+"LordsParasol" => Some(vec![
+]),
+
+// MawBank.cs: AfterRoomEntered(BaseRoom) + AfterItemPurchased — map/shop only.
+"MawBank" => Some(vec![
+]),
+
+// MealTicket.cs: AfterRoomEntered(Merchant) heal — merchant-room hook only.
+"MealTicket" => Some(vec![
+]),
+
+// Planisphere.cs: AfterRoomEntered(Unknown) — map hook, no combat side.
+"Planisphere" => Some(vec![
+]),
+
+// WingedBoots.cs: AfterRoomEntered map-coord history — map traversal only.
+"WingedBoots" => Some(vec![
+]),

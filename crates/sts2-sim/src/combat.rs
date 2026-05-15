@@ -2272,9 +2272,12 @@ impl CombatState {
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
         self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
         self.fire_thorns_hook(dealer, target, props);
-        // AfterDeath relic hook — fires on transition to 0 HP.
-        // GremlinHorn (gold on enemy kill) reads here.
-        if outcome.fatal {
+        // AfterDeath relic hook — fires on transition to 0 HP, but only
+        // when the dying creature is on the opposite side of the relic
+        // owner. C# GremlinHorn.cs L56 gates on
+        // `target.Side != Owner.Creature.Side`; we approximate by firing
+        // Player-owned relics only on enemy deaths.
+        if outcome.fatal && target.0 == CombatSide::Enemy {
             crate::effects::fire_relic_hooks(
                 self,
                 crate::effects::RelicHookKind::AfterDeath,

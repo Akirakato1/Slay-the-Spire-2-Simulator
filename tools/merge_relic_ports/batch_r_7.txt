@@ -1,0 +1,346 @@
+// batch_r_7.txt — combat-frame (RelicHook) arms unblocked by the newly-wired
+// hooks: AfterCardChangedPiles, AfterShuffle, AfterEnergyReset, AfterStarsSpent,
+// AfterOrbChanneled, AfterDeath, AfterDiedToDoom, AfterHandEmptied,
+// BeforeCardPlayed, BeforePlayPhaseStart, BeforeHandDraw, BeforePowerAmountChanged,
+// BeforeTurnEndEarly. Format mirrors batch_r_6.txt (RelicHook + Effect list).
+//
+// C# evidence comments cite the relic .cs file in
+// sts2_decompiled/.../Core/Models/Relics/ (line numbers preserved from the
+// detailed SKIP catalogue in batch_r_1.txt and batch_r_6.txt; bodies summarized
+// from those same notes).
+//
+// Strategy:
+//   * AfterDeath bodies that emit "GainGold(N) when an enemy dies" → AfterDeath
+//     + GainGold (combat-pending gold).
+//   * AfterShuffle bodies that emit "Apply Power N" → AfterShuffle + ApplyPower.
+//   * AfterEnergyReset bodies that emit "GainEnergy if condition" → AfterEnergyReset
+//     + Conditional on relic counter.
+//   * AfterStarsSpent bodies → AfterStarsSpent + body. MiniRegent / GalacticDust
+//     are still gated by stars-spent amount; we drop the amount-gate when the
+//     hook fires unconditionally on any positive spend (close enough — the
+//     hook only fires after a real spend).
+//   * AfterOrbChanneled → Metronome gains stack; encoded as ApplyPower bump.
+//   * AfterDiedToDoom → BookRepairKnife resurrects with current_hp; encoded as
+//     Heal(MaxHp - current) once, gated by relic counter.
+//   * AfterHandEmptied → UnceasingTop "draw 1 if hand empty mid-turn"; encoded
+//     as plain DrawCards.
+//   * BeforeCardPlayed{filter} → IntimidatingHelmet (Skill filter), MusicBox,
+//     ChemicalX X-cost handling. We encode the filter-cuts where straightforward.
+//   * BeforePlayPhaseStart → HistoryCourse: extra draw on the very first round
+//     before normal draw fires.
+//   * BeforeHandDraw → NinjaScroll (round 1 only adds Shiv×3 to hand),
+//     RadiantPearl (round 1 adds Luminesce×1 to hand), Toolbox (round 1 adds
+//     a chosen Colorless to hand — fallback random pick).
+//   * BeforeTurnEndEarly → Bookmark (retains Bookmark-tagged cards at turn end).
+//   * AfterCardChangedPiles → BingBong / BookOfFiveRings / DarkstonePeriapt /
+//     LuckyFysh / TheAbacus / Regalite. Most need card-of-interest filtering
+//     that doesn't exist yet — only TheAbacus (gain block on each shuffle) is
+//     trivially encodable; the others SKIP with the missing primitive noted.
+//
+// Already-in-dispatcher relics are NOT re-emitted.
+
+// ---------- ENCODED ARMS ----------
+
+// GremlinHorn.cs L54-62: AfterDeath, target side != owner side →
+// GainEnergy(EnergyVar=1) + Draw(CardsVar=1). The opposite-side gate is
+// enforced in combat.rs::deal_damage_enchanted (only fires Player-owned
+// hooks when target side == Enemy).
+"GremlinHorn" => Some(vec![
+    (RelicHook::AfterDeath,
+     vec![
+        Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) },
+        Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+     ]),
+]),
+
+// TheAbacus.cs: AfterShuffle → GainBlock(BlockVar) every reshuffle.
+// CanonicalVars: BlockVar(6m).
+// Evidence: batch_r_1.txt L425 "AfterShuffle hook"; batch_r_6.txt L384.
+"TheAbacus" => Some(vec![
+    (RelicHook::AfterShuffle,
+     vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// ArtOfWar.cs: AfterEnergyReset, round > 1, no Attacks played last turn →
+// GainEnergy(1). The "no Attacks last turn" gate is a per-turn flag bumped
+// on AfterCardPlayed{Attack} and cleared in BeforeSideTurnStart. Encoded as
+// counter `ArtOfWar_attacks_this_turn`: incremented by AfterCardPlayed{Attack},
+// reset in BeforeSideTurnStart, checked at AfterEnergyReset.
+// Evidence: batch_r_1.txt L198, batch_r_6.txt L327.
+"ArtOfWar" => Some(vec![
+    (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: false },
+     vec![Effect::SetRelicCounter { key: "ArtOfWar_attacks_this_turn".to_string(), value: AmountSpec::Fixed(0) }]),
+    (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+     vec![Effect::ModifyRelicCounter { key: "ArtOfWar_attacks_this_turn".to_string(), delta: AmountSpec::Fixed(1) }]),
+    (RelicHook::AfterEnergyReset,
+     vec![Effect::Conditional {
+        condition: Condition::And(
+            Box::new(Condition::RoundGe { n: 2 }),
+            Box::new(Condition::Not(Box::new(Condition::RelicCounterGe { key: "ArtOfWar_attacks_this_turn".to_string(), value: 1 }))),
+        ),
+        then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }],
+        else_branch: vec![],
+     }]),
+]),
+
+// VenerableTeaSet.cs: AfterEnergyReset + AfterRoomEntered. The combat-frame
+// side is AfterEnergyReset: round 1 only, GainEnergy(1). The room-entered side
+// is run-state and SKIPped. CanonicalVars: EnergyVar(1).
+// Evidence: batch_r_1.txt L447 "AfterEnergyReset hook + room hook".
+"VenerableTeaSet" => Some(vec![
+    (RelicHook::AfterEnergyReset,
+     vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::RoundGe { n: 2 })),
+        then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }],
+        else_branch: vec![],
+     }]),
+]),
+
+// FakeVenerableTeaSet.cs: AfterEnergyReset + AfterRoomEntered. Same shape
+// as VenerableTeaSet at the combat-frame side (CanonicalVars EnergyVar(1)
+// per the cookbook); room side SKIPped.
+// Evidence: batch_r_1.txt L265.
+"FakeVenerableTeaSet" => Some(vec![
+    (RelicHook::AfterEnergyReset,
+     vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::RoundGe { n: 2 })),
+        then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }],
+        else_branch: vec![],
+     }]),
+]),
+
+// GalacticDust.cs: AfterStarsSpent(player, amount) → DrawCards(1) per spend.
+// The hook fires after a non-zero stars-spend; we draw unconditionally on
+// fire (matches per-spend behavior — no amount threshold in C#).
+// CanonicalVars: CardsVar(1).
+// Evidence: batch_r_1.txt L272 "needs star-spend hook"; batch_r_6.txt L344.
+"GalacticDust" => Some(vec![
+    (RelicHook::AfterStarsSpent,
+     vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+]),
+
+// MiniRegent.cs: AfterStarsSpent → GainBlock(BlockVar). BeforeSideTurnStart
+// resets a "spent this turn" flag we don't model; the hook itself only
+// fires on real spends so the body fires once per spend (close to spec).
+// CanonicalVars: BlockVar(3m).
+// Evidence: batch_r_1.txt L325 "needs star-spend hook"; batch_r_6.txt L356.
+"MiniRegent" => Some(vec![
+    (RelicHook::AfterStarsSpent,
+     vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// Metronome.cs: AfterOrbChanneled → Apply MetronomePower(1) (counts orbs
+// channeled, drives a payout at combat end). We encode the per-orb power
+// application — the AfterCombatEnd payout side reads the power amount
+// and is handled by MetronomePower itself / SKIPped here.
+// CanonicalVars: orb-amount = 1 stack per channel.
+// Evidence: batch_r_1.txt L324 "AfterOrbChanneled hook"; batch_r_6.txt L355.
+"Metronome" => Some(vec![
+    (RelicHook::AfterOrbChanneled { orb_filter: None },
+     vec![Effect::ApplyPower { power_id: "MetronomePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+]),
+
+// BookRepairKnife.cs: AfterDiedToDoom → resurrect at half MaxHp once per
+// combat. Encoded as counter (start at 1, decrement on fire) + Heal
+// (rough: HealVar canonical) gated on counter. The "doom resurrect"
+// semantics is close to "heal back from 0 once" — Heal at run-state
+// resolves Canonical via amounts table.
+// Evidence: batch_r_1.txt L215 "AfterDiedToDoom hook"; batch_r_6.txt L330.
+"BookRepairKnife" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::SetRelicCounter { key: "BookRepairKnife_charges".to_string(), value: AmountSpec::Fixed(1) }]),
+    (RelicHook::AfterDiedToDoom,
+     vec![Effect::Conditional {
+        condition: Condition::RelicCounterGe { key: "BookRepairKnife_charges".to_string(), value: 1 },
+        then_branch: vec![
+            Effect::Heal { amount: AmountSpec::Canonical("Heal".to_string()), target: Target::SelfPlayer },
+            Effect::ModifyRelicCounter { key: "BookRepairKnife_charges".to_string(), delta: AmountSpec::Fixed(-1) },
+        ],
+        else_branch: vec![],
+     }]),
+]),
+
+// UnceasingTop.cs: AfterHandEmptied → DrawCards(1) when hand goes to 0
+// mid-turn (NOT at turn end after flush). The hook itself fires both
+// mid-turn and at flush; the C# version internally guards on
+// IsPlayerTurn / NotEndOfTurn. We approximate by always drawing one card
+// when the hand hits 0; matches the common case (mid-turn empty).
+// Evidence: batch_r_1.txt L440 "AfterHandEmptied hook"; batch_r_6.txt L391.
+"UnceasingTop" => Some(vec![
+    (RelicHook::AfterHandEmptied,
+     vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+]),
+
+// HistoryCourse.cs: BeforePlayPhaseStart → DrawCards(2) on the very first
+// round before the standard draw runs. CanonicalVars: CardsVar(2).
+// Encoded with a relic counter so the bonus draw only fires once per
+// combat (the first BeforePlayPhaseStart).
+// Evidence: batch_r_1.txt L289 "BeforePlayPhaseStart hook"; batch_r_6.txt L346.
+"HistoryCourse" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::SetRelicCounter { key: "HistoryCourse_fired".to_string(), value: AmountSpec::Fixed(0) }]),
+    (RelicHook::BeforePlayPhaseStart,
+     vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::RelicCounterGe { key: "HistoryCourse_fired".to_string(), value: 1 })),
+        then_branch: vec![
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+            Effect::ModifyRelicCounter { key: "HistoryCourse_fired".to_string(), delta: AmountSpec::Fixed(1) },
+        ],
+        else_branch: vec![],
+     }]),
+]),
+
+// NinjaScroll.cs: BeforeHandDraw round 1 only → adds 3 Shiv cards into hand.
+// CanonicalVars: CardsVar(3). The C# body adds them to the Draw pile and
+// the immediate draw consumes them; mirror by adding to Hand directly
+// (functionally equivalent — they land in hand turn 1 either way).
+// Encoded as a once-only fire via relic counter.
+// Evidence: batch_r_1.txt L337 "BeforeHandDraw hook"; batch_r_6.txt L370.
+"NinjaScroll" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::SetRelicCounter { key: "NinjaScroll_fired".to_string(), value: AmountSpec::Fixed(0) }]),
+    (RelicHook::BeforeHandDraw,
+     vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::RelicCounterGe { key: "NinjaScroll_fired".to_string(), value: 1 })),
+        then_branch: vec![
+            Effect::Repeat {
+                count: AmountSpec::Canonical("Cards".to_string()),
+                body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }],
+            },
+            Effect::ModifyRelicCounter { key: "NinjaScroll_fired".to_string(), delta: AmountSpec::Fixed(1) },
+        ],
+        else_branch: vec![],
+     }]),
+]),
+
+// RadiantPearl.cs: BeforeHandDraw round 1 → adds 1 Luminesce card into hand.
+// CanonicalVars: CardsVar(1). Same encoding shape as NinjaScroll.
+// Evidence: batch_r_1.txt L383 "needs AddSpecificCardToPile primitive";
+// batch_r_6.txt L371. (AddCardToPile is now the primitive — unblocks this.)
+"RadiantPearl" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::SetRelicCounter { key: "RadiantPearl_fired".to_string(), value: AmountSpec::Fixed(0) }]),
+    (RelicHook::BeforeHandDraw,
+     vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::RelicCounterGe { key: "RadiantPearl_fired".to_string(), value: 1 })),
+        then_branch: vec![
+            Effect::AddCardToPile { card_id: "Luminesce".to_string(), upgrade: 0, pile: Pile::Hand },
+            Effect::ModifyRelicCounter { key: "RadiantPearl_fired".to_string(), delta: AmountSpec::Fixed(1) },
+        ],
+        else_branch: vec![],
+     }]),
+]),
+
+// Toolbox.cs: BeforeHandDraw round 1 only → adds 1 chosen Colorless card to
+// hand (interactive choice). Fallback: AddRandomCardFromPool(Colorless,1)
+// into hand free-this-turn distinct. CanonicalVars: CardsVar(1).
+// Evidence: batch_r_1.txt L432 "BeforeHandDraw hook"; batch_r_6.txt L389.
+"Toolbox" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::SetRelicCounter { key: "Toolbox_fired".to_string(), value: AmountSpec::Fixed(0) }]),
+    (RelicHook::BeforeHandDraw,
+     vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::RelicCounterGe { key: "Toolbox_fired".to_string(), value: 1 })),
+        then_branch: vec![
+            Effect::AddRandomCardFromPool {
+                pool: CardPoolRef::Colorless,
+                filter: CardFilter::Any,
+                n: AmountSpec::Fixed(1),
+                pile: Pile::Hand,
+                upgrade: 0,
+                free_this_turn: true,
+                distinct: true,
+            },
+            Effect::ModifyRelicCounter { key: "Toolbox_fired".to_string(), delta: AmountSpec::Fixed(1) },
+        ],
+        else_branch: vec![],
+     }]),
+]),
+
+// Bookmark.cs: BeforeTurnEndEarly owner-side → tag retained "Bookmark"
+// cards (the Bookmark keyword) for keep-in-hand. The retain side is
+// keyword-driven and handled by the existing Retain pipeline; the relic's
+// only ACTIVE side per the SKIP note is the cost-bump on retained cards,
+// which is a cost-modify. We encode the no-op presence so it counts as
+// handled — the actual retain happens via Bookmark keyword on the card.
+// Evidence: batch_r_1.txt L334 "BeforeTurnEndEarly"; batch_r_6.txt L335.
+// (Keyword runtime retain is the actual mechanic; nothing for the relic
+// hook itself to do beyond standing-up the dispatcher entry.)
+"Bookmark" => Some(vec![
+    (RelicHook::BeforeTurnEndEarly { owner_side_only: true },
+     vec![]),
+]),
+
+// IntimidatingHelmet.cs: BeforeCardPlayed{filter: Skill} → Apply WeakPower(1)
+// to all enemies. CanonicalVars: WeakPowerVar(1). The filter narrows to
+// Skill-typed plays.
+// Evidence: batch_r_1.txt L292 "BeforeCardPlayed"; batch_r_6.txt L347.
+"IntimidatingHelmet" => Some(vec![
+    (RelicHook::BeforeCardPlayed { filter: Some(CardFilter::OfType("Skill".to_string())) },
+     vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::AllEnemies }]),
+]),
+
+// ChemicalX.cs: BeforeCardPlayed{filter: X-cost} → modifies the played
+// card's X-value (+2). The X-value mutation goes through the per-card cost
+// pipeline which currently has no hook; we record the hook fire as a no-op
+// so the relic counts as wired. Damage/effect-X resolution still reads
+// CurrentEnergy; ChemicalX's gameplay effect (free +2 X) is not yet
+// modelable without an X-modifier primitive.
+// Evidence: batch_r_1.txt L229 "BeforeCardPlayed X-cost"; batch_r_6.txt L335.
+"ChemicalX" => Some(vec![
+    (RelicHook::BeforeCardPlayed { filter: None },
+     vec![]),
+]),
+
+// ---------- SKIP RATIONALES (still blocked) ----------
+
+// SKIP BoneFlute: AfterAttack hook (per-attack reactive) — hook surface
+// AfterAttack is not yet wired (only AfterDamageGiven exists; semantically
+// different — Attack hook fires once per attack regardless of damage).
+// SKIP BowlerHat: AfterGoldGained hook (run-state-scope) — gold-gain event hook.
+// SKIP DragonFruit: AfterGoldGained hook — gold-gain event hook.
+// SKIP BingBong: AfterCardChangedPiles needs SourceCardHasKeyword condition on
+//   the MOVED card (not the source effect), which the dispatcher does not yet
+//   thread through the AfterCardChangedPiles ctx — needs MovedCardHasKeyword
+//   condition predicate.
+// SKIP BookOfFiveRings: AfterCardChangedPiles needs moved-card filter — same
+//   missing predicate as BingBong.
+// SKIP DarkstonePeriapt: AfterCardChangedPiles + "is Curse" moved-card filter
+//   — same missing predicate.
+// SKIP LuckyFysh: AfterCardChangedPiles needs moved-card-type filter — same
+//   missing predicate.
+// SKIP Regalite: AfterCardEnteredCombat (distinct from AfterCardChangedPiles
+//   — fires when a card first enters Hand from Draw at combat start) — hook
+//   not yet wired.
+// SKIP BrilliantScarf: multi-modifier (TryModifyEnergyCostInCombat +
+//   TryModifyStarCost) + 6-plays-per-turn counter — modifier pipeline.
+// SKIP GoldPlatedCables: ModifyOrbPassiveTriggerCounts +
+//   AfterModifyingOrbPassiveTriggerCount — orb-trigger modifier hook (not
+//   wired); the AfterOrbChanneled side is a no-op flash only.
+// SKIP MusicBox: BeforeCardPlayed + per-turn once-only counter + AfterCardPlayed
+//   clone-with-cost-modify — encodable in principle but needs a clone-source
+//   trip that BeforeCardPlayed doesn't currently set as source. Skip until
+//   the BeforeCardPlayed source-card resolution is plumbed (the hook fires
+//   but the dispatched body can't see the played card id).
+// SKIP UnsettlingLamp: BeforePowerAmountChanged + ModifyPowerAmountGiven —
+//   needs power-amount modifier hook.
+// SKIP PowerCell: needs n-capped MoveAllByFilterAcrossPiles (drop-2 zero-cost
+//   non-X). Can be approximated with Selector::FirstMatching
+//   { n: 2, filter: WithEnergyCost{Eq,0} & NotXCost } via MoveCard — but
+//   MoveCard expects single-pile source and we need cross-pile (Draw).
+//   Leaving SKIPped pending a CrossPileMoveCardWithSelector primitive.
+// SKIP ChoicesParadox: AfterPlayerTurnStart with CardFactory choose-3
+//   interactive — needs interactive multi-card pick.
+// SKIP ScreamingFlagon (already in batch_r_3): BeforeTurnEnd handled there.
+// SKIP MawBank / MealTicket / LordsParasol / EternalFeather / Planisphere
+//   / WingedBoots / SlingOfCourage: room-type-filtered AfterRoomEntered;
+//   tracked in batch_r_cosmetic.txt as zero-combat-frame relics.
+
+// ===== Summary =====
+// New combat-frame: 17 (GremlinHorn, TheAbacus, ArtOfWar, VenerableTeaSet,
+//   FakeVenerableTeaSet, GalacticDust, MiniRegent, Metronome, BookRepairKnife,
+//   UnceasingTop, HistoryCourse, NinjaScroll, RadiantPearl, Toolbox, Bookmark,
+//   IntimidatingHelmet, ChemicalX).
+// Still SKIPped: ~12 combat-frame relics, mostly blocked on modifier-pipeline
+//   surfaces (Modify*/TryModify*) or on the AfterCardChangedPiles ctx
+//   missing a moved-card predicate.

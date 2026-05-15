@@ -1,0 +1,155 @@
+// ============================================================================
+// batch_r_rs_4.txt — run-state (RunStateHook) relic arms unblocked by the
+// recent dispatcher additions. Picks up where batch_r_rs_1/2/3 left off.
+//
+// Allowed run-state Effect variants:
+//   GainRunStateMaxHp / GainRunStateGold / LoseRunStateHp / LoseRunStateMaxHp /
+//   GainRelic / LoseRelic / GainPotionToBelt / AddCardToRunStateDeck /
+//   GainMaxPotionSlots
+//
+// AmountSpec::Canonical resolves to 0 at run-state scope, so literal
+// Fixed(N) is used where N is the C# DynamicVar BaseValue.
+//
+// Format mirrors batch_r_rs_3.txt strictly.
+// ============================================================================
+
+// ===== AfterObtained: simple stat-only relics from the 147 gap list =====
+
+// NewLeaf.cs: AfterObtained → interactive Transform(1). The interactive
+// transform isn't modelable yet, but NewLeaf also gains a small HP bump
+// per the C# CanonicalVars on its base class. Reading the SKIP notes
+// (batch_r_rs_3.txt L113) only mentions the transform — no plain stat
+// gain. SKIP retained with note.
+// SKIP NewLeaf: CardSelectCmd.FromDeckForTransformation(1) — interactive.
+
+// ===== Empty deck-add chains (deterministic part of mixed bodies) =====
+
+// HeftyTablet.cs: AfterObtained → choose-1-of-3 generated Rare card AND
+// AddCardToDeck<Injury>. Encode the deterministic Injury add; the
+// interactive Rare pick is SKIPped (multi-step choose-from-N).
+// Evidence: batch_r_rs_1.txt L89 "choose-1-of-3 rare card screen + add Injury".
+"HeftyTablet" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::AddCardToRunStateDeck { card_id: "Injury".to_string(), upgrade: 0 }],
+)]),
+
+// NeowsBones.cs: AfterObtained → 2 relic rewards + 1 random curse.
+// The relic-reward and curse-add halves both need reward-pipeline / random
+// curse-pool RNG. Nothing deterministic in the C# body (no fixed curse id).
+// SKIP NeowsBones: needs RelicReward + random-curse primitives.
+
+// ===== Max-potion-slots already covered by batch_r_rs_3 =====
+// (AlchemicalCoffer, PotionBelt, PhialHolster) — see batch_r_rs_2/3.
+
+// ===== Newly identified pure-stat AfterObtained relics =====
+// None of the remaining 147 names in the gap list have a pure stat-gain
+// AfterObtained body that hasn't already been encoded in batch_r_rs_1/2/3.
+//
+// Reviewing each unencoded relic's classification:
+//
+//   * BloodSoakedRose, CallingBell, CursedPearl: already in batch_r_rs_2.
+//   * JewelryBox, NeowsTorment, Storybook, TanxsWhistle, PaelsHorn,
+//     SereTalon, PreservedFog, FragrantMushroom, AlchemicalCoffer:
+//     already in batch_r_rs_3.
+//   * BigMushroom, LeesWaffle, LoomingFruit, NutritiousOyster, GoldenPearl,
+//     SignetRing: already in batch_r_rs_1.
+//   * LeafyPoultice, DistinguishedCape, PotionBelt, PhialHolster:
+//     already in batch_r_rs_2.
+//
+// All other AfterObtained bodies in the 147 gap require one of:
+//   * CardSelectCmd interactive primitives (transform/enchant/remove/upgrade)
+//   * RewardsCmd.OfferCustom interactive reward primitives
+//   * UpgradeCards / EnchantCards / TransformCards at run-state with run-state RNG
+//   * Map regen / map quest annotation / relic swap
+//   * Combat-only AfterObtained body (no-op out of combat — handled by
+//     batch_r_cosmetic.txt where appropriate)
+//
+// The lone deterministic deck-add not yet captured is HeftyTablet's
+// AddCard<Injury> (above).
+
+// ===== SKIPs (carried from batch_r_rs_3 + the remaining gap) =====
+
+// --- Interactive deck mutation ---
+// SKIP ArchaicTooth: per-character starter-card transformation lookup.
+// SKIP Astrolabe: CardSelectCmd.FromDeckForTransformation(3) — interactive.
+// SKIP BeautifulBracelet: CardSelectCmd.FromDeckForEnchantment<Swift>(3) — interactive enchant.
+// SKIP BiiigHug: CardSelectCmd.FromDeckForRemoval(4) — interactive remove.
+// SKIP Claws: CardSelectCmd.FromDeckForTransformation → Maul — interactive.
+// SKIP ElectricShrymp: CardSelectCmd.FromDeckForEnchantment<Imbued>(1).
+// SKIP EmptyCage: CardSelectCmd.FromDeckForRemoval(2).
+// SKIP GnarledHammer: CardSelectCmd.FromDeckForEnchantment<Sharp>(3).
+// SKIP Kifuda: CardSelectCmd.FromDeckForEnchantment<Adroit>(3).
+// SKIP NewLeaf: CardSelectCmd.FromDeckForTransformation(1).
+// SKIP PaelsGrowth: CardSelectCmd.FromDeckForEnchantment<Clone>(1).
+// SKIP PaelsTooth: CardSelectCmd.FromDeckForRemoval(5).
+// SKIP Pomander: CardSelectCmd.FromDeckForUpgrade — interactive.
+// SKIP PreciseScissors: CardSelectCmd.FromDeckForRemoval(1).
+// SKIP PunchDagger: CardSelectCmd.FromDeckForEnchantment<Momentum>(1).
+// SKIP TriBoomerang: CardSelectCmd.FromDeckForEnchantment<Instinct>(3).
+// SKIP YummyCookie: CardSelectCmd.FromDeckForUpgrade(4).
+// SKIP DollysMirror: clones one chosen deck card — interactive deck-pick.
+// SKIP ScrollBoxes: PlayerCmd.LoseGold(all) + bundle-of-3 choice — interactive.
+// SKIP SeaGlass: 15-card interactive uniform-rarity selection — interactive.
+
+// --- Random-source AddCardToDeck (need card RNG resolution at run-state) ---
+// SKIP ArcaneScroll: AddCard of a random Rare-rarity card from the character's pool.
+// SKIP DustyTome: AddCard from a saved AncientCard StringVar (per-character).
+// SKIP LargeCapsule: random relic rewards + character-specific Strike/Defend add.
+
+// --- Deck-scan mutations at run-state ---
+// SKIP NeowsTalisman: upgrades starter Strike + Defend cards — needs UpgradeCards
+//   at run-state with rarity/tag filter.
+// SKIP NutritiousSoup: enchants every Basic Strike with TezcatarasEmber.
+// SKIP PaelsClaw: enchants entire deck with Goopy.
+// SKIP PandorasBox: transforms every Basic Strike/Defend with a random card.
+// SKIP RoyalStamp: enchants a random RoyallyApproved-eligible card.
+// SKIP SandCastle: upgrades 6 random upgradable cards at run-state.
+// SKIP WarPaint: upgrades 2 random upgradable Skills at run-state.
+// SKIP Whetstone: upgrades 2 random upgradable Attacks at run-state.
+
+// --- Reward offers (interactive choose-from-N) ---
+// SKIP Cauldron: 5x PotionReward via RewardsCmd.OfferCustom.
+// SKIP GlassEye: 5 card-reward offers.
+// SKIP LostCoffer: 1 card reward + 1 potion reward.
+// SKIP Orrery: 5 card-reward offers.
+// SKIP SmallCapsule: 1 random relic reward.
+// SKIP ToyBox: 4 wax-relic rewards (each consumed across 3 combats).
+
+// --- Choose-1-of-N card pick ---
+// SKIP LeadPaperweight: choose-1-of-2 generated Colorless cards.
+// SKIP MassiveScroll: choose-1-of-3 multiplayer-only cards.
+
+// --- Heal-as-% / damage-as-% ---
+// SKIP FakeLeesWaffle: Heal(MaxHp * 10%) — no percentage-heal primitive.
+// SKIP PrecariousShears: deterministic side is the LoseRunStateHp tail, but the
+//   DamageVar base value is not in the CanonicalVars list of the decompile;
+//   leaving SKIPped until the C# default-Damage base is pinned.
+
+// --- Map regen / quest annotation / relic swap ---
+// SKIP FurCoat: marks Monster/Elite rooms via ModifyGeneratedMapLate — map-quest.
+// SKIP GoldenCompass: triggers RunManager.GenerateMap() + overrides act type.
+// SKIP TouchOfOrobas: RelicCmd.Replace(starterRelic, upgradedRelic) — dynamic.
+
+// --- Reward / merchant / rest-site / map hooks (run-state-scope, no
+// out-of-combat Effect to land — covered by batch_r_cosmetic.txt) ---
+// (AmethystAubergine, BlackStar, BookFiveRings's reward side, BowlerHat,
+// DragonFruit, DreamCatcher, Driftwood, FresnelLens, FrozenEgg, MoltenEgg,
+// ToxicEgg, Glitter, LavaRock, MealTicket, MeatCleaver, MembershipCard,
+// PrayerWheel, RegalPillow, Shovel, SilverCrucible, StoneHumidifier,
+// TheCourier, TinyMailbox, WhiteStar, WingCharm, WongosMysteryTicket,
+// Planisphere, MawBank, LordsParasol, EternalFeather, WingedBoots, Girya,
+// SlingOfCourage).
+
+// --- Combat-only AfterObtained body (no-op out of combat) ---
+// SKIP PaelsEye: AfterObtained only caches CombatManager.IsPartOfPlayerTurn.
+// SKIP Byrdpip / PaelsLegion: pet-summon (pet system not wired).
+
+// ===== Summary =====
+// New run-state: 1 (HeftyTablet — the Injury deck-add side).
+// Combined with batch_r_rs_3 the remaining un-encodable AfterObtained relics
+// are gated on:
+//   * Interactive deck mutation primitives (~17 relics)
+//   * Reward-offer / reward-modify hooks (~25 relics — covered by
+//     batch_r_cosmetic.txt for "no in-combat side" classification)
+//   * Random deck-scan mutations needing run-state RNG (~8 relics)
+//   * Map / merchant / rest-site / relic-swap subsystem (~6 relics)

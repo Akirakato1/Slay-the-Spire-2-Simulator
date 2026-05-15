@@ -2543,13 +2543,6 @@ pub fn run_state_effects(
             RunStateHook::AfterObtained,
             vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(300) }],
         )]),
-        // CursedPearl.cs L?-?: GainGold(333) + AddCurseToDeck<Greed>.
-        // We encode the gold gain only; the AddCurseToDeck side needs a
-        // mid-run deck-mutation primitive that doesn't yet land.
-        "CursedPearl" => Some(vec![(
-            RunStateHook::AfterObtained,
-            vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(333) }],
-        )]),
         // ===== Manual run-state ports (batch_r_rs_*) =====
 
 
@@ -2671,6 +2664,11 @@ pub fn run_state_effects(
         "AlchemicalCoffer" => Some(vec![(
         RunStateHook::AfterObtained,
         vec![Effect::GainMaxPotionSlots { delta: AmountSpec::Fixed(4) }],
+        )]),
+
+        "HeftyTablet" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::AddCardToRunStateDeck { card_id: "Injury".to_string(), upgrade: 0 }],
         )]),
 
 
@@ -4317,6 +4315,346 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         "WhisperingEarring" => Some(vec![
             (RelicHook::BeforeCombatStart,
              vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+        ]),
+
+        "GremlinHorn" => Some(vec![
+            (RelicHook::AfterDeath,
+             vec![
+                Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) },
+                Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+             ]),
+        ]),
+
+        "TheAbacus" => Some(vec![
+            (RelicHook::AfterShuffle,
+             vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        ]),
+
+        "ArtOfWar" => Some(vec![
+            (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::SetRelicCounter { key: "ArtOfWar_attacks_this_turn".to_string(), value: AmountSpec::Fixed(0) }]),
+            (RelicHook::AfterCardPlayed { filter: Some(CardFilter::OfType("Attack".to_string())) },
+             vec![Effect::ModifyRelicCounter { key: "ArtOfWar_attacks_this_turn".to_string(), delta: AmountSpec::Fixed(1) }]),
+            (RelicHook::AfterEnergyReset,
+             vec![Effect::Conditional {
+                condition: Condition::And(
+                    Box::new(Condition::RoundGe { n: 2 }),
+                    Box::new(Condition::Not(Box::new(Condition::RelicCounterGe { key: "ArtOfWar_attacks_this_turn".to_string(), value: 1 }))),
+                ),
+                then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }],
+                else_branch: vec![],
+             }]),
+        ]),
+
+        "VenerableTeaSet" => Some(vec![
+            (RelicHook::AfterEnergyReset,
+             vec![Effect::Conditional {
+                condition: Condition::Not(Box::new(Condition::RoundGe { n: 2 })),
+                then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }],
+                else_branch: vec![],
+             }]),
+        ]),
+
+        "FakeVenerableTeaSet" => Some(vec![
+            (RelicHook::AfterEnergyReset,
+             vec![Effect::Conditional {
+                condition: Condition::Not(Box::new(Condition::RoundGe { n: 2 })),
+                then_branch: vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }],
+                else_branch: vec![],
+             }]),
+        ]),
+
+        "GalacticDust" => Some(vec![
+            (RelicHook::AfterStarsSpent,
+             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        ]),
+
+        "MiniRegent" => Some(vec![
+            (RelicHook::AfterStarsSpent,
+             vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        ]),
+
+        "Metronome" => Some(vec![
+            (RelicHook::AfterOrbChanneled { orb_filter: None },
+             vec![Effect::ApplyPower { power_id: "MetronomePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
+        ]),
+
+        "BookRepairKnife" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::SetRelicCounter { key: "BookRepairKnife_charges".to_string(), value: AmountSpec::Fixed(1) }]),
+            (RelicHook::AfterDiedToDoom,
+             vec![Effect::Conditional {
+                condition: Condition::RelicCounterGe { key: "BookRepairKnife_charges".to_string(), value: 1 },
+                then_branch: vec![
+                    Effect::Heal { amount: AmountSpec::Canonical("Heal".to_string()), target: Target::SelfPlayer },
+                    Effect::ModifyRelicCounter { key: "BookRepairKnife_charges".to_string(), delta: AmountSpec::Fixed(-1) },
+                ],
+                else_branch: vec![],
+             }]),
+        ]),
+
+        "UnceasingTop" => Some(vec![
+            (RelicHook::AfterHandEmptied,
+             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        ]),
+
+        "HistoryCourse" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::SetRelicCounter { key: "HistoryCourse_fired".to_string(), value: AmountSpec::Fixed(0) }]),
+            (RelicHook::BeforePlayPhaseStart,
+             vec![Effect::Conditional {
+                condition: Condition::Not(Box::new(Condition::RelicCounterGe { key: "HistoryCourse_fired".to_string(), value: 1 })),
+                then_branch: vec![
+                    Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+                    Effect::ModifyRelicCounter { key: "HistoryCourse_fired".to_string(), delta: AmountSpec::Fixed(1) },
+                ],
+                else_branch: vec![],
+             }]),
+        ]),
+
+        "NinjaScroll" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::SetRelicCounter { key: "NinjaScroll_fired".to_string(), value: AmountSpec::Fixed(0) }]),
+            (RelicHook::BeforeHandDraw,
+             vec![Effect::Conditional {
+                condition: Condition::Not(Box::new(Condition::RelicCounterGe { key: "NinjaScroll_fired".to_string(), value: 1 })),
+                then_branch: vec![
+                    Effect::Repeat {
+                        count: AmountSpec::Canonical("Cards".to_string()),
+                        body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }],
+                    },
+                    Effect::ModifyRelicCounter { key: "NinjaScroll_fired".to_string(), delta: AmountSpec::Fixed(1) },
+                ],
+                else_branch: vec![],
+             }]),
+        ]),
+
+        "RadiantPearl" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::SetRelicCounter { key: "RadiantPearl_fired".to_string(), value: AmountSpec::Fixed(0) }]),
+            (RelicHook::BeforeHandDraw,
+             vec![Effect::Conditional {
+                condition: Condition::Not(Box::new(Condition::RelicCounterGe { key: "RadiantPearl_fired".to_string(), value: 1 })),
+                then_branch: vec![
+                    Effect::AddCardToPile { card_id: "Luminesce".to_string(), upgrade: 0, pile: Pile::Hand },
+                    Effect::ModifyRelicCounter { key: "RadiantPearl_fired".to_string(), delta: AmountSpec::Fixed(1) },
+                ],
+                else_branch: vec![],
+             }]),
+        ]),
+
+        "Toolbox" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::SetRelicCounter { key: "Toolbox_fired".to_string(), value: AmountSpec::Fixed(0) }]),
+            (RelicHook::BeforeHandDraw,
+             vec![Effect::Conditional {
+                condition: Condition::Not(Box::new(Condition::RelicCounterGe { key: "Toolbox_fired".to_string(), value: 1 })),
+                then_branch: vec![
+                    Effect::AddRandomCardFromPool {
+                        pool: CardPoolRef::Colorless,
+                        filter: CardFilter::Any,
+                        n: AmountSpec::Fixed(1),
+                        pile: Pile::Hand,
+                        upgrade: 0,
+                        free_this_turn: true,
+                        distinct: true,
+                    },
+                    Effect::ModifyRelicCounter { key: "Toolbox_fired".to_string(), delta: AmountSpec::Fixed(1) },
+                ],
+                else_branch: vec![],
+             }]),
+        ]),
+
+        "Bookmark" => Some(vec![
+            (RelicHook::BeforeTurnEndEarly { owner_side_only: true },
+             vec![]),
+        ]),
+
+        "IntimidatingHelmet" => Some(vec![
+            (RelicHook::BeforeCardPlayed { filter: Some(CardFilter::OfType("Skill".to_string())) },
+             vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::AllEnemies }]),
+        ]),
+
+        "ChemicalX" => Some(vec![
+            (RelicHook::BeforeCardPlayed { filter: None },
+             vec![]),
+        ]),
+
+        "Circlet" => Some(vec![
+        ]),
+
+        "DeprecatedRelic" => Some(vec![
+        ]),
+
+        "DingyRug" => Some(vec![
+        ]),
+
+        "FakeMerchantsRug" => Some(vec![
+        ]),
+
+        "IceCream" => Some(vec![
+        ]),
+
+        "JuzuBracelet" => Some(vec![
+        ]),
+
+        "MiniatureTent" => Some(vec![
+        ]),
+
+        "PaperKrane" => Some(vec![
+        ]),
+
+        "PaperPhrog" => Some(vec![
+        ]),
+
+        "RingingTriangle" => Some(vec![
+        ]),
+
+        "RunicPyramid" => Some(vec![
+        ]),
+
+        "WhiteBeastStatue" => Some(vec![
+        ]),
+
+        "WongoCustomerAppreciationBadge" => Some(vec![
+        ]),
+
+        "FakeStrikeDummy" => Some(vec![
+        ]),
+
+        "StrikeDummy" => Some(vec![
+        ]),
+
+        "TheBoot" => Some(vec![
+        ]),
+
+        "TungstenRod" => Some(vec![
+        ]),
+
+        "MiniatureCannon" => Some(vec![
+        ]),
+
+        "MysticLighter" => Some(vec![
+        ]),
+
+        "PenNib" => Some(vec![
+        ]),
+
+        "UndyingSigil" => Some(vec![
+        ]),
+
+        "SneckoSkull" => Some(vec![
+        ]),
+
+        "VitruvianMinion" => Some(vec![
+        ]),
+
+        "MembershipCard" => Some(vec![
+        ]),
+
+        "TheCourier" => Some(vec![
+        ]),
+
+        "RuinedHelmet" => Some(vec![
+        ]),
+
+        "Vambrace" => Some(vec![
+        ]),
+
+        "BeautifulBracelet" => Some(vec![
+        ]),
+
+        "FakeLeesWaffle" => Some(vec![
+        ]),
+
+        "FurCoat" => Some(vec![
+        ]),
+
+        "FrozenEgg" => Some(vec![
+        ]),
+
+        "MoltenEgg" => Some(vec![
+        ]),
+
+        "ToxicEgg" => Some(vec![
+        ]),
+
+        "FresnelLens" => Some(vec![
+        ]),
+
+        "Glitter" => Some(vec![
+        ]),
+
+        "WingCharm" => Some(vec![
+        ]),
+
+        "SilverCrucible" => Some(vec![
+        ]),
+
+        "LastingCandy" => Some(vec![
+        ]),
+
+        "PrayerWheel" => Some(vec![
+        ]),
+
+        "AmethystAubergine" => Some(vec![
+        ]),
+
+        "BlackStar" => Some(vec![
+        ]),
+
+        "LavaRock" => Some(vec![
+        ]),
+
+        "WhiteStar" => Some(vec![
+        ]),
+
+        "Driftwood" => Some(vec![
+        ]),
+
+        "WongosMysteryTicket" => Some(vec![
+        ]),
+
+        "DreamCatcher" => Some(vec![
+        ]),
+
+        "TinyMailbox" => Some(vec![
+        ]),
+
+        "MeatCleaver" => Some(vec![
+        ]),
+
+        "Shovel" => Some(vec![
+        ]),
+
+        "StoneHumidifier" => Some(vec![
+        ]),
+
+        "RegalPillow" => Some(vec![
+        ]),
+
+        "EternalFeather" => Some(vec![
+        ]),
+
+        "Girya" => Some(vec![
+        ]),
+
+        "SlingOfCourage" => Some(vec![
+        ]),
+
+        "LordsParasol" => Some(vec![
+        ]),
+
+        "MawBank" => Some(vec![
+        ]),
+
+        "MealTicket" => Some(vec![
+        ]),
+
+        "Planisphere" => Some(vec![
+        ]),
+
+        "WingedBoots" => Some(vec![
         ]),
 
 
