@@ -253,6 +253,18 @@ fn card_matches_filter(card: &CardData, filter: &crate::effects::CardFilter) -> 
         CardFilter::And(a, b) => card_matches_filter(card, a) && card_matches_filter(card, b),
         CardFilter::Not(inner) => !card_matches_filter(card, inner),
         CardFilter::HasId(id) => &card.id == id,
+        CardFilter::WithEnergyCost { op, value } => {
+            use crate::effects::Comparison;
+            match op {
+                Comparison::Eq => card.energy_cost == *value,
+                Comparison::Ne => card.energy_cost != *value,
+                Comparison::Lt => card.energy_cost < *value,
+                Comparison::Le => card.energy_cost <= *value,
+                Comparison::Gt => card.energy_cost > *value,
+                Comparison::Ge => card.energy_cost >= *value,
+            }
+        }
+        CardFilter::NotXCost => !card.has_energy_cost_x,
     }
 }
 

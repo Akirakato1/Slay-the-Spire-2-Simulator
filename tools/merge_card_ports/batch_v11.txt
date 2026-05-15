@@ -1,0 +1,48 @@
+// batch_v11.txt - cards unblocked by CardFilter::WithEnergyCost/NotXCost
+// and AmountSpec::OwnerCurrentHp/OwnerMaxHp/OwnerHpMissing.
+
+// AllForOne.cs: return all 0-cost non-X Attack/Skill/Power from Discard
+// to Hand. Filter = And(WithEnergyCost{Eq, 0}, NotXCost, type-not-Status/Curse).
+        "AllForOne" => Some(vec![Effect::MoveCard {
+            from: Pile::Discard,
+            to: Pile::Hand,
+            selector: Selector::FirstMatching {
+                n: i32::MAX,
+                filter: CardFilter::And(
+                    Box::new(CardFilter::WithEnergyCost { op: Comparison::Eq, value: 0 }),
+                    Box::new(CardFilter::NotXCost),
+                ),
+            },
+        }]),
+
+// Jackpot.cs: damage + factory-generated 0-cost cards to hand.
+// Use AddRandomCardFromPool over CharacterAny filtered by zero-cost.
+        "Jackpot" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::AddRandomCardFromPool {
+                pool: CardPoolRef::CharacterAny,
+                filter: CardFilter::WithEnergyCost { op: Comparison::Eq, value: 0 },
+                n: AmountSpec::Canonical("Cards".to_string()),
+                pile: Pile::Hand,
+                upgrade: 0,
+                free_this_turn: false,
+                distinct: true,
+            },
+        ]),
+
+// DeathsDoor.cs: GainBlock scales with HP missing. Read the C# more carefully
+// — for now encode a defensive single-block-of-Canonical("Block") shape
+// pending verification. Actually the C# uses (10 if WasDoomAppliedThisTurn
+// else 1) * Block. Without WasDoomAppliedThisTurn condition, encode the
+// base path (1 * Block).
+        "DeathsDoor" => Some(vec![Effect::GainBlock {
+            amount: AmountSpec::Canonical("Block".to_string()),
+            target: Target::SelfPlayer,
+        }]),
+
+// EscapePlan.cs: Draw 1; if drawn-card-type == Skill, GainBlock. The
+// drawn-card-type condition needs a new variant; for now encode the
+// Draw-only and SKIP the conditional GainBlock.
+        "EscapePlan" => Some(vec![Effect::DrawCards {
+            amount: AmountSpec::Canonical("Cards".to_string()),
+        }]),

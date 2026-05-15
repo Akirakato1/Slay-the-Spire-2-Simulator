@@ -1,0 +1,101 @@
+// batch_v10.txt - remaining cards encodable with current primitives
+// plus the new AliveEnemyCount / AliveAllyCount variants.
+
+// Ftl.cs: Damage + (if plays-this-turn < PlayMax: Draw Cards).
+        "Ftl" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::Conditional {
+                condition: Condition::PlaysThisTurnLt { n: 3 },
+                then_branch: vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }],
+                else_branch: vec![],
+            },
+        ]),
+
+// Coordinate.cs: Apply<CoordinatePower>(target ally, Strength=5).
+        "Coordinate" => Some(vec![Effect::ApplyPower {
+            power_id: "CoordinatePower".to_string(),
+            amount: AmountSpec::Canonical("Strength".to_string()),
+            target: Target::ChosenAlly,
+        }]),
+
+// Chill.cs: Channel one FrostOrb per alive enemy. Exhaust keyword.
+        "Chill" => Some(vec![Effect::Repeat {
+            count: AmountSpec::AliveEnemyCount,
+            body: vec![Effect::ChannelOrb { orb_id: "FrostOrb".to_string() }],
+        }]),
+
+// DemonicShield.cs: self LoseHp(HpLoss) + GainBlock on chosen ally =
+// CalculationBase + CalculationExtra * target.Block.
+        "DemonicShield" => Some(vec![
+            Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
+            Effect::GainBlock {
+                amount: AmountSpec::Add {
+                    left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())),
+                    right: Box::new(AmountSpec::Mul {
+                        left: Box::new(AmountSpec::Canonical("CalculationExtra".to_string())),
+                        right: Box::new(AmountSpec::TargetBlock),
+                    }),
+                },
+                target: Target::ChosenAlly,
+            },
+        ]),
+
+// HiddenDaggers.cs: interactive discard N from hand, then add N Shivs.
+        "HiddenDaggers" => Some(vec![
+            Effect::DiscardCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } },
+            Effect::Repeat {
+                count: AmountSpec::Canonical("Cards".to_string()),
+                body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }],
+            },
+        ]),
+
+// GlimpseBeyond.cs: for each ally, add N Soul cards to their draw pile.
+        "GlimpseBeyond" => Some(vec![Effect::Repeat {
+            count: AmountSpec::Canonical("Cards".to_string()),
+            body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw }],
+        }]),
+
+// HuddleUp.cs: each ally draws Cards.
+        "HuddleUp" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+
+// GangUp.cs: CalculatedDamage = CalculationBase + extra * teammate-attacks.
+// Single-player teammate count = 0, so fall back to base.
+        "GangUp" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("CalculationBase".to_string()),
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
+
+// Darkness.cs: Channel<DarkOrb>; trigger-passive rider on upgrade SKIPped.
+        "Darkness" => Some(vec![Effect::ChannelOrb { orb_id: "DarkOrb".to_string() }]),
+
+// Bolas.cs: damage. BeforeHandDraw return-to-hand rider SKIPped.
+        "Bolas" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("Damage".to_string()),
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
+
+// Bombardment.cs: damage. BeforeHandDraw auto-play-from-exhaust rider SKIPped.
+        "Bombardment" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("Damage".to_string()),
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
+
+// Largesse.cs: random Colorless into target ally's hand.
+        "Largesse" => Some(vec![Effect::AddRandomCardFromPool {
+            pool: CardPoolRef::Colorless,
+            filter: CardFilter::Any,
+            n: AmountSpec::Fixed(1),
+            pile: Pile::Hand,
+            upgrade: 0,
+            free_this_turn: false,
+            distinct: true,
+        }]),
+
+// Eidolon.cs: exhaust entire hand. Conditional Intangible on count >= threshold SKIPped.
+        "Eidolon" => Some(vec![Effect::ExhaustCards {
+            from: Pile::Hand,
+            selector: Selector::All,
+        }]),

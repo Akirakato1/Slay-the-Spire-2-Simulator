@@ -201,6 +201,17 @@ pub enum AmountSpec {
     /// (BaseReplayCount), Maul/Rampage (own base-damage ramp).
     /// Returns 0 if no source card or key not set.
     SourceCardCounter { key: String },
+    /// Count of alive enemies. Chill (Channel FrostOrb per enemy).
+    AliveEnemyCount,
+    /// Count of alive allies. GangUp / HuddleUp / Coordinate-family.
+    AliveAllyCount,
+    /// Player's current HP. DeathsDoor / HP-threshold scaling.
+    OwnerCurrentHp,
+    /// Player's max HP.
+    OwnerMaxHp,
+    /// Player's missing HP (`max_hp - current_hp`). DeathsDoor:
+    /// scale block by damage already taken.
+    OwnerHpMissing,
 }
 
 /// Named card pool reference for `Effect::AddRandomCardFromPool`.
@@ -429,6 +440,10 @@ pub enum CardFilter {
     Not(Box<CardFilter>),
     /// Exact card id (single-card filter; useful for "find SovereignBlade").
     HasId(String),
+    /// Card's `energy_cost` matches a comparison. AllForOne / Jackpot.
+    WithEnergyCost { op: Comparison, value: i32 },
+    /// Card is NOT X-cost (`!has_energy_cost_x`). AllForOne filter.
+    NotXCost,
 }
 
 /// Closed primitive vocabulary.
@@ -1188,10 +1203,6 @@ impl AmountSpec {
                 .map(|ps| (ps.orb_slots - ps.orb_queue.len() as i32).max(0))
                 .unwrap_or(0),
             AmountSpec::SourceCardCounter { key } => {
-                // Per-card-id counter stored on PlayerState.relic_counters
-                // with the namespace `card.<id>.<key>`. Shared across
-                // all instances of the same card-id (matches StS1 Claw
-                // semantics). Returns 0 if no source card or key unset.
                 let Some(card_id) = ctx.source_card_id else {
                     return 0;
                 };
@@ -1202,6 +1213,27 @@ impl AmountSpec {
                     .map(|ps| ps.relic_counters.get(&namespaced).copied().unwrap_or(0))
                     .unwrap_or(0)
             }
+            AmountSpec::AliveEnemyCount => {
+                cs.enemies.iter().filter(|e| e.current_hp > 0).count() as i32
+            }
+            AmountSpec::AliveAllyCount => {
+                cs.allies.iter().filter(|a| a.current_hp > 0).count() as i32
+            }
+            AmountSpec::OwnerCurrentHp => cs
+                .allies
+                .get(ctx.player_idx)
+                .map(|c| c.current_hp)
+                .unwrap_or(0),
+            AmountSpec::OwnerMaxHp => cs
+                .allies
+                .get(ctx.player_idx)
+                .map(|c| c.max_hp)
+                .unwrap_or(0),
+            AmountSpec::OwnerHpMissing => cs
+                .allies
+                .get(ctx.player_idx)
+                .map(|c| (c.max_hp - c.current_hp).max(0))
+                .unwrap_or(0),
         }
     }
 }
@@ -1398,6 +1430,8 @@ fn card_filter_matches_id(filter: &CardFilter, card_id: &str) -> bool {
         }
         CardFilter::Not(inner) => !card_filter_matches_id(inner, card_id),
         CardFilter::HasId(id) => card_id == id,
+        CardFilter::WithEnergyCost { op, value } => compare(card.energy_cost, *op, *value),
+        CardFilter::NotXCost => !card.has_energy_cost_x,
     }
 }
 
@@ -2809,6 +2843,8 @@ fn card_metadata_matches_filter(
             !card_metadata_matches_filter(card_type, keywords, tags, inner)
         }
         CardFilter::HasId(_) => false, // metadata-only path can't see id
+        CardFilter::WithEnergyCost { .. } => false, // not derivable from metadata
+        CardFilter::NotXCost => false, // not derivable from metadata
     }
 }
 
@@ -4580,7 +4616,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 198 hand-curated arms covering Acrobatics..Rattle.
+        // 215 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -5066,6 +5102,107 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         },
         Effect::IncrementSourceCardCounter { key: "extra_damage".to_string(), delta: AmountSpec::Canonical("Increase".to_string()) },
         ]),
+        "Ftl" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::Conditional {
+        condition: Condition::PlaysThisTurnLt { n: 3 },
+        then_branch: vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }],
+        else_branch: vec![],
+        },
+        ]),
+        "Coordinate" => Some(vec![Effect::ApplyPower {
+        power_id: "CoordinatePower".to_string(),
+        amount: AmountSpec::Canonical("Strength".to_string()),
+        target: Target::ChosenAlly,
+        }]),
+        "Chill" => Some(vec![Effect::Repeat {
+        count: AmountSpec::AliveEnemyCount,
+        body: vec![Effect::ChannelOrb { orb_id: "FrostOrb".to_string() }],
+        }]),
+        "DemonicShield" => Some(vec![
+        Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
+        Effect::GainBlock {
+        amount: AmountSpec::Add {
+        left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())),
+        right: Box::new(AmountSpec::Mul {
+        left: Box::new(AmountSpec::Canonical("CalculationExtra".to_string())),
+        right: Box::new(AmountSpec::TargetBlock),
+        }),
+        },
+        target: Target::ChosenAlly,
+        },
+        ]),
+        "HiddenDaggers" => Some(vec![
+        Effect::DiscardCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } },
+        Effect::Repeat {
+        count: AmountSpec::Canonical("Cards".to_string()),
+        body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }],
+        },
+        ]),
+        "GlimpseBeyond" => Some(vec![Effect::Repeat {
+        count: AmountSpec::Canonical("Cards".to_string()),
+        body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw }],
+        }]),
+        "HuddleUp" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "GangUp" => Some(vec![Effect::DealDamage {
+        amount: AmountSpec::Canonical("CalculationBase".to_string()),
+        target: Target::ChosenEnemy,
+        hits: 1,
+        }]),
+        "Darkness" => Some(vec![Effect::ChannelOrb { orb_id: "DarkOrb".to_string() }]),
+        "Bolas" => Some(vec![Effect::DealDamage {
+        amount: AmountSpec::Canonical("Damage".to_string()),
+        target: Target::ChosenEnemy,
+        hits: 1,
+        }]),
+        "Bombardment" => Some(vec![Effect::DealDamage {
+        amount: AmountSpec::Canonical("Damage".to_string()),
+        target: Target::ChosenEnemy,
+        hits: 1,
+        }]),
+        "Largesse" => Some(vec![Effect::AddRandomCardFromPool {
+        pool: CardPoolRef::Colorless,
+        filter: CardFilter::Any,
+        n: AmountSpec::Fixed(1),
+        pile: Pile::Hand,
+        upgrade: 0,
+        free_this_turn: false,
+        distinct: true,
+        }]),
+        "Eidolon" => Some(vec![Effect::ExhaustCards {
+        from: Pile::Hand,
+        selector: Selector::All,
+        }]),
+        "AllForOne" => Some(vec![Effect::MoveCard {
+        from: Pile::Discard,
+        to: Pile::Hand,
+        selector: Selector::FirstMatching {
+        n: i32::MAX,
+        filter: CardFilter::And(
+        Box::new(CardFilter::WithEnergyCost { op: Comparison::Eq, value: 0 }),
+        Box::new(CardFilter::NotXCost),
+        ),
+        },
+        }]),
+        "Jackpot" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::AddRandomCardFromPool {
+        pool: CardPoolRef::CharacterAny,
+        filter: CardFilter::WithEnergyCost { op: Comparison::Eq, value: 0 },
+        n: AmountSpec::Canonical("Cards".to_string()),
+        pile: Pile::Hand,
+        upgrade: 0,
+        free_this_turn: false,
+        distinct: true,
+        },
+        ]),
+        "DeathsDoor" => Some(vec![Effect::GainBlock {
+        amount: AmountSpec::Canonical("Block".to_string()),
+        target: Target::SelfPlayer,
+        }]),
+        "EscapePlan" => Some(vec![Effect::DrawCards {
+        amount: AmountSpec::Canonical("Cards".to_string()),
+        }]),
 
         _ => None,
     }
@@ -6160,6 +6297,8 @@ fn matches_filter(card: &crate::combat::CardInstance, filter: &CardFilter) -> bo
         CardFilter::And(a, b) => matches_filter(card, a) && matches_filter(card, b),
         CardFilter::Not(inner) => !matches_filter(card, inner),
         CardFilter::HasId(id) => &card.id == id,
+        CardFilter::WithEnergyCost { op, value } => compare(data.energy_cost, *op, *value),
+        CardFilter::NotXCost => !data.has_energy_cost_x,
     }
 }
 
