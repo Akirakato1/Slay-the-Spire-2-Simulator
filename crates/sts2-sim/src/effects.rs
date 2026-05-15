@@ -1280,7 +1280,18 @@ impl AmountSpec {
                     .unwrap_or(0)
             }
             AmountSpec::CardsPlayedThisTurn { filter } => {
-                cards_played_this_turn(cs, ctx.player_idx, filter)
+                // C# uses CardPlaysFinished, which excludes the in-flight
+                // play. Rust emits CardPlayed before OnPlay, so the raw
+                // count includes the current card. Subtract 1 if the
+                // source card matches the filter (mirrors CardPlaysFinished
+                // semantics for Conflagration / GoldAxe / Finisher / etc.).
+                let raw = cards_played_this_turn(cs, ctx.player_idx, filter);
+                if let Some(sid) = ctx.source_card_id {
+                    if card_filter_matches_id(filter, sid) {
+                        return (raw - 1).max(0);
+                    }
+                }
+                raw
             }
             AmountSpec::CardsDiscardedThisTurn => {
                 count_history_events_this_turn(cs, ctx.player_idx, HistoryKind::Discarded)
@@ -5996,7 +6007,26 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Scrape" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "SculptingStrike" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Seance" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
-        "SecondWind" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        "SecondWind" => Some(vec![Effect::Repeat {
+            // For each non-Attack card in hand: exhaust it and gain
+            // BlockVar block. Count is snapshotted once before loop —
+            // since the body exhausts 1 + gains block each iteration,
+            // total = (non-attacks at snapshot) × BlockVar.
+            count: AmountSpec::CardCountInPile {
+                pile: PileSelector::Single(Pile::Hand),
+                filter: CardFilter::Not(Box::new(CardFilter::OfType("Attack".to_string()))),
+            },
+            body: vec![
+                Effect::ExhaustCards {
+                    from: Pile::Hand,
+                    selector: Selector::FirstMatching {
+                        n: 1,
+                        filter: CardFilter::Not(Box::new(CardFilter::OfType("Attack".to_string()))),
+                    },
+                },
+                Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            ],
+        }]),
         "SeekerStrike" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "SeekingEdge" => Some(vec![Effect::ApplyPower { power_id: "SeekingEdgePower".to_string(), amount: AmountSpec::Canonical("Forge".to_string()), target: Target::SelfPlayer }]),
         "SentryMode" => Some(vec![Effect::ApplyPower { power_id: "SentryModePower".to_string(), amount: AmountSpec::Canonical("SentryModePower".to_string()), target: Target::SelfPlayer }]),
@@ -6059,7 +6089,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "TheScythe" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "TheSealedThrone" => Some(vec![Effect::ApplyPower { power_id: "TheSealedThronePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "ThinkingAhead" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
-        "Thrash" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        "Thrash" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 2 }]),
         "ThrummingHatchet" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Thunder" => Some(vec![Effect::ApplyPower { power_id: "ThunderPower".to_string(), amount: AmountSpec::Canonical("ThunderPower".to_string()), target: Target::SelfPlayer }]),
         "TimesUp" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("CalculatedDamage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),

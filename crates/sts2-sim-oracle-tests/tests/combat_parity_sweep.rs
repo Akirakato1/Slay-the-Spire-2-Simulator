@@ -97,11 +97,14 @@ fn fresh_rust() -> rust_rig::RustRig {
     r
 }
 
-/// Pick a target index for the card's target_type. For multi-target
-/// (AllEnemies/AllAllies/Self/RandomEnemy) we pass None.
+/// Pick a target index. AnyEnemy needs a specific target; other
+/// target_types don't. We default to enemy[0] when no target is
+/// strictly required — some C# OnPlay bodies still read cardPlay.Target
+/// defensively (e.g., RandomEnemy cards). Mismatch noise comes back as
+/// false positives but those are rare.
 fn pick_target(t: TargetType) -> Option<usize> {
     match t {
-        TargetType::AnyEnemy => Some(0),
+        TargetType::AnyEnemy | TargetType::RandomEnemy => Some(0),
         _ => None,
     }
 }
