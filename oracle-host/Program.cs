@@ -969,7 +969,10 @@ internal sealed class Dispatcher
                 try
                 {
                     var task = (Task?)_combat.CardOnPlay.Invoke(card,
-                        new object?[] { null, cardPlay });
+                        new object?[] {
+                            GodotBypass.UninitializedChoiceContext,
+                            cardPlay,
+                        });
                     task?.GetAwaiter().GetResult();
                 }
                 catch (TargetInvocationException ex) when (ex.InnerException is not null)
@@ -1355,6 +1358,14 @@ internal static class GodotBypass
 {
     private static bool _applied;
     public static object? UninitializedSaveManager;
+    /// Uninitialized GameActionPlayerChoiceContext used as a stand-in
+    /// for the `choiceContext` argument we pass into `CardModel.OnPlay`.
+    /// Most OnPlay bodies don't need the action-tracking; they just
+    /// call PushModel/PopModel and signal-begun/ended (those are
+    /// individually patched on the abstract base class). Having a
+    /// non-null instance prevents NREs for cards that ChannelOrb,
+    /// AutoPlay, or otherwise dispatch deeper into the command tree.
+    public static object? UninitializedChoiceContext;
 
     public static void Apply(Assembly asm)
     {
@@ -1369,6 +1380,15 @@ internal static class GodotBypass
             throwOnError: true)!;
         UninitializedSaveManager =
             System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(smType);
+        // Pre-build an uninitialized GameActionPlayerChoiceContext to
+        // pass into CardModel.OnPlay. PushModel / PopModel work without
+        // initialization (the model stack is created lazily). The
+        // Action property is never read by combat-path code.
+        var pccType = asm.GetType(
+            "MegaCrit.Sts2.Core.GameActions.Multiplayer.GameActionPlayerChoiceContext",
+            throwOnError: true)!;
+        UninitializedChoiceContext =
+            System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(pccType);
 
         var harmonyAsm = AssemblyLoadContext.GetLoadContext(asm)!
             .LoadFromAssemblyName(new AssemblyName("0Harmony"));
@@ -1671,6 +1691,27 @@ internal static class GodotBypass
             }
         }
 
+        // Godot.Time.GetTicksMsec / Time.GetUnixTimeFromSystem segfault
+        // when Godot's native interop isn't initialized. OnPlayWrapper
+        // and several command bodies call Time.GetTicksMsec to time
+        // animations; the segfault tears down the host. Patch to zero.
+        var godotTimeType = AppDomain.CurrentDomain.GetAssemblies()
+            .Select(a => a.GetType("Godot.Time", throwOnError: false))
+            .FirstOrDefault(t => t != null);
+        if (godotTimeType != null)
+        {
+            foreach (var m in godotTimeType.GetMethods(
+                BindingFlags.Public | BindingFlags.Static))
+            {
+                if (m.Name == "GetTicksMsec" || m.Name == "GetTicksUsec")
+                {
+                    HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                        m, typeof(SaveManagerPrefix),
+                        nameof(SaveManagerPrefix.ZeroUlongPrefix));
+                }
+            }
+        }
+
         // NullRunState.CreateCard normally throws. Replace with
         // ToMutable+Owner so RelicCmd.Obtain bodies that call
         // RunState.CreateCard<X>(player) followed by CardPileCmd.Add to
@@ -1804,6 +1845,11 @@ internal static class SaveManagerPrefix
     public static bool NullObjectPrefix(ref object? __result)
     {
         __result = null;
+        return false;
+    }
+    public static bool ZeroUlongPrefix(ref ulong __result)
+    {
+        __result = 0;
         return false;
     }
     public static bool TruePrefix(ref bool __result)
