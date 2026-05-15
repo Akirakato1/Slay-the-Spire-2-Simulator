@@ -615,6 +615,24 @@ internal sealed class Dispatcher
                 // explicit nulls for all optional params.
                 var inst = _combat.CombatStateCtor.Invoke(
                     new object?[] { null, null, null, null });
+                // Wire CombatManager.Instance._state via SetUpCombat so
+                // pet/osty-spawning cards (Afterlife / Bodyguard /
+                // Reanimate / etc.) can call CombatManager.AddCreature
+                // without NREing on a null _state.
+                if (_combat.CombatManagerSetUpCombat != null
+                    && _combat.CombatManagerInstance != null)
+                {
+                    try
+                    {
+                        var cm = _combat.CombatManagerInstance.GetValue(null);
+                        if (cm != null)
+                        {
+                            _combat.CombatManagerSetUpCombat.Invoke(
+                                cm, new[] { inst });
+                        }
+                    }
+                    catch { /* best-effort */ }
+                }
                 var handle = _nextHandle++;
                 _instances[handle] = inst!;
                 return Ok(JsonValue.Create(handle));
@@ -905,6 +923,42 @@ internal sealed class Dispatcher
                 cardPlayType_set(cardPlay, "ResultPile", resultPileVal!);
                 // Invoke OnPlay (protected, returns Task). The async
                 // body can throw via the Task; GetResult() unwraps.
+                // Push a TestCardSelector with indices [0, 1, ...]
+                // around OnPlay so CardSelectCmd.From* calls inside
+                // (Acrobatics / DaggerThrow / Prepared / Discovery /
+                // Quasar / etc.) return deterministic auto-picks
+                // (selection = first MinSelect cards) instead of
+                // NREing on RunManager.Instance.PlayerChoiceSynchronizer.
+                IDisposable? cardPlaySelectorScope = null;
+                if (_combat.TestCardSelectorCtor != null
+                    && _combat.PushSelector != null
+                    && _combat.TestCardSelectorPrepareIndices != null)
+                {
+                    try
+                    {
+                        var sel = _combat.TestCardSelectorCtor.Invoke(null)!;
+                        // Pre-stuff 16 calls' worth of "pick index 0..n-1"
+                        // — TestCardSelector pops one per GetSelectedCards.
+                        // For the typical "pick MinSelect" requests with
+                        // small N, [0..15] covers anything reasonable.
+                        for (int i = 0; i < 16; i++)
+                        {
+                            var idxList = new System.Collections.Generic.List<int> { 0 };
+                            _combat.TestCardSelectorPrepareIndices
+                                .Invoke(sel, new object[] { idxList });
+                        }
+                        cardPlaySelectorScope = (IDisposable?)_combat.PushSelector
+                            .Invoke(null, new[] { sel });
+                    }
+                    catch { /* selector push best-effort */ }
+                }
+                // Note: we deliberately do NOT set RelicGrantInProgress
+                // here. The TestCardSelector push above causes
+                // CardSelectCmd.From* to take the Selector path (line
+                // 538 of CardSelectCmd.cs), bypassing the RunManager
+                // NRE. The RelicGrantInProgress flag is only for the
+                // relic-grant flow where there's no path through a
+                // TestCardSelector (different code path).
                 string? onPlayError = null;
                 string? onPlayTrace = null;
                 try
@@ -923,6 +977,7 @@ internal sealed class Dispatcher
                     onPlayError = ex.Message;
                     onPlayTrace = ex.StackTrace;
                 }
+                cardPlaySelectorScope?.Dispose();
                 // Route Play → result pile (always — partial plays still
                 // route).
                 _combat.PileRemoveInternal.Invoke(play, new object[] { card, true });
@@ -1438,12 +1493,19 @@ internal static class GodotBypass
         // dispatch's interactive paths (Loc strings).
         PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Localization.LocManager");
-        // LocString.GetFormattedText() touches LocManager.Instance
-        // which NREs in our headless setup. Replace with empty string.
-        // Triggered transitively by relic CanonicalVars getters that
-        // contain StringVar entries (PaelsClaw/PaelsGrowth/RoyalStamp
-        // /NeowsBones/SeaGlass) — those relics' ToMutable() walks
-        // CanonicalVars eagerly, hits the LocString, and dies.
+        // LocManager.Instance property getter — patch to return null.
+        // Accessing the property normally triggers the static cctor
+        // which throws on Godot resource init. Returning null upfront
+        // prevents the cctor from firing AND short-circuits all
+        // LocString lookups before they touch any Godot machinery.
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Localization.LocManager", "get_Instance",
+            BindingFlags.Public | BindingFlags.Static,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NullObjectPrefix));
+        // LocString.GetFormattedText() — return empty string. Some
+        // callers reach LocString via paths that don't go through
+        // LocManager directly; this patch is the belt to the
+        // get_Instance suspenders.
         HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Localization.LocString", "GetFormattedText",
             BindingFlags.Public | BindingFlags.Instance,
@@ -1469,7 +1531,6 @@ internal static class GodotBypass
                 "FromDeckGeneric",
                 "FromHand",
                 "FromHandForDiscard",
-                "FromSimpleGrid",
             };
             foreach (var name in fromMethods)
             {
@@ -1482,6 +1543,21 @@ internal static class GodotBypass
                         HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
                             m, typeof(SaveManagerPrefix), emptyEnumPrefix);
                     }
+                }
+            }
+            // FromSimpleGrid touches RunManager BEFORE the Selector
+            // check, so it NREs in headless even with TestCardSelector
+            // pushed. Substitute a deterministic "take first MinSelect"
+            // — mirrors the rust PlayerInteractive→Bottom strategy.
+            foreach (var m in cardSelectType.GetMethods(
+                BindingFlags.Public | BindingFlags.Static
+                    | BindingFlags.DeclaredOnly))
+            {
+                if (m.Name == "FromSimpleGrid")
+                {
+                    HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                        m, typeof(SaveManagerPrefix),
+                        nameof(SaveManagerPrefix.FromSimpleGridPrefix));
                 }
             }
             // Task<CardModel> variant (FromChooseACardScreen,
@@ -1730,6 +1806,46 @@ internal static class SaveManagerPrefix
     // CardSelectCmd.FromChooseACardScreen returns Task<CardModel> (not
     // an enumerable). Substitute Task.FromResult<CardModel>(null).
     private static object? _nullCardTask;
+    /// CardSelectCmd.FromSimpleGrid prefix — always returns the first
+    /// `prefs.MinSelect` cards from the input list. C# FromSimpleGrid
+    /// touches RunManager.Instance.PlayerChoiceSynchronizer BEFORE the
+    /// Selector check (line 240 of CardSelectCmd.cs), so even with a
+    /// TestCardSelector pushed it still NREs. This prefix short-circuits
+    /// to a deterministic auto-pick (first N cards) that mirrors what
+    /// the rust Selector::PlayerInteractive (Bottom) does.
+    private static object? _fromSimpleGridTaskCache;
+    public static bool FromSimpleGridPrefix(
+        ref object __result, object cardsIn, object prefs)
+    {
+        if (CardModelType == null) return true;
+        int minSelect = 1;
+        try
+        {
+            var minProp = prefs.GetType().GetProperty("MinSelect",
+                BindingFlags.Public | BindingFlags.Instance);
+            if (minProp != null)
+            {
+                minSelect = (int)minProp.GetValue(prefs)!;
+            }
+        }
+        catch { }
+        var list = (System.Collections.IList)cardsIn;
+        // Take(min(MinSelect, list.Count)) via reflective List<T>.
+        var listType = typeof(System.Collections.Generic.List<>)
+            .MakeGenericType(CardModelType);
+        var selected = (System.Collections.IList)Activator.CreateInstance(listType)!;
+        int take = Math.Min(minSelect, list.Count);
+        for (int i = 0; i < take; i++) selected.Add(list[i]);
+        // Build Task.FromResult<IEnumerable<CardModel>>(selected).
+        var ienum = typeof(System.Collections.Generic.IEnumerable<>)
+            .MakeGenericType(CardModelType);
+        var taskFromResult = typeof(Task).GetMethods(
+            BindingFlags.Public | BindingFlags.Static)
+            .First(m => m.Name == "FromResult" && m.IsGenericMethod)
+            .MakeGenericMethod(ienum);
+        __result = taskFromResult.Invoke(null, new object[] { selected })!;
+        return false;
+    }
     public static bool NullCardTaskPrefix(ref object __result)
     {
         if (!RelicGrantInProgress) return true;
@@ -1848,6 +1964,9 @@ internal sealed class CombatReflectionBundle
     public MethodInfo? ModifyMaxEnergyMethod { get; init; }
     public ConstructorInfo? TestCardSelectorCtor { get; init; }
     public MethodInfo? PushSelector { get; init; }
+    public MethodInfo? TestCardSelectorPrepareIndices { get; init; }
+    public PropertyInfo? CombatManagerInstance { get; init; }
+    public MethodInfo? CombatManagerSetUpCombat { get; init; }
 
     public object GetCharacterById(string id)
     {
@@ -2160,6 +2279,25 @@ internal sealed class CombatReflectionBundle
             "MegaCrit.Sts2.Core.TestSupport.TestCardSelector",
             throwOnError: false);
         var testCardSelectorCtor = testCardSelectorType?.GetConstructor(Type.EmptyTypes);
+        // TestCardSelector.PrepareToSelect(IEnumerable<int> indices) —
+        // queues a deterministic auto-pick. Each GetSelectedCards call
+        // pops one prepared selection.
+        var testCardSelectorPrepareIndices = testCardSelectorType?.GetMethods(
+            BindingFlags.Public | BindingFlags.Instance)
+            .FirstOrDefault(m => m.Name == "PrepareToSelect"
+                && m.GetParameters().Length == 1
+                && m.GetParameters()[0].ParameterType.IsGenericType
+                && m.GetParameters()[0].ParameterType.GetGenericArguments()[0] == typeof(int));
+        // CombatManager.Instance + SetUpCombat(CombatState) — wires
+        // CombatManager.Instance._state so pet/osty-spawning cards
+        // can call CombatManager.AddCreature without NREing.
+        var combatManagerType = asm.GetType(
+            "MegaCrit.Sts2.Core.Combat.CombatManager", throwOnError: false);
+        var combatManagerInstance = combatManagerType?.GetProperty("Instance",
+            BindingFlags.Public | BindingFlags.Static);
+        var combatManagerSetUpCombat = combatManagerType?.GetMethod("SetUpCombat",
+            BindingFlags.Public | BindingFlags.Instance,
+            new[] { combatStateType });
         var cardSelectCmdType = asm.GetType(
             "MegaCrit.Sts2.Core.Commands.CardSelectCmd",
             throwOnError: false);
@@ -2238,6 +2376,9 @@ internal sealed class CombatReflectionBundle
             ModifyMaxEnergyMethod = modifyMaxEnergy,
             TestCardSelectorCtor = testCardSelectorCtor,
             PushSelector = pushSelector,
+            TestCardSelectorPrepareIndices = testCardSelectorPrepareIndices,
+            CombatManagerInstance = combatManagerInstance,
+            CombatManagerSetUpCombat = combatManagerSetUpCombat,
         };
     }
 }

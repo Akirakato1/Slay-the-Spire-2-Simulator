@@ -58,6 +58,15 @@ fn oracle_setup(oracle: &mut Oracle) -> anyhow::Result<i64> {
             json!({ "handle": h, "monster_id": ENEMY_ID }),
         )?;
     }
+    // Upgrade Player.RunState from NullRunState → real RunState so
+    // cards that touch RunState (Discovery, Quasar, Charge, Catastrophe,
+    // Reanimate, etc. — anything that calls RunState.CreateCard<T> or
+    // similar) don't NRE. Best-effort: if init fails the sweep
+    // continues with NullRunState.
+    let _ = oracle.call(
+        "combat_init_run_state",
+        json!({ "handle": h, "seed": SEED.to_string() }),
+    );
     Ok(h)
 }
 

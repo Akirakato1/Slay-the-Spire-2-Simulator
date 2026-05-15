@@ -8995,9 +8995,13 @@ fn select_card_indices(
             out
         }
         Selector::PlayerInteractive { n } => {
-            // Deferred: until multi-step play API lands, fall back to
-            // Random selection. Deterministic given combat RNG.
-            let stub = Selector::Random { n: *n };
+            // Deterministic "pick the first n cards" — mirrors what
+            // the oracle's TestCardSelector returns when prepared
+            // with indices [0,1,...]. Both sides agree on the
+            // selection, so cards using PlayerInteractive (Acrobatics
+            // / DaggerThrow / Prepared / Survivor / etc.) produce
+            // matching dumps.
+            let stub = Selector::Bottom { n: *n };
             select_card_indices(cs, player_idx, pile, &stub)
         }
         Selector::PlayerInteractiveFiltered { n, filter } => {
