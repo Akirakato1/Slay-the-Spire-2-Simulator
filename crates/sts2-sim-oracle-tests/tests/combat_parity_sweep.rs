@@ -628,10 +628,16 @@ fn sweep_all_cards_on_ironclad() {
                 "Ironclad" | "Silent" | "Defect" | "Regent" | "Necrobinder"
                     | "Colorless" | "Token" | "Event"
             );
+            // MadScience requires TinkerTimeType to be set before OnPlay
+            // (via a prior Event/Reward flow) — the C# switch defaults
+            // to CardType.None and throws ArgumentOutOfRangeException.
+            // Not testable in this fresh-combat harness; skip it.
+            let skip_card = matches!(c.id.as_str(), "MadScience");
             playable_pool
                 && !c.has_energy_cost_x
                 && c.card_type != sts2_sim::card::CardType::Status
                 && c.card_type != sts2_sim::card::CardType::Curse
+                && !skip_card
         })
         .collect();
 

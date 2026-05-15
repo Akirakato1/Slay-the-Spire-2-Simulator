@@ -3706,6 +3706,11 @@ impl CombatState {
             // Mirrors C# ParticleWall.cs: the only card with this
             // override. Keeps the played card in hand for re-play.
             Some(PileType::Hand)
+        } else if card_id == "ShiningStrike" {
+            // ShiningStrike OnPlay: if not Exhaust + not ExhaustOnNextPlay,
+            // CardPileCmd.Add(this, Draw, Top). The keyword check fails
+            // (no Exhaust keyword) so it always routes to Draw top.
+            Some(PileType::Draw)
         } else {
             Some(PileType::Discard)
         };
@@ -3716,6 +3721,8 @@ impl CombatState {
             Some(PileType::Discard) => ps.discard.cards.push(played_card),
             Some(PileType::Exhaust) => ps.exhaust.cards.push(played_card),
             Some(PileType::Hand) => ps.hand.cards.push(played_card),
+            // ShiningStrike re-inserts at the TOP of draw (index 0).
+            Some(PileType::Draw) => ps.draw.cards.insert(0, played_card),
             None => { /* Power: consumed */ }
             _ => ps.discard.cards.push(played_card),
         }

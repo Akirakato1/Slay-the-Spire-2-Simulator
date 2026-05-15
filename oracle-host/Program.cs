@@ -987,11 +987,31 @@ internal sealed class Dispatcher
                 }
                 cardPlaySelectorScope?.Dispose();
                 // Route Play → result pile (always — partial plays still
-                // route).
-                _combat.PileRemoveInternal.Invoke(play, new object[] { card, true });
-                var dest = ResolvePileObject(pcs, resultPileVal);
-                if (dest != null)
-                    _combat.PileAddInternal.Invoke(dest, new object[] { card, -1, true });
+                // route). Some cards' OnPlay relocates `this` to draw
+                // (ShiningStrike) or exhaust (Cinder etc.) directly, so
+                // the card may no longer be in the play pile. Check
+                // membership first and skip the remove if it isn't.
+                bool stillInPlay = false;
+                try
+                {
+                    var playCardsList = (System.Collections.IList?)
+                        _combat.PileCards.GetValue(play);
+                    if (playCardsList != null)
+                    {
+                        foreach (var c in playCardsList)
+                        {
+                            if (ReferenceEquals(c, card)) { stillInPlay = true; break; }
+                        }
+                    }
+                }
+                catch { stillInPlay = true; }
+                if (stillInPlay)
+                {
+                    _combat.PileRemoveInternal.Invoke(play, new object[] { card, true });
+                    var dest = ResolvePileObject(pcs, resultPileVal);
+                    if (dest != null)
+                        _combat.PileAddInternal.Invoke(dest, new object[] { card, -1, true });
+                }
                 var resp = new JsonObject { ["result"] = onPlayError == null };
                 if (onPlayError != null)
                 {
@@ -1687,6 +1707,46 @@ internal static class GodotBypass
                 {
                     HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
                         m, typeof(SaveManagerPrefix), nullCardPrefix);
+                }
+            }
+        }
+
+        // CreatureCmd.Stun NREs because in headless the target has no
+        // intent populated (no NCombatRoom). Patch the static
+        // CreatureCmd.Stun overloads to no-op. Whistle / Tunneler /
+        // Shriek / FlutterPower-zero-stun all hit this.
+        var creatureCmdType = asm.GetType(
+            "MegaCrit.Sts2.Core.Commands.CreatureCmd",
+            throwOnError: false);
+        if (creatureCmdType != null)
+        {
+            foreach (var m in creatureCmdType.GetMethods(
+                BindingFlags.Public | BindingFlags.Static))
+            {
+                if (m.Name == "Stun")
+                {
+                    HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                        m, typeof(SaveManagerPrefix),
+                        nameof(SaveManagerPrefix.CompletedTaskPrefix));
+                }
+            }
+        }
+        // CombatManager.SetReadyToEndTurn NREs because it touches the
+        // RunManager queue. VoidForm / EndTurn-driven cards hit this.
+        // Patch to no-op so OnPlay can complete cleanly.
+        var combatManagerType = asm.GetType(
+            "MegaCrit.Sts2.Core.Combat.CombatManager",
+            throwOnError: false);
+        if (combatManagerType != null)
+        {
+            foreach (var m in combatManagerType.GetMethods(
+                BindingFlags.Public | BindingFlags.Instance))
+            {
+                if (m.Name == "SetReadyToEndTurn")
+                {
+                    HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                        m, typeof(SaveManagerPrefix),
+                        nameof(SaveManagerPrefix.NoOp));
                 }
             }
         }

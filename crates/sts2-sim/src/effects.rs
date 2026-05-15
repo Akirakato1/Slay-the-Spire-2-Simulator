@@ -6554,7 +6554,13 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ]),
         "Shame" => Some(vec![]),
         "Shatter" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
-        "ShiningStrike" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        "ShiningStrike" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) },
+        // Self-routing to Draw-top is handled by play_card's
+        // ShiningStrike override (combat.rs) rather than an Effect,
+        // because the card itself is the move source.
+        ]),
         "Shiv" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Shroud" => Some(vec![Effect::ApplyPower { power_id: "ShroudPower".to_string(), amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
         "ShrugItOff" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
