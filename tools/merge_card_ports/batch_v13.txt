@@ -1,0 +1,101 @@
+// batch_v13.txt - cards using MoveCardWithPosition / ClonePickedCardToPile /
+// DrawUntil / DiscardHandAndDrawSameCount / AutoplayFromDrawAmount.
+
+// Glimmer.cs: Draw Cards + interactive pick PutBack from Hand to Draw Top.
+        "Glimmer" => Some(vec![
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+            Effect::MoveCardWithPosition {
+                from: Pile::Hand,
+                to: Pile::Draw,
+                selector: Selector::PlayerInteractive { n: 1 },
+                position: PilePosition::Top,
+            },
+        ]),
+
+// Headbutt.cs: Damage + pick 1 from Discard to Draw Top.
+        "Headbutt" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::MoveCardWithPosition {
+                from: Pile::Discard,
+                to: Pile::Draw,
+                selector: Selector::PlayerInteractive { n: 1 },
+                position: PilePosition::Top,
+            },
+        ]),
+
+// Hologram.cs: GainBlock + pick 1 from Discard to Hand Bottom.
+        "Hologram" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::MoveCardWithPosition {
+                from: Pile::Discard,
+                to: Pile::Hand,
+                selector: Selector::PlayerInteractive { n: 1 },
+                position: PilePosition::Bottom,
+            },
+        ]),
+
+// PhotonCut.cs: Damage + Draw + pick 1 from Hand to Draw Top.
+        "PhotonCut" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+            Effect::MoveCardWithPosition {
+                from: Pile::Hand,
+                to: Pile::Draw,
+                selector: Selector::PlayerInteractive { n: 1 },
+                position: PilePosition::Top,
+            },
+        ]),
+
+// Dredge.cs: pick min(Cards, 10-HandSize) from Discard to Hand Bottom.
+// Approximated by PlayerInteractive with literal n=3 — the C# cap is
+// computed at runtime; our impl picks up to that many cards regardless
+// of hand size (the discard-pile may have fewer).
+        "Dredge" => Some(vec![Effect::MoveCardWithPosition {
+            from: Pile::Discard,
+            to: Pile::Hand,
+            selector: Selector::PlayerInteractive { n: 3 },
+            position: PilePosition::Bottom,
+        }]),
+
+// DualWield.cs: interactive pick Attack/Power from Hand + clone N to Hand.
+        "DualWield" => Some(vec![Effect::ClonePickedCardToPile {
+            from: Pile::Hand,
+            selector: Selector::PlayerInteractiveFiltered {
+                n: 1,
+                filter: CardFilter::Not(Box::new(CardFilter::OfType("Skill".to_string()))),
+            },
+            to_pile: Pile::Hand,
+            copies: AmountSpec::Canonical("Cards".to_string()),
+        }]),
+
+// Pillage.cs: Damage + draw-until-non-Attack (max 6 to bound the loop).
+        "Pillage" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::DrawUntil {
+                stop_filter: CardFilter::Not(Box::new(CardFilter::OfType("Attack".to_string()))),
+                max_count: 10,
+            },
+        ]),
+
+// CalculatedGamble.cs: discard hand + draw same count.
+        "CalculatedGamble" => Some(vec![Effect::DiscardHandAndDrawSameCount]),
+
+// Cascade.cs: X-cost AutoplayFromDraw (count = X + upgraded).
+        "Cascade" => Some(vec![Effect::AutoplayFromDrawAmount {
+            n: AmountSpec::Add {
+                left: Box::new(AmountSpec::XEnergy),
+                right: Box::new(AmountSpec::BranchedOnUpgrade { base: 0, upgraded: 1 }),
+            },
+        }]),
+
+// Cleanse.cs: remove Status / Curse cards from hand (exhaust them).
+        "Cleanse" => Some(vec![Effect::ExhaustCards {
+            from: Pile::Hand,
+            selector: Selector::FirstMatching {
+                n: i32::MAX,
+                filter: CardFilter::Or(
+                    Box::new(CardFilter::OfType("Status".to_string())),
+                    Box::new(CardFilter::OfType("Curse".to_string())),
+                ),
+            },
+        }]),

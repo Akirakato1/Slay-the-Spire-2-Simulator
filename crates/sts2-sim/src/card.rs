@@ -251,6 +251,7 @@ fn card_matches_filter(card: &CardData, filter: &crate::effects::CardFilter) -> 
         CardFilter::TaggedAs(tag) => card.tags.iter().any(|t| t == tag),
         CardFilter::OfRarity(r) => format!("{:?}", card.rarity).eq_ignore_ascii_case(r),
         CardFilter::And(a, b) => card_matches_filter(card, a) && card_matches_filter(card, b),
+        CardFilter::Or(a, b) => card_matches_filter(card, a) || card_matches_filter(card, b),
         CardFilter::Not(inner) => !card_matches_filter(card, inner),
         CardFilter::HasId(id) => &card.id == id,
         CardFilter::WithEnergyCost { op, value } => {

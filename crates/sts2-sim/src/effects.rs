@@ -212,6 +212,13 @@ pub enum AmountSpec {
     /// Player's missing HP (`max_hp - current_hp`). DeathsDoor:
     /// scale block by damage already taken.
     OwnerHpMissing,
+    /// Total damage dealt by the most recent DealDamage step in this
+    /// effect list (incl. overkill). Fisticuffs.
+    LastRealizedDamage,
+    /// Block gained by the most recent GainBlock step. DodgeAndRoll.
+    LastRealizedBlock,
+    /// Ethereal-tagged cards played by owner this turn. PullFromBelow.
+    EtherealCardsPlayedThisTurn,
 }
 
 /// Named card pool reference for `Effect::AddRandomCardFromPool`.
@@ -436,6 +443,8 @@ pub enum CardFilter {
     OfRarity(String),
     /// Logical AND of two filters.
     And(Box<CardFilter>, Box<CardFilter>),
+    /// Logical OR. Cleanse (Status or Curse).
+    Or(Box<CardFilter>, Box<CardFilter>),
     /// Logical NOT.
     Not(Box<CardFilter>),
     /// Exact card id (single-card filter; useful for "find SovereignBlade").
@@ -606,6 +615,31 @@ pub enum Effect {
     /// Used by Claw (increment plays counter) and similar self-ramping
     /// cards. Reads via `AmountSpec::SourceCardCounter`.
     IncrementSourceCardCounter { key: String, delta: AmountSpec },
+    /// Pick cards from `from` and insert into `to` at `position`.
+    /// Glimmer / Headbutt / Hologram / PhotonCut / Dredge.
+    MoveCardWithPosition {
+        from: Pile,
+        to: Pile,
+        selector: Selector,
+        position: PilePosition,
+    },
+    /// Pick one card from `from`, create `copies` clones in `to_pile`.
+    /// DualWield (pick Attack/Power, clone N to Hand).
+    ClonePickedCardToPile {
+        from: Pile,
+        selector: Selector,
+        to_pile: Pile,
+        copies: AmountSpec,
+    },
+    /// Draw cards until a drawn card matches `stop_filter`, capped at
+    /// `max_count`. Pillage (draws until non-Attack).
+    DrawUntil { stop_filter: CardFilter, max_count: i32 },
+    /// Discard entire hand, draw same count. CalculatedGamble.
+    DiscardHandAndDrawSameCount,
+    /// Auto-play `n` cards from the top of the draw pile. Replaces
+    /// the legacy i32-typed AutoplayFromDraw for X-cost shapes
+    /// (Cascade). Runtime is STUB — needs play_card recursion.
+    AutoplayFromDrawAmount { n: AmountSpec },
     /// Add `delta` to `PlayerState.relic_counters[key]`. Used by stateful
     /// relics (Kunai/Shuriken/HappyFlower/Pendulum/Pocketwatch/etc.) to
     /// implement "every Nth attack" / "after N turns" gating. `key`
@@ -812,6 +846,15 @@ pub enum CostScope {
     UntilPlayed,
 }
 
+/// Position to insert a card into a pile. Mirrors C# `CardPilePosition`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PilePosition {
+    /// Top of the pile (back of Vec; drawn first).
+    Top,
+    /// Bottom of the pile (front of Vec; drawn last).
+    Bottom,
+}
+
 /// Per-invocation context. Holds everything the dispatcher needs to
 /// resolve `AmountSpec`s and route effects to the right creature.
 #[derive(Debug)]
@@ -845,6 +888,14 @@ pub struct EffectContext<'a> {
     /// `source_card_id` is None — relic hooks share the same Effect
     /// vocabulary but their canonical-var table lives on `RelicData`.
     pub source_relic_id: Option<&'a str>,
+    /// Running total of damage dealt by the most recent `DealDamage`
+    /// step in the current effect list. Used by
+    /// `AmountSpec::LastRealizedDamage` (Fisticuffs). Interior mutability
+    /// so the dispatcher can update through `&EffectContext`.
+    pub last_realized_damage: std::cell::Cell<i32>,
+    /// Running total of block gained by the most recent `GainBlock`
+    /// step. Used by `AmountSpec::LastRealizedBlock` (DodgeAndRoll).
+    pub last_realized_block: std::cell::Cell<i32>,
 }
 
 impl<'a> EffectContext<'a> {
@@ -867,6 +918,8 @@ impl<'a> EffectContext<'a> {
             actor: (CombatSide::Player, player_idx),
             actor_amount: 0,
             source_relic_id: None,
+            last_realized_damage: std::cell::Cell::new(0),
+            last_realized_block: std::cell::Cell::new(0),
         }
     }
 
@@ -888,6 +941,8 @@ impl<'a> EffectContext<'a> {
             actor: (CombatSide::Enemy, actor_idx),
             actor_amount: 0,
             source_relic_id: None,
+            last_realized_damage: std::cell::Cell::new(0),
+            last_realized_block: std::cell::Cell::new(0),
         }
     }
 
@@ -908,6 +963,8 @@ impl<'a> EffectContext<'a> {
             actor,
             actor_amount: host_power_amount,
             source_relic_id: None,
+            last_realized_damage: std::cell::Cell::new(0),
+            last_realized_block: std::cell::Cell::new(0),
         }
     }
 
@@ -925,6 +982,8 @@ impl<'a> EffectContext<'a> {
             actor: (CombatSide::Player, player_idx),
             actor_amount: 0,
             source_relic_id: Some(relic_id),
+            last_realized_damage: std::cell::Cell::new(0),
+            last_realized_block: std::cell::Cell::new(0),
         }
     }
 
@@ -949,6 +1008,8 @@ impl<'a> EffectContext<'a> {
             actor: (CombatSide::Player, player_idx),
             actor_amount: 0,
             source_relic_id: Some(potion_id),
+            last_realized_damage: std::cell::Cell::new(0),
+            last_realized_block: std::cell::Cell::new(0),
         }
     }
 }
@@ -1234,8 +1295,29 @@ impl AmountSpec {
                 .get(ctx.player_idx)
                 .map(|c| (c.max_hp - c.current_hp).max(0))
                 .unwrap_or(0),
+            AmountSpec::LastRealizedDamage => ctx.last_realized_damage.get(),
+            AmountSpec::LastRealizedBlock => ctx.last_realized_block.get(),
+            AmountSpec::EtherealCardsPlayedThisTurn => {
+                ethereal_cards_played_this_turn(cs, ctx.player_idx)
+            }
         }
     }
+}
+
+fn ethereal_cards_played_this_turn(cs: &CombatState, player_idx: usize) -> i32 {
+    let turn_start = current_turn_start_idx(cs);
+    cs.combat_log
+        .iter()
+        .skip(turn_start)
+        .filter(|ev| match ev {
+            crate::combat::CombatEvent::CardPlayed {
+                player_idx: pid,
+                ethereal,
+                ..
+            } => *pid == player_idx && *ethereal,
+            _ => false,
+        })
+        .count() as i32
 }
 
 /// Per-power-id classifier used by `AmountSpec::TargetDebuffCount`. The
@@ -1427,6 +1509,9 @@ fn card_filter_matches_id(filter: &CardFilter, card_id: &str) -> bool {
         CardFilter::OfRarity(r) => format!("{:?}", card.rarity).eq_ignore_ascii_case(r),
         CardFilter::And(a, b) => {
             card_filter_matches_id(a, card_id) && card_filter_matches_id(b, card_id)
+        }
+        CardFilter::Or(a, b) => {
+            card_filter_matches_id(a, card_id) || card_filter_matches_id(b, card_id)
         }
         CardFilter::Not(inner) => !card_filter_matches_id(inner, card_id),
         CardFilter::HasId(id) => card_id == id,
@@ -2839,12 +2924,16 @@ fn card_metadata_matches_filter(
             card_metadata_matches_filter(card_type, keywords, tags, a)
                 && card_metadata_matches_filter(card_type, keywords, tags, b)
         }
+        CardFilter::Or(a, b) => {
+            card_metadata_matches_filter(card_type, keywords, tags, a)
+                || card_metadata_matches_filter(card_type, keywords, tags, b)
+        }
         CardFilter::Not(inner) => {
             !card_metadata_matches_filter(card_type, keywords, tags, inner)
         }
-        CardFilter::HasId(_) => false, // metadata-only path can't see id
-        CardFilter::WithEnergyCost { .. } => false, // not derivable from metadata
-        CardFilter::NotXCost => false, // not derivable from metadata
+        CardFilter::HasId(_) => false,
+        CardFilter::WithEnergyCost { .. } => false,
+        CardFilter::NotXCost => false,
     }
 }
 
@@ -4616,7 +4705,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 215 hand-curated arms covering Acrobatics..Rattle.
+        // 231 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -5203,6 +5292,115 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "EscapePlan" => Some(vec![Effect::DrawCards {
         amount: AmountSpec::Canonical("Cards".to_string()),
         }]),
+        "Fisticuffs" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainBlock { amount: AmountSpec::LastRealizedDamage, target: Target::SelfPlayer },
+        ]),
+        "DodgeAndRoll" => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        Effect::ApplyPower { power_id: "BlockNextTurnPower".to_string(), amount: AmountSpec::LastRealizedBlock, target: Target::SelfPlayer },
+        ]),
+        "PullFromBelow" => Some(vec![Effect::Repeat {
+        count: AmountSpec::EtherealCardsPlayedThisTurn,
+        body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }],
+        }]),
+        "Dirge" => Some(vec![Effect::Repeat {
+        count: AmountSpec::XEnergy,
+        body: vec![
+        Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) },
+        Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw },
+        ],
+        }]),
+        "CrimsonMantle" => Some(vec![
+        Effect::ApplyPower { power_id: "CrimsonMantlePower".to_string(), amount: AmountSpec::Canonical("CrimsonMantlePower".to_string()), target: Target::SelfPlayer },
+        Effect::IncrementSourceCardCounter { key: "self_damage".to_string(), delta: AmountSpec::Fixed(1) },
+        ]),
+        "GeneticAlgorithm" => Some(vec![
+        Effect::GainBlock {
+        amount: AmountSpec::Add {
+        left: Box::new(AmountSpec::Canonical("Block".to_string())),
+        right: Box::new(AmountSpec::SourceCardCounter { key: "ramp".to_string() }),
+        },
+        target: Target::SelfPlayer,
+        },
+        Effect::IncrementSourceCardCounter { key: "ramp".to_string(), delta: AmountSpec::Canonical("Increase".to_string()) },
+        ]),
+        "Glimmer" => Some(vec![
+        Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        Effect::MoveCardWithPosition {
+        from: Pile::Hand,
+        to: Pile::Draw,
+        selector: Selector::PlayerInteractive { n: 1 },
+        position: PilePosition::Top,
+        },
+        ]),
+        "Headbutt" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::MoveCardWithPosition {
+        from: Pile::Discard,
+        to: Pile::Draw,
+        selector: Selector::PlayerInteractive { n: 1 },
+        position: PilePosition::Top,
+        },
+        ]),
+        "Hologram" => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        Effect::MoveCardWithPosition {
+        from: Pile::Discard,
+        to: Pile::Hand,
+        selector: Selector::PlayerInteractive { n: 1 },
+        position: PilePosition::Bottom,
+        },
+        ]),
+        "PhotonCut" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+        Effect::MoveCardWithPosition {
+        from: Pile::Hand,
+        to: Pile::Draw,
+        selector: Selector::PlayerInteractive { n: 1 },
+        position: PilePosition::Top,
+        },
+        ]),
+        "Dredge" => Some(vec![Effect::MoveCardWithPosition {
+        from: Pile::Discard,
+        to: Pile::Hand,
+        selector: Selector::PlayerInteractive { n: 3 },
+        position: PilePosition::Bottom,
+        }]),
+        "DualWield" => Some(vec![Effect::ClonePickedCardToPile {
+        from: Pile::Hand,
+        selector: Selector::PlayerInteractiveFiltered {
+        n: 1,
+        filter: CardFilter::Not(Box::new(CardFilter::OfType("Skill".to_string()))),
+        },
+        to_pile: Pile::Hand,
+        copies: AmountSpec::Canonical("Cards".to_string()),
+        }]),
+        "Pillage" => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        Effect::DrawUntil {
+        stop_filter: CardFilter::Not(Box::new(CardFilter::OfType("Attack".to_string()))),
+        max_count: 10,
+        },
+        ]),
+        "CalculatedGamble" => Some(vec![Effect::DiscardHandAndDrawSameCount]),
+        "Cascade" => Some(vec![Effect::AutoplayFromDrawAmount {
+        n: AmountSpec::Add {
+        left: Box::new(AmountSpec::XEnergy),
+        right: Box::new(AmountSpec::BranchedOnUpgrade { base: 0, upgraded: 1 }),
+        },
+        }]),
+        "Cleanse" => Some(vec![Effect::ExhaustCards {
+        from: Pile::Hand,
+        selector: Selector::FirstMatching {
+        n: i32::MAX,
+        filter: CardFilter::Or(
+        Box::new(CardFilter::OfType("Status".to_string())),
+        Box::new(CardFilter::OfType("Curse".to_string())),
+        ),
+        },
+        }]),
 
         _ => None,
     }
@@ -5216,28 +5414,29 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             hits,
         } => {
             let amt = amount.resolve(ctx, cs);
-            // Bracket the hit loop with fire_before_attack /
-            // fire_after_attack so VigorPower (and future per-attack
-            // hooks: PainfulStabs, Skittish, Suck, Gigantification,
-            // Hellraiser) snapshot at the right boundary. Mirrors C#
-            // AttackCommand.Execute.
-            //
-            // For Target::AllEnemies / RandomEnemy the envelope still
-            // wraps the whole multi-hit; matches C# (one AttackCommand
-            // per .Targeting* call).
             let dealer = ctx.actor;
             cs.fire_before_attack(dealer);
             for _ in 0..(*hits).max(1) {
                 deal_damage_to(cs, ctx, *target, amt);
             }
             cs.fire_after_attack(dealer);
+            // Track realized damage for AmountSpec::LastRealizedDamage
+            // (Fisticuffs). Uses pre-modifier amount * hits as an
+            // approximation — actual outcome.total_damage isn't
+            // surfaced here.
+            ctx.last_realized_damage
+                .set(amt.max(0) * (*hits).max(1));
         }
         Effect::GainBlock { amount, target } => {
             let amt = amount.resolve(ctx, cs);
-            // Route via for_each so SelfActor (monster authoring)
-            // lands on the right creature. Player-side block goes
-            // through the modifier pipeline (Frail/Dex); enemy-side
-            // skips it (monster block has no Frail/Dex equivalent).
+            // Snapshot block-before for realized-block tracking
+            // (DodgeAndRoll). Only the SelfPlayer path participates in
+            // modifier pipeline; others add literal amt.
+            let block_before = cs
+                .allies
+                .get(ctx.player_idx)
+                .map(|c| c.block)
+                .unwrap_or(0);
             for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
                 if matches!(side, CombatSide::Player) {
                     cs.gain_block(CombatSide::Player, idx, amt);
@@ -5245,6 +5444,12 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                     c.block += amt.max(0);
                 }
             });
+            let block_after = cs
+                .allies
+                .get(ctx.player_idx)
+                .map(|c| c.block)
+                .unwrap_or(0);
+            ctx.last_realized_block.set((block_after - block_before).max(0));
         }
         Effect::ApplyPower {
             power_id,
@@ -5566,6 +5771,129 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 let entry = ps.relic_counters.entry(namespaced).or_insert(0);
                 *entry += d;
             }
+        }
+        Effect::MoveCardWithPosition {
+            from,
+            to,
+            selector,
+            position,
+        } => {
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            let mut sorted = picks;
+            sorted.sort_unstable_by(|a, b| b.cmp(a));
+            for idx in sorted {
+                if let Some(card) = remove_card_from_pile(cs, ctx.player_idx, *from, idx) {
+                    if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                        let dest = match to {
+                            Pile::Hand => &mut ps.hand,
+                            Pile::Discard => &mut ps.discard,
+                            Pile::Draw => &mut ps.draw,
+                            Pile::Exhaust => &mut ps.exhaust,
+                            Pile::Deck => continue,
+                        };
+                        match position {
+                            PilePosition::Top => dest.cards.push(card),
+                            PilePosition::Bottom => dest.cards.insert(0, card),
+                        }
+                    }
+                }
+            }
+        }
+        Effect::ClonePickedCardToPile {
+            from,
+            selector,
+            to_pile,
+            copies,
+        } => {
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            let n = copies.resolve(ctx, cs).max(0) as usize;
+            // Snapshot picked card-ids (don't remove from source).
+            let picked_ids: Vec<(String, i32)> = {
+                let Some(ps) = cs
+                    .allies
+                    .get(ctx.player_idx)
+                    .and_then(|c| c.player.as_ref())
+                else {
+                    return;
+                };
+                let source_pile = match from {
+                    Pile::Hand => &ps.hand,
+                    Pile::Discard => &ps.discard,
+                    Pile::Draw => &ps.draw,
+                    Pile::Exhaust => &ps.exhaust,
+                    Pile::Deck => return,
+                };
+                picks
+                    .iter()
+                    .filter_map(|i| source_pile.cards.get(*i))
+                    .map(|c| (c.id.clone(), c.upgrade_level))
+                    .collect()
+            };
+            for (cid, upg) in picked_ids {
+                let Some(data) = crate::card::by_id(&cid) else {
+                    continue;
+                };
+                if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                    let dest = match to_pile {
+                        Pile::Hand => &mut ps.hand,
+                        Pile::Discard => &mut ps.discard,
+                        Pile::Draw => &mut ps.draw,
+                        Pile::Exhaust => &mut ps.exhaust,
+                        Pile::Deck => continue,
+                    };
+                    for _ in 0..n {
+                        dest.cards.push(crate::combat::CardInstance::from_card(data, upg));
+                    }
+                }
+            }
+        }
+        Effect::DrawUntil {
+            stop_filter,
+            max_count,
+        } => {
+            // Iteratively draw cards; stop when the most-recently-drawn
+            // card matches stop_filter or we hit max_count.
+            for _ in 0..(*max_count).max(0) {
+                let pre_hand_len = cs
+                    .allies
+                    .get(ctx.player_idx)
+                    .and_then(|c| c.player.as_ref())
+                    .map(|ps| ps.hand.cards.len())
+                    .unwrap_or(0);
+                cs.draw_cards_self_rng(ctx.player_idx, 1);
+                let post = cs
+                    .allies
+                    .get(ctx.player_idx)
+                    .and_then(|c| c.player.as_ref())
+                    .map(|ps| (ps.hand.cards.len(), ps.hand.cards.last().cloned()))
+                    .unwrap_or((0, None));
+                if post.0 == pre_hand_len {
+                    break; // nothing to draw
+                }
+                let Some(last) = post.1 else { break };
+                if matches_filter(&last, stop_filter) {
+                    break;
+                }
+            }
+        }
+        Effect::DiscardHandAndDrawSameCount => {
+            // Snapshot hand size, discard hand, draw same count.
+            let n = cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.hand.cards.len() as i32)
+                .unwrap_or(0);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                let drained: Vec<crate::combat::CardInstance> = ps.hand.cards.drain(..).collect();
+                ps.discard.cards.extend(drained);
+            }
+            cs.draw_cards_self_rng(ctx.player_idx, n);
+        }
+        Effect::AutoplayFromDrawAmount { n: _ } => {
+            // STUB: full auto-play recursion into play_card still
+            // pending — same status as the legacy AutoplayFromDraw.
+            // Encoded shape lets Cascade etc. land as data.
         }
         Effect::ModifyRelicCounter { key, delta } => {
             let d = delta.resolve(ctx, cs);
@@ -6295,6 +6623,7 @@ fn matches_filter(card: &crate::combat::CardInstance, filter: &CardFilter) -> bo
             format!("{:?}", data.rarity).eq_ignore_ascii_case(r)
         }
         CardFilter::And(a, b) => matches_filter(card, a) && matches_filter(card, b),
+        CardFilter::Or(a, b) => matches_filter(card, a) || matches_filter(card, b),
         CardFilter::Not(inner) => !matches_filter(card, inner),
         CardFilter::HasId(id) => &card.id == id,
         CardFilter::WithEnergyCost { op, value } => compare(data.energy_cost, *op, *value),

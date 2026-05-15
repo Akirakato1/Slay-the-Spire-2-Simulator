@@ -1,0 +1,54 @@
+// batch_v12.txt - cards unblocked by realized-damage/block tracking,
+// EtherealCardsPlayedThisTurn, and the source-card counter pattern.
+
+// Fisticuffs.cs: damage chosen + GainBlock(realized-damage).
+        "Fisticuffs" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::GainBlock { amount: AmountSpec::LastRealizedDamage, target: Target::SelfPlayer },
+        ]),
+
+// DodgeAndRoll.cs: GainBlock + Apply<BlockNextTurnPower>(realized-block).
+        "DodgeAndRoll" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::ApplyPower { power_id: "BlockNextTurnPower".to_string(), amount: AmountSpec::LastRealizedBlock, target: Target::SelfPlayer },
+        ]),
+
+// PullFromBelow.cs: hits = ethereal-cards-played-this-turn.
+        "PullFromBelow" => Some(vec![Effect::Repeat {
+            count: AmountSpec::EtherealCardsPlayedThisTurn,
+            body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }],
+        }]),
+
+// Dirge.cs: X-cost loop summoning Osty(MaxHp=Summon) + adding X Soul cards
+// to draw. Summon var is 3 (HP per Osty); X is the cost paid.
+        "Dirge" => Some(vec![Effect::Repeat {
+            count: AmountSpec::XEnergy,
+            body: vec![
+                Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) },
+                Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw },
+            ],
+        }]),
+
+// CrimsonMantle.cs: Apply<CrimsonMantlePower>(self, 8) + IncrementSelfDamage.
+// The IncrementSelfDamage call modifies the freshly-applied power's
+// internal SelfDamage counter. We encode the apply + bump source-card
+// counter as a proxy (the power's actual SelfDamage state isn't wired,
+// but the per-card-id counter tracks the play count for observability).
+        "CrimsonMantle" => Some(vec![
+            Effect::ApplyPower { power_id: "CrimsonMantlePower".to_string(), amount: AmountSpec::Canonical("CrimsonMantlePower".to_string()), target: Target::SelfPlayer },
+            Effect::IncrementSourceCardCounter { key: "self_damage".to_string(), delta: AmountSpec::Fixed(1) },
+        ]),
+
+// GeneticAlgorithm.cs: GainBlock(CurrentBlock counter) + BuffFromPlay(+Increase).
+// The card's own Block var increments by Increase each play across the deck.
+// Use SourceCardCounter for the per-card-id ramp.
+        "GeneticAlgorithm" => Some(vec![
+            Effect::GainBlock {
+                amount: AmountSpec::Add {
+                    left: Box::new(AmountSpec::Canonical("Block".to_string())),
+                    right: Box::new(AmountSpec::SourceCardCounter { key: "ramp".to_string() }),
+                },
+                target: Target::SelfPlayer,
+            },
+            Effect::IncrementSourceCardCounter { key: "ramp".to_string(), delta: AmountSpec::Canonical("Increase".to_string()) },
+        ]),

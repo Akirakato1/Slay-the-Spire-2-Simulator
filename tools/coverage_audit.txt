@@ -1,79 +1,63 @@
 # Data-driven coverage audit
 
-**Cards**:   data-table  545/577  (94.5%) +  legacy-match-arm-only 0  =  total handled 545/577 (94.5%)
+**Cards**:   data-table  561/577  (97.2%) +  legacy-match-arm-only 0  =  total handled 561/577 (97.2%)
 **Relics**:  encoded   87/294  (29.6%)  -> gap 207
 **Potions**: encoded   56/64  (87.5%)  -> gap 8
 
-Total entries in data tables: 688
+Total entries in data tables: 704
 
 ## Top primitives by use count
-   551  AmountSpec::Canonical
-   247  Effect::ApplyPower
-   190  Effect::DealDamage
-    87  Effect::GainBlock
-    76  AmountSpec::Fixed
-    56  Effect::DrawCards
+   563  AmountSpec::Canonical
+   249  Effect::ApplyPower
+   195  Effect::DealDamage
+    91  Effect::GainBlock
+    77  AmountSpec::Fixed
+    58  Effect::DrawCards
+    39  Effect::Repeat
     38  Effect::GainEnergy
-    37  Effect::Repeat
     37  Effect::Conditional
     25  AmountSpec::Mul
+    24  AmountSpec::Add
     23  RelicHook::AfterSideTurnStart
-    22  AmountSpec::Add
     19  Effect::AddRandomCardFromPool
-    17  Effect::AddCardToPile
+    18  Effect::AddCardToPile
     16  RelicHook::AfterCardPlayed
     15  RelicHook::BeforeCombatStart
     14  Effect::ChannelOrb
-    11  Effect::SummonOsty
+    12  Effect::SummonOsty
      9  Effect::GainStars
+     9  AmountSpec::XEnergy
      9  Effect::MoveCard
      8  AmountSpec::CardCountInPile
      8  Effect::Forge
      8  Condition::Not
      7  Effect::LoseHp
      7  Effect::DamageFromOsty
-     7  AmountSpec::XEnergy
      7  Condition::IsOstyMissing
      7  CardPoolRef::Colorless
      7  Condition::RoundEquals
      7  RelicHook::BeforeTurnEnd
+     6  Effect::ExhaustCards
      6  Effect::Heal
      6  RelicHook::BeforeSideTurnStart
      6  RelicHook::AfterDamageReceived
      5  AmountSpec::TargetPowerAmount
-     5  Effect::ExhaustCards
      5  CardPoolRef::CharacterAttack
      5  Condition::IsUpgraded
+     5  Effect::IncrementSourceCardCounter
+     5  Effect::MoveCardWithPosition
      5  RelicHook::AfterPlayerTurnStart
-     4  AmountSpec::TargetBlock
-     4  Effect::TransformIntoSpecific
 
 ## Unencoded cards (gap)
-  - CalculatedGamble
   - CaptureSpirit
-  - Cascade
-  - Cleanse
   - CrescentSpear
-  - CrimsonMantle
   - DecisionsDecisions
-  - Dirge
-  - DodgeAndRoll
-  - Dredge
-  - DualWield
-  - Fisticuffs
   - FlakCannon
-  - GeneticAlgorithm
-  - Glimmer
-  - Headbutt
   - HiddenGem
-  - Hologram
   - Modded
   - Monologue
   - Nightmare
   - Omnislice
-  - PhotonCut
-  - Pillage
-  - PullFromBelow
   - Rattle
   - RightHandHand
   - Severance
