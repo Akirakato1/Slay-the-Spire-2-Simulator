@@ -1199,6 +1199,16 @@ internal static class GodotBypass
             "MegaCrit.Sts2.Core.Combat.CombatManager", "get_IsEnding",
             BindingFlags.Public | BindingFlags.Instance,
             typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.FalsePrefix));
+        // CardPile.RandomizeOrderInternal → no-op so the draw pile
+        // stays in starter-deck order. Parity-tests on the Rust side
+        // don't shuffle either (the audit cares about behavior, not
+        // randomness). When we add explicit RNG parity tests later,
+        // we can remove this patch and seed both sides identically.
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Entities.Cards.CardPile", "RandomizeOrderInternal",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NoOp));
+
         // Sfx / Vfx commands rely on Godot scene nodes — no-op them.
         PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Commands.SfxCmd");

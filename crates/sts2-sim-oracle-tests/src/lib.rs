@@ -5,6 +5,8 @@
 //! `tests/`; they spawn the oracle, drive both implementations with the same
 //! inputs, and assert bit-exact outputs.
 
+pub mod rust_rig;
+
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
