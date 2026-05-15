@@ -49,7 +49,13 @@ fn relic_canonical_int_value(relic_id: &str, var_kind: &str) -> i32 {
         return 0;
     };
     for v in &relic.canonical_vars {
+        // Match against kind ("Damage"/"Block"/"Heal"/etc.), generic
+        // ("VigorPower"), generic-without-Power-suffix ("Vigor"), or
+        // the dynamic key ("DazedCount", "HpThreshold", "StrengthLoss").
+        // The key path catches relics like TeaOfDiscourtesy whose
+        // canonical_vars use kind="Dynamic" + key="DazedCount".
         if v.kind == var_kind
+            || v.key.as_deref() == Some(var_kind)
             || v.generic.as_deref() == Some(var_kind)
             || v
                 .generic
@@ -358,6 +364,11 @@ pub enum Condition {
     /// Used by GoForTheEyes ("apply Weak only if target is attacking").
     /// Dummies and non-attacking monsters return false.
     TargetMonsterIntendsToAttack,
+    /// Owner's current HP is at-or-below `percent`% of MaxHp.
+    /// Mirrors RedSkull's `CurrentHp > MaxHp * HpThreshold/100`
+    /// check (RedSkull fires only when HP <= 50%). Reads
+    /// `cs.allies[player_idx].{current_hp,max_hp}`.
+    OwnerHpAtOrBelowPercent { percent: i32 },
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -4881,11 +4892,18 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         ]),
 
         "RedSkull" => Some(vec![
+            // C# RedSkull.ModifyStrengthIfNecessary fires only when
+            // CurrentHp <= MaxHp * HpThreshold/100 (HpThreshold=50%).
+            // Otherwise the strength is dormant. Apply gated.
             (RelicHook::BeforeCombatStart,
-             vec![Effect::ApplyPower {
-                 power_id: "StrengthPower".to_string(),
-                 amount: AmountSpec::Canonical("Strength".to_string()),
-                 target: Target::SelfPlayer,
+             vec![Effect::Conditional {
+                 condition: Condition::OwnerHpAtOrBelowPercent { percent: 50 },
+                 then_branch: vec![Effect::ApplyPower {
+                     power_id: "StrengthPower".to_string(),
+                     amount: AmountSpec::Canonical("Strength".to_string()),
+                     target: Target::SelfPlayer,
+                 }],
+                 else_branch: vec![],
              }]),
         ]),
 
@@ -5054,13 +5072,22 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         ]),
 
         "EmberTea" => Some(vec![
+            // C# EmberTea has a private `_combatsLeft` field initialized
+            // to 5. Each combat: if !IsUsedUp (combatsLeft > 0), apply
+            // Strength and decrement. Equivalent counter-counting-up:
+            // "combats_used" starts at 0; fire while < 5, then increment.
             (RelicHook::BeforeCombatStart,
              vec![
                 Effect::Conditional {
-                    condition: Condition::RelicCounterGe { key: "EmberTea_charges".to_string(), value: 1 },
+                    condition: Condition::Not(Box::new(
+                        Condition::RelicCounterGe {
+                            key: "EmberTea_combats_used".to_string(),
+                            value: 5,
+                        },
+                    )),
                     then_branch: vec![
                         Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer },
-                        Effect::ModifyRelicCounter { key: "EmberTea_charges".to_string(), delta: AmountSpec::Fixed(-1) },
+                        Effect::ModifyRelicCounter { key: "EmberTea_combats_used".to_string(), delta: AmountSpec::Fixed(1) },
                     ],
                     else_branch: vec![],
                 },
@@ -5627,6 +5654,16 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         ]),
 
         "BeltBuckle" => Some(vec![
+            // C# BeltBuckle.BeforeCombatStart: if owner has no potions,
+            // apply Dexterity (DexterityPower amount = Dexterity canonical).
+            // We don't model potions on the combat-side PlayerState in
+            // the parity test, so the no-potion gate is always true.
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::ApplyPower {
+                 power_id: "DexterityPower".to_string(),
+                 amount: AmountSpec::Canonical("Dexterity".to_string()),
+                 target: Target::SelfPlayer,
+             }]),
         ]),
 
         "PaelsWing" => Some(vec![
@@ -8707,6 +8744,13 @@ pub fn evaluate_condition(
                 CombatSide::None => None,
             };
             creature.map(|c| c.current_hp > 0).unwrap_or(false)
+        }
+        Condition::OwnerHpAtOrBelowPercent { percent } => {
+            let Some(c) = cs.allies.get(ctx.player_idx) else {
+                return false;
+            };
+            // RedSkull: current_hp <= max_hp * percent / 100.
+            c.current_hp * 100 <= c.max_hp * (*percent)
         }
         Condition::TargetMonsterIntendsToAttack => {
             let Some((side, idx)) = ctx.target else {
