@@ -282,7 +282,10 @@ pub fn combat_add_player(cs: &mut CombatState, character_modelid: &str, _seed: u
             pending_gold: 0,
             pending_stars: 0,
             orb_queue: Vec::new(),
-            orb_slots: 3,
+            // Only Defect starts with 3 orb slots; other characters
+            // start at 0 and auto-bump to 1 on first channel. Mirrors
+            // C# BaseOrbSlotCount and OrbCmd.Channel auto-AddSlots(1).
+            orb_slots: if cd.id == "Defect" { 3 } else { 0 },
             pending_forge: 0,
             osty: None,
             relic_counters: std::collections::HashMap::new(),

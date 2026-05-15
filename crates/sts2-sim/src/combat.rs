@@ -2763,6 +2763,28 @@ impl CombatState {
     /// + `PlayerCombatState.AddOrbToQueue`. If the queue is full,
     /// evoke the front orb first to make room.
     pub fn channel_orb(&mut self, player_idx: usize, orb_id: &str) {
+        // Normalize orb id. Encodings use both "Frost" and "FrostOrb"
+        // interchangeably; downstream evoke/passive routines key on
+        // "FrostOrb"/"LightningOrb"/"DarkOrb"/"PlasmaOrb"/"GlassOrb".
+        let norm: String = if orb_id.ends_with("Orb") {
+            orb_id.to_string()
+        } else {
+            format!("{orb_id}Orb")
+        };
+        let orb_id: &str = &norm;
+        // C# OrbCmd.Channel: if the character has BaseOrbSlotCount==0
+        // (non-Defect) and Capacity==0, AddSlots(1) before proceeding.
+        // Channelling a non-Defect character's first orb expands the
+        // queue to 1 slot rather than overflow-evoking it.
+        if let Some(ps) = self
+            .allies
+            .get_mut(player_idx)
+            .and_then(|c| c.player.as_mut())
+        {
+            if ps.orb_slots == 0 {
+                ps.orb_slots = 1;
+            }
+        }
         let needs_evict = self
             .allies
             .get(player_idx)
@@ -2872,17 +2894,18 @@ impl CombatState {
                 );
             }
             "FrostOrb" => {
-                // GainBlock(8, Unpowered) on self. C# FrostOrb.cs.
+                // C# FrostOrb.EvokeVal = ModifyOrbValue(5m), Unpowered.
                 self.gain_block_with_props(
                     CombatSide::Player,
                     player_idx,
-                    8,
+                    5,
                     ValueProp::UNPOWERED,
                 );
             }
             "DarkOrb" => {
-                // Damage the lowest-HP alive enemy by (8 + accumulated charge).
-                // C# DarkOrb.cs: evoke applies stored _evokeVal.
+                // C# DarkOrb._evokeVal starts at 6m; passive adds
+                // PassiveVal=6 per trigger. Evoke = _evokeVal applied as
+                // unpowered damage to weakest enemy.
                 let alive: Vec<(usize, i32)> = self
                     .enemies
                     .iter()
@@ -2900,7 +2923,7 @@ impl CombatState {
                 self.deal_damage(
                     (CombatSide::Player, player_idx),
                     (CombatSide::Enemy, target_idx),
-                    8 + orb.evoke_val_bonus,
+                    6 + orb.evoke_val_bonus,
                     ValueProp::UNPOWERED,
                 );
             }
@@ -2946,10 +2969,11 @@ impl CombatState {
                 );
             }
             "FrostOrb" => {
+                // C# FrostOrb.PassiveVal = ModifyOrbValue(2m).
                 self.gain_block_with_props(
                     CombatSide::Player,
                     player_idx,
-                    3,
+                    2,
                     ValueProp::UNPOWERED,
                 );
             }
@@ -11905,7 +11929,11 @@ impl Creature {
                 pending_gold: 0,
                 pending_stars: 0,
                 orb_queue: Vec::new(),
-                orb_slots: 3,
+                // Only Defect starts with 3 orb slots; all other
+                // characters start with 0 and auto-bump to 1 on the
+                // first channel (see `channel_orb`). Mirrors C#
+                // `CharacterData.BaseOrbSlotCount`.
+                orb_slots: if setup.character.id == "Defect" { 3 } else { 0 },
                 pending_forge: 0,
                 osty: None,
                 relic_counters: std::collections::HashMap::new(),

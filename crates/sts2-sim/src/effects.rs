@@ -6228,7 +6228,11 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Furnace" => Some(vec![Effect::ApplyPower { power_id: "FurnacePower".to_string(), amount: AmountSpec::Canonical("Forge".to_string()), target: Target::SelfPlayer }]),
         "Genesis" => Some(vec![Effect::ApplyPower { power_id: "GenesisPower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
         "GiantRock" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
-        "Glacier" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        "Glacier" => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        Effect::ChannelOrb { orb_id: "FrostOrb".to_string() },
+        Effect::ChannelOrb { orb_id: "FrostOrb".to_string() },
+        ]),
         "Glasswork" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
         "Glitterstream" => Some(vec![
             Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
@@ -9706,8 +9710,9 @@ mod tests {
             1
         );
         execute_effects(&mut cs, &[Effect::EvokeNextOrb], &ctx);
-        // FrostOrb evoke = 8 block (unpowered).
-        assert_eq!(cs.allies[0].block, block_before + 8);
+        // FrostOrb evoke = 5 block (unpowered). Matches C#
+        // FrostOrb.EvokeVal = ModifyOrbValue(5m).
+        assert_eq!(cs.allies[0].block, block_before + 5);
         assert_eq!(cs.allies[0].player.as_ref().unwrap().orb_queue.len(), 0);
     }
 
@@ -9733,8 +9738,8 @@ mod tests {
         );
         assert_eq!(cs.allies[0].player.as_ref().unwrap().orb_queue.len(), 2);
         let block_before = cs.allies[0].block;
-        // Third channel at capacity: front evokes (8 block), new orb
-        // pushed.
+        // Third channel at capacity: front evokes (5 block from Frost),
+        // new orb pushed.
         execute_effects(
             &mut cs,
             &[Effect::ChannelOrb {
@@ -9742,7 +9747,7 @@ mod tests {
             }],
             &ctx,
         );
-        assert_eq!(cs.allies[0].block, block_before + 8);
+        assert_eq!(cs.allies[0].block, block_before + 5);
         let queue = &cs.allies[0].player.as_ref().unwrap().orb_queue;
         assert_eq!(queue.len(), 2);
         assert_eq!(queue.last().unwrap().id, "LightningOrb");
