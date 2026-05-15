@@ -153,6 +153,13 @@ fn collect_diffs(
         }
         (a, b) if a == b => {}
         (a, b) => {
+            // Drop creature .name diffs — oracle's
+            // LocString.GetFormattedText is Harmony-patched to return
+            // "" (relic-sweep infra needs it), while rust serializes
+            // null. Not a card-behavior signal.
+            if path.ends_with(".name") {
+                return;
+            }
             out.push((path.to_string(), a.clone(), b.clone()));
         }
     }

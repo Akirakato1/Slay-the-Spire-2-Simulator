@@ -733,6 +733,7 @@ internal sealed class Dispatcher
                 var canonicalRelic = _combat.GetRelicById(relicId);
                 var mutableRelic = _combat.RelicToMutable.Invoke(canonicalRelic, null)!;
                 SaveManagerPrefix.CombatInProgress = false;
+                SaveManagerPrefix.RelicGrantInProgress = true;
                 // Push an empty TestCardSelector so CardSelectCmd.FromDeck*
                 // calls inside relic.AfterObtained (Astrolabe, Pomander,
                 // Claws, NewLeaf, Beautiful/TriBoomerang/RoyalStamp,
@@ -760,6 +761,7 @@ internal sealed class Dispatcher
                 {
                     selectorScope?.Dispose();
                     SaveManagerPrefix.CombatInProgress = true;
+                    SaveManagerPrefix.RelicGrantInProgress = false;
                     return new JsonObject {
                         ["error"] = new JsonObject {
                             ["code"] = -32000,
@@ -769,6 +771,7 @@ internal sealed class Dispatcher
                 }
                 selectorScope?.Dispose();
                 SaveManagerPrefix.CombatInProgress = true;
+                SaveManagerPrefix.RelicGrantInProgress = false;
                 return Ok(JsonValue.Create(true));
             }
 
@@ -1660,6 +1663,13 @@ internal static class SaveManagerPrefix
         __result = CombatInProgress;
         return false;
     }
+    /// Static toggle for the CardSelectCmd.From* patches. They must
+    /// only be active during `combat_grant_relic` — otherwise card-play
+    /// tests (Prepared / DaggerThrow / Acrobatics / Discovery / Quasar /
+    /// Seance / Splash etc.) get empty selections instead of the C#
+    /// game's normal "auto-return-all-when-list.Count <= MinSelect"
+    /// fallback, producing test divergences. Default false (off).
+    public static bool RelicGrantInProgress = false;
     // Skip + return a completed Task for async-Task void-effect methods.
     public static bool CompletedTaskPrefix(ref Task __result)
     {
@@ -1697,6 +1707,9 @@ internal static class SaveManagerPrefix
     private static object? _emptyCardEnumerableTask;
     public static bool EmptyCardEnumerableTaskPrefix(ref object __result)
     {
+        // Only intercept during relic grant — otherwise let normal
+        // card-play flow execute (auto-return-all-when-MinSelect-fits).
+        if (!RelicGrantInProgress) return true;
         if (_emptyCardEnumerableTask == null && CardModelType != null)
         {
             var arrayEmpty = typeof(Array).GetMethod("Empty",
@@ -1719,6 +1732,7 @@ internal static class SaveManagerPrefix
     private static object? _nullCardTask;
     public static bool NullCardTaskPrefix(ref object __result)
     {
+        if (!RelicGrantInProgress) return true;
         if (_nullCardTask == null && CardModelType != null)
         {
             var taskFromResult = typeof(Task).GetMethods(
