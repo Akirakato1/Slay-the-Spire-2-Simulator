@@ -732,13 +732,22 @@ internal sealed class Dispatcher
                 var ownerPlayer = _combat.CreaturePlayer.GetValue(ownerCreature)!;
                 var canonicalRelic = _combat.GetRelicById(relicId);
                 var mutableRelic = _combat.RelicToMutable.Invoke(canonicalRelic, null)!;
-                // Flip CombatManager.IsInProgress=false for the duration
-                // of Obtain so AfterObtained takes the out-of-combat
-                // branch (matches normal-gameplay relic acquisition).
-                // Without this, relics with both AfterObtained and
-                // BeforeCombatStart paths fire their effect twice
-                // (once mid-grant, once at our explicit BCS firing).
                 SaveManagerPrefix.CombatInProgress = false;
+                // Push an empty TestCardSelector so CardSelectCmd.FromDeck*
+                // calls inside relic.AfterObtained (Astrolabe, Pomander,
+                // Claws, NewLeaf, Beautiful/TriBoomerang/RoyalStamp,
+                // etc.) return an empty selection instead of NREing on
+                // the missing Godot card-select screen.
+                IDisposable? selectorScope = null;
+                if (_combat.TestCardSelectorCtor != null && _combat.PushSelector != null)
+                {
+                    try
+                    {
+                        var sel = _combat.TestCardSelectorCtor.Invoke(null);
+                        selectorScope = (IDisposable?)_combat.PushSelector.Invoke(null, new[] { sel });
+                    }
+                    catch { /* selector push best-effort */ }
+                }
                 try
                 {
                     var task = _combat.RelicCmdObtain.Invoke(null,
@@ -749,6 +758,7 @@ internal sealed class Dispatcher
                 }
                 catch (Exception ex)
                 {
+                    selectorScope?.Dispose();
                     SaveManagerPrefix.CombatInProgress = true;
                     return new JsonObject {
                         ["error"] = new JsonObject {
@@ -757,6 +767,7 @@ internal sealed class Dispatcher
                         },
                     };
                 }
+                selectorScope?.Dispose();
                 SaveManagerPrefix.CombatInProgress = true;
                 return Ok(JsonValue.Create(true));
             }
@@ -1424,6 +1435,63 @@ internal static class GodotBypass
         // dispatch's interactive paths (Loc strings).
         PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Localization.LocManager");
+        // Patch CardSelectCmd.From* methods to return empty selections.
+        // Many Ancient relics' AfterObtained calls these (Astrolabe,
+        // Pomander, Claws, NewLeaf, Beautiful/TriBoomerang/RoyalStamp,
+        // PaelsGrowth, etc.) — they NRE on
+        // RunManager.Instance.PlayerChoiceSynchronizer.ReserveChoiceId.
+        // Empty selection mirrors the "player skipped" outcome.
+        SaveManagerPrefix.CardModelType = asm.GetType("MegaCrit.Sts2.Core.Models.CardModel",
+            throwOnError: true);
+        var cardSelectType = asm.GetType("MegaCrit.Sts2.Core.Commands.CardSelectCmd",
+            throwOnError: false);
+        if (cardSelectType != null)
+        {
+            var emptyEnumPrefix = nameof(SaveManagerPrefix.EmptyCardEnumerableTaskPrefix);
+            string[] fromMethods = {
+                "FromDeckForUpgrade",
+                "FromDeckForTransformation",
+                "FromDeckForEnchantment",
+                "FromDeckGeneric",
+                "FromHand",
+                "FromHandForDiscard",
+                "FromSimpleGrid",
+            };
+            foreach (var name in fromMethods)
+            {
+                foreach (var m in cardSelectType.GetMethods(
+                    BindingFlags.Public | BindingFlags.Static
+                        | BindingFlags.DeclaredOnly))
+                {
+                    if (m.Name == name)
+                    {
+                        HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                            m, typeof(SaveManagerPrefix), emptyEnumPrefix);
+                    }
+                }
+            }
+            // Task<CardModel> variant (FromChooseACardScreen,
+            // FromHandForUpgrade).
+            var nullCardPrefix = nameof(SaveManagerPrefix.NullCardTaskPrefix);
+            string[] singleCardMethods = {
+                "FromChooseACardScreen",
+                "FromHandForUpgrade",
+            };
+            foreach (var name in singleCardMethods)
+            {
+                foreach (var m in cardSelectType.GetMethods(
+                    BindingFlags.Public | BindingFlags.Static
+                        | BindingFlags.DeclaredOnly))
+                {
+                    if (m.Name == name)
+                    {
+                        HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                            m, typeof(SaveManagerPrefix), nullCardPrefix);
+                    }
+                }
+            }
+        }
+
         // NullRunState.CreateCard normally throws. Replace with
         // ToMutable+Owner so RelicCmd.Obtain bodies that call
         // RunState.CreateCard<X>(player) followed by CardPileCmd.Add to
@@ -1604,6 +1672,48 @@ internal static class SaveManagerPrefix
         __result = mutable;
         return false;
     }
+    // CardSelectCmd.From* prefix — returns an empty
+    // Task<IEnumerable<CardModel>> so AfterObtained bodies that call
+    // FromDeckForTransformation / FromDeckForEnchantment /
+    // FromDeckForUpgrade / FromDeckGeneric / FromChooseACardScreen
+    // don't NRE on RunManager.Instance.PlayerChoiceSynchronizer.
+    public static Type? CardModelType;
+    private static object? _emptyCardEnumerableTask;
+    public static bool EmptyCardEnumerableTaskPrefix(ref object __result)
+    {
+        if (_emptyCardEnumerableTask == null && CardModelType != null)
+        {
+            var arrayEmpty = typeof(Array).GetMethod("Empty",
+                BindingFlags.Public | BindingFlags.Static)!
+                .MakeGenericMethod(CardModelType);
+            var emptyArr = arrayEmpty.Invoke(null, null)!;
+            var ienumerable = typeof(System.Collections.Generic.IEnumerable<>)
+                .MakeGenericType(CardModelType);
+            var taskFromResult = typeof(Task).GetMethods(
+                BindingFlags.Public | BindingFlags.Static)
+                .First(m => m.Name == "FromResult" && m.IsGenericMethod)
+                .MakeGenericMethod(ienumerable);
+            _emptyCardEnumerableTask = taskFromResult.Invoke(null, new[] { emptyArr })!;
+        }
+        __result = _emptyCardEnumerableTask!;
+        return false;
+    }
+    // CardSelectCmd.FromChooseACardScreen returns Task<CardModel> (not
+    // an enumerable). Substitute Task.FromResult<CardModel>(null).
+    private static object? _nullCardTask;
+    public static bool NullCardTaskPrefix(ref object __result)
+    {
+        if (_nullCardTask == null && CardModelType != null)
+        {
+            var taskFromResult = typeof(Task).GetMethods(
+                BindingFlags.Public | BindingFlags.Static)
+                .First(m => m.Name == "FromResult" && m.IsGenericMethod)
+                .MakeGenericMethod(CardModelType);
+            _nullCardTask = taskFromResult.Invoke(null, new object?[] { null })!;
+        }
+        __result = _nullCardTask!;
+        return false;
+    }
 }
 
 /// Harmony prefix for the generic `NullRunState.CreateCard<T>(Player)`.
@@ -1706,6 +1816,8 @@ internal sealed class CombatReflectionBundle
     public required MethodInfo RunStateCreateForTest { get; init; }
     public required Type GameModeType { get; init; }
     public MethodInfo? ModifyMaxEnergyMethod { get; init; }
+    public ConstructorInfo? TestCardSelectorCtor { get; init; }
+    public MethodInfo? PushSelector { get; init; }
 
     public object GetCharacterById(string id)
     {
@@ -2009,6 +2121,26 @@ internal sealed class CombatReflectionBundle
             "ModifyMaxEnergy",
             BindingFlags.Public | BindingFlags.Instance,
             new[] { playerType, typeof(decimal) });
+        // TestCardSelector + CardSelectCmd.PushSelector — push an empty
+        // selector around RelicCmd.Obtain so FromDeck*/FromHand calls
+        // inside AfterObtained get an empty selection instead of NREing
+        // on missing Godot UI. ICardSelector interface returns an empty
+        // IEnumerable<CardModel> when no indices/cards are prepared.
+        var testCardSelectorType = asm.GetType(
+            "MegaCrit.Sts2.Core.TestSupport.TestCardSelector",
+            throwOnError: false);
+        var testCardSelectorCtor = testCardSelectorType?.GetConstructor(Type.EmptyTypes);
+        var cardSelectCmdType = asm.GetType(
+            "MegaCrit.Sts2.Core.Commands.CardSelectCmd",
+            throwOnError: false);
+        var iCardSelectorType = asm.GetType(
+            "MegaCrit.Sts2.Core.TestSupport.ICardSelector",
+            throwOnError: false);
+        var pushSelector = (cardSelectCmdType != null && iCardSelectorType != null)
+            ? cardSelectCmdType.GetMethod("PushSelector",
+                BindingFlags.Public | BindingFlags.Static,
+                new[] { iCardSelectorType })
+            : null;
 
         return new CombatReflectionBundle
         {
@@ -2074,6 +2206,8 @@ internal sealed class CombatReflectionBundle
             RunStateCreateForTest = runStateCreateForTest,
             GameModeType = gameModeType,
             ModifyMaxEnergyMethod = modifyMaxEnergy,
+            TestCardSelectorCtor = testCardSelectorCtor,
+            PushSelector = pushSelector,
         };
     }
 }

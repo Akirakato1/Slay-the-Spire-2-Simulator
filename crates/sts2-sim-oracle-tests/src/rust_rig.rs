@@ -72,6 +72,14 @@ impl RustRig {
         // produces two entries in oracle's dump.
         if let Some(ps) = self.combat.allies[0].player.as_mut() {
             ps.relics.push(relic_rust.clone());
+            // TouchOfOrobas: C# AfterObtained calls RelicCmd.Replace
+            // on the starter relic with its upgraded form (BurningBlood
+            // → BlackBlood for Ironclad). Apply the same swap.
+            if relic_rust == "TouchOfOrobas" {
+                if let Some(idx) = ps.relics.iter().position(|r| r == "BurningBlood") {
+                    ps.relics[idx] = "BlackBlood".to_string();
+                }
+            }
         }
         // Apply the AfterObtained body to the combat-level creature.
         // run_state_effects returns the full hook→body table; we only
