@@ -1790,6 +1790,136 @@ impl CombatState {
         outcome
     }
 
+    /// Damage-resolution path that wraps `apply_damage` to apply the
+    /// HP-loss relic modifiers (TheBoot's `ModifyHpLostBeforeOsty`,
+    /// TungstenRod's `ModifyHpLostAfterOsty`). These hooks fire AFTER
+    /// block soak but BEFORE the actual HP subtraction, so we re-do the
+    /// block/HP split here rather than mutating `amount` upfront (which
+    /// would also alter block consumption).
+    pub fn apply_damage_with_hp_modifiers(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        amount: i32,
+        props: ValueProp,
+        dctx: Option<&DamageContext<'_>>,
+    ) -> DamageOutcome {
+        if dctx.is_none() {
+            return self.apply_damage(side, target_idx, amount);
+        }
+        if amount <= 0 {
+            return DamageOutcome::default();
+        }
+        // HardenedShellPower budget (same shape as apply_damage).
+        let hp_loss_cap = {
+            let target = match creature(self, side, target_idx) {
+                Some(t) => t,
+                None => return DamageOutcome::default(),
+            };
+            let shell_amount = target
+                .powers
+                .iter()
+                .find(|p| p.id == "HardenedShellPower")
+                .map(|p| p.amount);
+            shell_amount.map(|amt| {
+                let taken = target
+                    .monster
+                    .as_ref()
+                    .map(|m| m.counter("hardened_shell_taken"))
+                    .unwrap_or(0);
+                (amt - taken).max(0)
+            })
+        };
+        // Block soak.
+        let (pre_hit_hp, blocked, mut hp_lost) = {
+            let target = match creature_mut(self, side, target_idx) {
+                Some(t) => t,
+                None => return DamageOutcome::default(),
+            };
+            let pre = target.current_hp;
+            let b = amount.min(target.block);
+            target.block -= b;
+            let h = amount - b;
+            (pre, b, h)
+        };
+        // HardenedShell cap.
+        if let Some(cap) = hp_loss_cap {
+            hp_lost = hp_lost.min(cap.max(0));
+        }
+        // Relic HP-loss modifiers. Walk the player's relics if the
+        // target is the player (TungstenRod / TheBoot dealer-side or
+        // target-side semantics).
+        hp_lost = self.apply_relic_hp_loss_modifiers(side, target_idx, hp_lost, props);
+        // Clamp to current HP.
+        let target = match creature_mut(self, side, target_idx) {
+            Some(t) => t,
+            None => return DamageOutcome::default(),
+        };
+        if hp_lost > target.current_hp {
+            hp_lost = target.current_hp;
+        }
+        target.current_hp -= hp_lost;
+        let outcome = DamageOutcome {
+            blocked,
+            hp_lost,
+            fatal: pre_hit_hp > 0 && target.current_hp == 0,
+        };
+        if hp_loss_cap.is_some() && outcome.hp_lost > 0 {
+            if let Some(target) = creature_mut(self, side, target_idx) {
+                if let Some(ms) = target.monster.as_mut() {
+                    ms.add_counter("hardened_shell_taken", outcome.hp_lost);
+                }
+            }
+        }
+        if self.log_enabled && (outcome.blocked > 0 || outcome.hp_lost > 0) {
+            let round = self.round_number;
+            self.combat_log.push(CombatEvent::DamageDealt {
+                round,
+                side,
+                target_idx,
+                amount,
+                outcome,
+            });
+        }
+        outcome
+    }
+
+    /// Walk player relics that modify post-block HP loss. Currently:
+    /// - TungstenRod: target is owner → `max(0, hp_lost - 1)`.
+    /// - TheBoot: dealer is owner, powered attack, 1 <= hp_lost < 5 →
+    ///   clamp up to 5. (Dealer-side filter approximated as "any
+    ///   enemy target" since relic-owner == player == dealer in our
+    ///   one-player setup; TheBoot's body only fires when the dealer
+    ///   is owner.)
+    fn apply_relic_hp_loss_modifiers(
+        &self,
+        target_side: CombatSide,
+        _target_idx: usize,
+        hp_lost: i32,
+        props: ValueProp,
+    ) -> i32 {
+        let mut hp = hp_lost;
+        // Target-side player relics (TungstenRod fires when target is
+        // the relic owner — the player).
+        if target_side == CombatSide::Player {
+            for relic_id in relic_ids_on_side(self, CombatSide::Player) {
+                if relic_id == "TungstenRod" {
+                    hp = (hp - 1).max(0);
+                }
+            }
+        }
+        // Dealer-side player relics (TheBoot fires when dealer is the
+        // owner — player attacking an enemy). Powered-attack filter.
+        if target_side == CombatSide::Enemy && props.is_powered_attack() {
+            for relic_id in relic_ids_on_side(self, CombatSide::Player) {
+                if relic_id == "TheBoot" && hp >= 1 && hp < 5 {
+                    hp = 5;
+                }
+            }
+        }
+        hp
+    }
+
     /// Heal a creature; saturates at `max_hp`.
     pub fn heal(&mut self, side: CombatSide, target_idx: usize, amount: i32) -> i32 {
         let Some(target) = creature_mut(self, side, target_idx) else {
@@ -1857,7 +1987,53 @@ impl CombatState {
         amount: i32,
         props: ValueProp,
     ) -> i32 {
-        let modified = self.modify_block((side, target_idx), amount, props);
+        self.gain_block_full(side, target_idx, amount, props, None, None)
+    }
+
+    /// Source-card-aware block path. Threads BlockContext for
+    /// Vambrace / VitruvianMinion. Bookkeeps Vambrace's per-combat
+    /// "block_used" relic counter after the ×2 multiplier fires.
+    pub fn gain_block_full(
+        &mut self,
+        side: CombatSide,
+        target_idx: usize,
+        amount: i32,
+        props: ValueProp,
+        enchantment: Option<&EnchantmentInstance>,
+        bctx: Option<&BlockContext<'_>>,
+    ) -> i32 {
+        let modified =
+            self.modify_block_full((side, target_idx), amount, props, enchantment, bctx);
+        // Vambrace bookkeeping: if Vambrace fired ×2 here, mark
+        // block_used so subsequent block gains use ×1. Detect by
+        // checking the prereqs (Vambrace owned, not yet used, powered
+        // card-source block, source card present, modified > 0).
+        if side == CombatSide::Player
+            && modified > 0
+            && bctx.and_then(|b| b.source_card_id).is_some()
+            && is_powered_card_block(props)
+        {
+            let vambrace_owner = relic_ids_on_side(self, CombatSide::Player)
+                .iter()
+                .any(|r| r == "Vambrace");
+            if vambrace_owner {
+                if let Some(ps) = self
+                    .allies
+                    .iter_mut()
+                    .find_map(|a| a.player.as_mut())
+                {
+                    let used = ps
+                        .relic_counters
+                        .get("Vambrace_block_used")
+                        .copied()
+                        .unwrap_or(0);
+                    if used < 1 {
+                        ps.relic_counters
+                            .insert("Vambrace_block_used".to_string(), 1);
+                    }
+                }
+            }
+        }
         let actual = {
             let Some(target) = creature_mut(self, side, target_idx) else {
                 return 0;
@@ -1913,6 +2089,20 @@ impl CombatState {
         props: ValueProp,
         enchantment: Option<&EnchantmentInstance>,
     ) -> i32 {
+        self.modify_block_full(gainer, raw, props, enchantment, None)
+    }
+
+    /// Source-card-aware block pipeline. Threads `BlockContext` for
+    /// relic block modifiers (Vambrace's first-power-block ×2,
+    /// VitruvianMinion's Minion-tag ×2). Tests pass `bctx=None`.
+    pub fn modify_block_full(
+        &self,
+        gainer: (CombatSide, usize),
+        raw: i32,
+        props: ValueProp,
+        enchantment: Option<&EnchantmentInstance>,
+        bctx: Option<&BlockContext<'_>>,
+    ) -> i32 {
         let mut num = raw as f64;
         if let Some(ench) = enchantment {
             num += enchantment_block_additive(&ench.id, ench.amount, props);
@@ -1925,6 +2115,8 @@ impl CombatState {
         for power in powers {
             num *= power_block_multiplicative(power, props);
         }
+        // Relic-source block multipliers.
+        num *= relic_block_multiplicative_total(self, gainer, props, bctx);
         let clamped = num.max(0.0);
         clamped as i32
     }
@@ -1959,6 +2151,17 @@ impl CombatState {
     ) -> i32 {
         // C# spec (PowerCmd.cs:90): `if (amount == 0) return;`. We
         // skip the inner mutation entirely on amount=0 to match.
+        if amount == 0 {
+            return self.get_power_amount(side, target_idx, power_id);
+        }
+        // Relic ModifyPowerAmountGiven (SneckoSkull boosts Poison by 1
+        // when player applies). Fires before BeforePowerAmountChanged.
+        let amount = self.relic_modify_power_amount_given(side, target_idx, power_id, amount);
+        // Relic TryModifyPowerAmountReceived (RuinedHelmet doubles
+        // Strength gained on player, once per combat). Mutates internal
+        // state to flip the "used this combat" flag.
+        let amount =
+            self.relic_modify_power_amount_received(side, target_idx, power_id, amount);
         if amount == 0 {
             return self.get_power_amount(side, target_idx, power_id);
         }
@@ -2006,6 +2209,84 @@ impl CombatState {
     /// Mirror of C# `Hook.BeforePowerAmountChanged` (Hook.cs around
     /// line 1783). Fires before `apply_power_inner` mutates the stack.
     /// Currently a no-op stub. Audit fix #5.
+    /// SneckoSkull / similar `ModifyPowerAmountGiven` hooks. The giver
+    /// is the player (relic owner); the target is the receiver. C#
+    /// SneckoSkull.cs L49-60: `if (giver != owner) return amount; if
+    /// (power is PoisonPower) return amount + 1;`.
+    fn relic_modify_power_amount_given(
+        &self,
+        target_side: CombatSide,
+        _target_idx: usize,
+        power_id: &str,
+        amount: i32,
+    ) -> i32 {
+        // Player is the giver in our model (powers applied via
+        // execute_effects always come from a player-card actor). For
+        // enemy-applied debuffs (enemy moves applying Vulnerable on
+        // player), the giver is an enemy — no player relic fires.
+        if target_side != CombatSide::Enemy {
+            return amount;
+        }
+        let mut amt = amount;
+        for relic_id in relic_ids_on_side(self, CombatSide::Player) {
+            if relic_id == "SneckoSkull" && power_id == "PoisonPower" && amt > 0 {
+                amt += 1;
+            }
+        }
+        amt
+    }
+
+    /// RuinedHelmet / similar `TryModifyPowerAmountReceived` hooks.
+    /// Target is the receiver (must be owner = player). C#
+    /// RuinedHelmet.cs L55-83: when StrengthPower is applied to player
+    /// with positive amount and `!UsedThisCombat`, double the amount
+    /// and set `UsedThisCombat = true`.
+    fn relic_modify_power_amount_received(
+        &mut self,
+        target_side: CombatSide,
+        _target_idx: usize,
+        power_id: &str,
+        amount: i32,
+    ) -> i32 {
+        if target_side != CombatSide::Player {
+            return amount;
+        }
+        let mut amt = amount;
+        let owns_ruined = relic_ids_on_side(self, CombatSide::Player)
+            .iter()
+            .any(|r| r == "RuinedHelmet");
+        if owns_ruined && power_id == "StrengthPower" && amt > 0 {
+            // Per-combat once-only gate via relic counter.
+            let used = self
+                .allies
+                .iter()
+                .any(|a| {
+                    a.player
+                        .as_ref()
+                        .map(|p| {
+                            p.relic_counters
+                                .get("RuinedHelmet_used")
+                                .copied()
+                                .unwrap_or(0)
+                                >= 1
+                        })
+                        .unwrap_or(false)
+                });
+            if !used {
+                amt *= 2;
+                if let Some(ps) = self
+                    .allies
+                    .iter_mut()
+                    .find_map(|a| a.player.as_mut())
+                {
+                    ps.relic_counters
+                        .insert("RuinedHelmet_used".to_string(), 1);
+                }
+            }
+        }
+        amt
+    }
+
     pub fn fire_before_power_amount_changed(
         &mut self,
         side: CombatSide,
@@ -2191,6 +2472,24 @@ impl CombatState {
         props: ValueProp,
         enchantment: Option<&EnchantmentInstance>,
     ) -> i32 {
+        self.modify_damage_full(dealer, target, raw, props, enchantment, None)
+    }
+
+    /// Full damage pipeline that threads source-card metadata for relic
+    /// modifiers (StrikeDummy needs CardTag::Strike, MiniatureCannon
+    /// needs IsUpgraded, MysticLighter needs has-enchantment, etc.).
+    /// Tests and legacy callers pass `dctx=None`; production callers in
+    /// `deal_damage_to` build `DamageContext` from the active
+    /// EffectContext.
+    pub fn modify_damage_full(
+        &self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        raw: i32,
+        props: ValueProp,
+        enchantment: Option<&EnchantmentInstance>,
+        dctx: Option<&DamageContext<'_>>,
+    ) -> i32 {
         let mut num = raw as f64;
 
         if let Some(ench) = enchantment {
@@ -2204,12 +2503,31 @@ impl CombatState {
         for power in dealer_powers {
             num += power_additive_dealer(power, props);
         }
+        // Relic-source damage additives. Walks dealer-side player relics
+        // (StrikeDummy, FakeStrikeDummy, MiniatureCannon, MysticLighter).
+        num += relic_damage_additive_total(self, dealer, target, props, dctx);
         for power in dealer_powers {
             num *= power_multiplicative_dealer(power, props);
         }
+        // Power-multiplicative-dealer adjusted by target-side relics
+        // (PaperKrane shifts Weak by -0.15 when target is owner).
+        // We handle this by post-adjusting the multiplier: since Weak is
+        // 0.75, we apply an EXTRA factor of (0.60/0.75) when the relic
+        // fires. Implemented inline via relic_weak_multiplier_shift.
         for power in target_powers {
             num *= power_multiplicative_target(power, props);
         }
+        // Target-side relics that shift the Weak/Vulnerable multipliers
+        // (PaperKrane, PaperPhrog). The C# spec wires these into
+        // WeakPower.ModifyWeakMultiplier / VulnerablePower's equivalent
+        // hook. We mirror by applying the additional scaling once the
+        // base multiplier was applied above.
+        num *= relic_paper_krane_phrog_factor(self, dealer, target, props);
+        // Target-side relics that multiplicatively reduce incoming
+        // damage (UndyingSigil), and dealer-side relics that
+        // multiplicatively boost outgoing damage (VitruvianMinion,
+        // PenNib).
+        num *= relic_damage_multiplicative_total(self, dealer, target, props, dctx);
 
         let mut cap = f64::MAX;
         for power in target_powers {
@@ -2632,13 +2950,26 @@ impl CombatState {
         props: ValueProp,
         enchantment: Option<&EnchantmentInstance>,
     ) -> DamageOutcome {
-        // Audit fix #7: dead-dealer short-circuit.
+        self.deal_damage_full(dealer, target, raw, props, enchantment, None)
+    }
+
+    /// Source-card-aware entrypoint. Threaded by `deal_damage_to` in the
+    /// effect VM so relic modifiers (StrikeDummy, MiniatureCannon, etc.)
+    /// see the source card's tags / upgrade / enchantment.
+    pub fn deal_damage_full(
+        &mut self,
+        dealer: (CombatSide, usize),
+        target: (CombatSide, usize),
+        raw: i32,
+        props: ValueProp,
+        enchantment: Option<&EnchantmentInstance>,
+        dctx: Option<&DamageContext<'_>>,
+    ) -> DamageOutcome {
         if dealer_is_dead(self, dealer) {
             return DamageOutcome::default();
         }
-        let modified =
-            self.modify_damage_with_enchantment(dealer, target, raw, props, enchantment);
-        let outcome = self.apply_damage(target.0, target.1, modified);
+        let modified = self.modify_damage_full(dealer, target, raw, props, enchantment, dctx);
+        let outcome = self.apply_damage_with_hp_modifiers(target.0, target.1, modified, props, dctx);
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
         self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
         self.fire_thorns_hook(dealer, target, props);
@@ -3039,6 +3370,39 @@ impl CombatState {
             crate::effects::RelicHookKind::BeforeCardPlayed,
             CombatSide::Player,
         );
+        // PenNib bookkeeping: every 10th owner attack played sets the
+        // PenNib_double_id_h slot to this card's id hash, which
+        // relic_damage_multiplicative_total reads to fire ×2. C# spec
+        // PenNib.NotifyAttackPlayed + ModifyDamageMultiplicative.
+        if card_data.card_type == crate::card::CardType::Attack
+            && relic_ids_on_side(self, CombatSide::Player)
+                .iter()
+                .any(|r| r == "PenNib")
+        {
+            if let Some(ps) = self
+                .allies
+                .iter_mut()
+                .find_map(|a| a.player.as_mut())
+            {
+                let count = ps
+                    .relic_counters
+                    .get("PenNib_attacks_played")
+                    .copied()
+                    .unwrap_or(0)
+                    + 1;
+                let next = count % 10;
+                ps.relic_counters
+                    .insert("PenNib_attacks_played".to_string(), next);
+                if next == 0 {
+                    // 10th attack: arm doubling for this card.
+                    let hash = str_simple_hash(&card_id);
+                    ps.relic_counters
+                        .insert("PenNib_double_id_h".to_string(), hash);
+                } else {
+                    ps.relic_counters.remove("PenNib_double_id_h");
+                }
+            }
+        }
 
         // 5. Dispatch OnPlay. The handler may mutate cs freely. The
         //    played card's enchantment (if any) is forwarded for damage
@@ -4272,6 +4636,301 @@ fn power_multiplicative_dealer(power: &PowerInstance, props: ValueProp) -> f64 {
         "ShrinkPower" if power.amount != 0 => 0.70,
         _ => 1.0,
     }
+}
+
+/// Source-card metadata threaded into `modify_damage_full` for
+/// relic-modifier hooks. Empty/false defaults for legacy callers.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct DamageContext<'a> {
+    pub source_card_id: Option<&'a str>,
+    pub source_card_upgraded: bool,
+    pub source_has_enchantment: bool,
+    pub source_has_strike_tag: bool,
+    pub source_has_minion_tag: bool,
+}
+
+impl<'a> DamageContext<'a> {
+    pub fn from_card_id(card_id: &'a str, upgrade: i32, has_ench: bool) -> Self {
+        let data = crate::card::by_id(card_id);
+        let tags = data.map(|d| d.tags.as_slice()).unwrap_or(&[]);
+        Self {
+            source_card_id: Some(card_id),
+            source_card_upgraded: upgrade > 0,
+            source_has_enchantment: has_ench,
+            source_has_strike_tag: tags.iter().any(|t| t == "Strike"),
+            source_has_minion_tag: tags.iter().any(|t| t == "Minion"),
+        }
+    }
+}
+
+/// Source-card metadata threaded into `modify_block_full` for
+/// relic-modifier hooks.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct BlockContext<'a> {
+    pub source_card_id: Option<&'a str>,
+    pub source_has_minion_tag: bool,
+}
+
+impl<'a> BlockContext<'a> {
+    pub fn from_card_id(card_id: &'a str) -> Self {
+        let data = crate::card::by_id(card_id);
+        let tags = data.map(|d| d.tags.as_slice()).unwrap_or(&[]);
+        Self {
+            source_card_id: Some(card_id),
+            source_has_minion_tag: tags.iter().any(|t| t == "Minion"),
+        }
+    }
+}
+
+/// Walk gainer-side player relics; combined block multiplier.
+fn relic_block_multiplicative_total(
+    cs: &CombatState,
+    gainer: (CombatSide, usize),
+    props: ValueProp,
+    bctx: Option<&BlockContext<'_>>,
+) -> f64 {
+    if gainer.0 != CombatSide::Player {
+        return 1.0;
+    }
+    let mut factor = 1.0;
+    for relic_id in relic_ids_on_side(cs, gainer.0) {
+        factor *= match relic_id.as_str() {
+            // VitruvianMinion.cs L60-75: ×2 block on Minion-tagged cards
+            // (when source is owner — collapsed to "card source belongs
+            // to owner side" via bctx presence).
+            "VitruvianMinion" => {
+                if bctx.map(|b| b.source_has_minion_tag).unwrap_or(false) {
+                    2.0
+                } else {
+                    1.0
+                }
+            }
+            // Vambrace.cs L86-108: ×2 on the FIRST powered card-source
+            // block gain per combat. We use a relic counter
+            // `Vambrace_block_used` (0 = available, 1 = consumed). The
+            // counter increments here in the modifier walk; the C# spec
+            // sets it in AfterCardPlayed but our approximation fires
+            // the bookkeeping at multiplier-application time.
+            "Vambrace" => {
+                if !props.is_powered_attack() && !is_powered_card_block(props) {
+                    1.0
+                } else if bctx.and_then(|b| b.source_card_id).is_none() {
+                    1.0
+                } else {
+                    let used = cs.allies.iter().any(|a| {
+                        a.player
+                            .as_ref()
+                            .map(|p| p.relic_counters.get("Vambrace_block_used").copied().unwrap_or(0) >= 1)
+                            .unwrap_or(false)
+                    });
+                    if used {
+                        1.0
+                    } else {
+                        2.0
+                    }
+                }
+            }
+            _ => 1.0,
+        };
+    }
+    factor
+}
+
+/// Block from a powered card source — `Move && !Unpowered`. Mirrors
+/// `IsPoweredCardOrMonsterMoveBlock` for the block side.
+fn is_powered_card_block(props: ValueProp) -> bool {
+    props.has(ValueProp::MOVE) && !props.has(ValueProp::UNPOWERED)
+}
+
+/// Collect the player-side relic ids on a creature side (relics live
+/// only on player creatures). Used by the modifier walks.
+fn relic_ids_on_side(cs: &CombatState, side: CombatSide) -> Vec<String> {
+    if side != CombatSide::Player {
+        return Vec::new();
+    }
+    cs.allies
+        .iter()
+        .flat_map(|a| a.player.as_ref().map(|p| p.relics.clone()).unwrap_or_default())
+        .collect()
+}
+
+/// Walk dealer-side player relics; accumulate damage-additive contributions.
+/// All gated on `props.is_powered_attack()` per C# `ModifyDamageAdditive`.
+fn relic_damage_additive_total(
+    cs: &CombatState,
+    dealer: (CombatSide, usize),
+    _target: (CombatSide, usize),
+    props: ValueProp,
+    dctx: Option<&DamageContext<'_>>,
+) -> f64 {
+    if !props.is_powered_attack() {
+        return 0.0;
+    }
+    if dealer.0 != CombatSide::Player {
+        return 0.0;
+    }
+    let Some(dctx) = dctx else { return 0.0 };
+    let mut total = 0.0;
+    for relic_id in relic_ids_on_side(cs, dealer.0) {
+        total += match relic_id.as_str() {
+            // StrikeDummy.cs L40-58: +3 on Strike-tagged attacks from owner.
+            "StrikeDummy" if dctx.source_has_strike_tag => 3.0,
+            // FakeStrikeDummy.cs L50-69: +1 on Strike-tagged attacks.
+            "FakeStrikeDummy" if dctx.source_has_strike_tag => 1.0,
+            // MiniatureCannon.cs L38-57: +3 on upgraded attacks.
+            "MiniatureCannon" if dctx.source_card_upgraded => 3.0,
+            // MysticLighter.cs L38-52: +9 on enchanted attacks (DamageVar(9)).
+            "MysticLighter" if dctx.source_has_enchantment => 9.0,
+            _ => 0.0,
+        };
+    }
+    total
+}
+
+/// Walk both dealer-side and target-side player relics; multiply
+/// damage by per-relic factors. Returns the COMBINED multiplier.
+fn relic_damage_multiplicative_total(
+    cs: &CombatState,
+    dealer: (CombatSide, usize),
+    target: (CombatSide, usize),
+    props: ValueProp,
+    dctx: Option<&DamageContext<'_>>,
+) -> f64 {
+    if !props.is_powered_attack() {
+        return 1.0;
+    }
+    let mut factor = 1.0;
+    let dctx_opt = dctx;
+    // Dealer-side relic multipliers (PenNib, VitruvianMinion).
+    if dealer.0 == CombatSide::Player {
+        for relic_id in relic_ids_on_side(cs, dealer.0) {
+            factor *= match relic_id.as_str() {
+                // VitruvianMinion.cs L41-56: ×2 dmg on Minion-tagged cards.
+                "VitruvianMinion" => {
+                    if dctx_opt.map(|d| d.source_has_minion_tag).unwrap_or(false) {
+                        2.0
+                    } else {
+                        1.0
+                    }
+                }
+                // PenNib.cs L131-162: ×2 dmg when this card is the
+                // tracked AttackToDouble. We track via per-combat relic
+                // counter `PenNib_attack_to_double_id` matching source
+                // card id, set by BeforeCardPlayed{Attack} every 10th
+                // attack (see fire_pen_nib_before_card_played in
+                // play_card path).
+                "PenNib" => {
+                    let target_id = cs.allies.iter().find_map(|a| {
+                        a.player
+                            .as_ref()
+                            .and_then(|p| p.relic_counters.get("PenNib_double_id_h").copied())
+                    });
+                    let src_hash = dctx_opt
+                        .and_then(|d| d.source_card_id)
+                        .map(str_simple_hash)
+                        .unwrap_or(0);
+                    if target_id == Some(src_hash) && src_hash != 0 {
+                        2.0
+                    } else {
+                        1.0
+                    }
+                }
+                _ => 1.0,
+            };
+        }
+    }
+    // Target-side relic multipliers (UndyingSigil).
+    if target.0 == CombatSide::Player {
+        for relic_id in relic_ids_on_side(cs, target.0) {
+            factor *= match relic_id.as_str() {
+                // UndyingSigil.cs L50-73: ×0.5 dmg received when
+                // dealer.HP <= dealer.DoomPower.
+                "UndyingSigil" if dealer.0 == CombatSide::Enemy => {
+                    let dealer_creature = cs.enemies.get(dealer.1);
+                    let (hp, doom) = match dealer_creature {
+                        Some(c) => (
+                            c.current_hp,
+                            c.powers
+                                .iter()
+                                .find(|p| p.id == "DoomPower")
+                                .map(|p| p.amount)
+                                .unwrap_or(0),
+                        ),
+                        None => (0, 0),
+                    };
+                    if doom > 0 && hp <= doom {
+                        0.5
+                    } else {
+                        1.0
+                    }
+                }
+                _ => 1.0,
+            };
+        }
+    }
+    factor
+}
+
+/// PaperKrane / PaperPhrog shift Weak / Vulnerable multipliers when the
+/// relic owner is the target. We've already applied the unmodified
+/// 0.75 / 1.5 in the power walk; the shift is the EXTRA factor needed
+/// to reach the C# spec's adjusted value.
+///
+///   - PaperKrane: dealer has Weak, target is owner → Weak becomes
+///     `0.75 - 0.15 = 0.60`. Extra factor = 0.60 / 0.75.
+///   - PaperPhrog: target has Vulnerable, target is NOT owner →
+///     Vulnerable becomes `1.5 + 0.25 = 1.75`. Extra factor = 1.75 / 1.5.
+fn relic_paper_krane_phrog_factor(
+    cs: &CombatState,
+    dealer: (CombatSide, usize),
+    target: (CombatSide, usize),
+    props: ValueProp,
+) -> f64 {
+    if !props.is_powered_attack() {
+        return 1.0;
+    }
+    let mut factor = 1.0;
+    // PaperKrane: only fires when relic-owner (player) is the TARGET.
+    if target.0 == CombatSide::Player {
+        let owner_has_krane = relic_ids_on_side(cs, target.0)
+            .iter()
+            .any(|r| r == "PaperKrane");
+        if owner_has_krane {
+            let dealer_powers = creature_powers(cs, dealer);
+            if dealer_powers.iter().any(|p| p.id == "WeakPower") {
+                factor *= 0.60 / 0.75;
+            }
+        }
+    }
+    // PaperPhrog: target is NOT the owner (i.e., target is an enemy),
+    // dealer is the player owner. Extra Vulnerable bite (×1.75 instead
+    // of ×1.5) when the enemy has Vulnerable.
+    if dealer.0 == CombatSide::Player && target.0 == CombatSide::Enemy {
+        let owner_has_phrog = relic_ids_on_side(cs, dealer.0)
+            .iter()
+            .any(|r| r == "PaperPhrog");
+        if owner_has_phrog {
+            let target_powers = creature_powers(cs, target);
+            if target_powers.iter().any(|p| p.id == "VulnerablePower") {
+                factor *= 1.75 / 1.5;
+            }
+        }
+    }
+    factor
+}
+
+/// Tiny deterministic hash for a card id, used to fingerprint the
+/// PenNib "AttackToDouble" identity in a single i32 slot. Doesn't
+/// have to be cryptographic — just stable for the lifetime of the
+/// per-combat counter.
+fn str_simple_hash(s: &str) -> i32 {
+    let mut h: u32 = 2166136261;
+    for b in s.bytes() {
+        h = h.wrapping_mul(16777619) ^ (b as u32);
+    }
+    // Map into a non-zero positive i32 slot.
+    let v = (h & 0x7fff_ffff) as i32;
+    if v == 0 { 1 } else { v }
 }
 
 fn power_multiplicative_target(power: &PowerInstance, props: ValueProp) -> f64 {

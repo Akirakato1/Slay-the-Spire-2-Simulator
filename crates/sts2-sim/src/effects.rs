@@ -6415,9 +6415,22 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 .get(ctx.player_idx)
                 .map(|c| c.block)
                 .unwrap_or(0);
+            // BlockContext for relic block modifiers (Vambrace,
+            // VitruvianMinion). Built only when there's a source card.
+            let bctx = ctx
+                .source_card_id
+                .map(crate::combat::BlockContext::from_card_id);
+            let bctx_ref = bctx.as_ref();
             for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
                 if matches!(side, CombatSide::Player) {
-                    cs.gain_block(CombatSide::Player, idx, amt);
+                    cs.gain_block_full(
+                        CombatSide::Player,
+                        idx,
+                        amt,
+                        crate::combat::ValueProp::MOVE,
+                        ctx.enchantment,
+                        bctx_ref,
+                    );
                 } else if let Some(c) = creature_at_mut(cs, side, idx) {
                     c.block += amt.max(0);
                 }
@@ -7729,15 +7742,27 @@ fn creature_at_mut(
 }
 
 fn deal_damage_to(cs: &mut CombatState, ctx: &EffectContext, target: Target, amount: i32) {
+    // Build the source-card DamageContext so relic modifiers
+    // (StrikeDummy / MiniatureCannon / MysticLighter / VitruvianMinion /
+    // PenNib) see source-card tags / upgrade / enchantment.
+    let dctx = ctx.source_card_id.map(|cid| {
+        crate::combat::DamageContext::from_card_id(
+            cid,
+            ctx.upgrade_level,
+            ctx.enchantment.is_some(),
+        )
+    });
+    let dctx_ref = dctx.as_ref();
     match target {
         Target::ChosenEnemy => {
             if let Some(t) = ctx.target {
-                cs.deal_damage_enchanted(
+                cs.deal_damage_full(
                     (CombatSide::Player, ctx.player_idx),
                     t,
                     amount,
                     ValueProp::MOVE,
                     ctx.enchantment,
+                    dctx_ref,
                 );
             }
         }
@@ -7747,12 +7772,13 @@ fn deal_damage_to(cs: &mut CombatState, ctx: &EffectContext, target: Target, amo
                 if cs.enemies[i].current_hp == 0 {
                     continue;
                 }
-                cs.deal_damage_enchanted(
+                cs.deal_damage_full(
                     (CombatSide::Player, ctx.player_idx),
                     (CombatSide::Enemy, i),
                     amount,
                     ValueProp::MOVE,
                     ctx.enchantment,
+                    dctx_ref,
                 );
             }
         }
@@ -7762,12 +7788,13 @@ fn deal_damage_to(cs: &mut CombatState, ctx: &EffectContext, target: Target, amo
             // target died from the previous hit. Caller wraps in a hit
             // loop, so this function only picks one.
             if let Some(idx) = pick_random_alive_enemy(cs) {
-                cs.deal_damage_enchanted(
+                cs.deal_damage_full(
                     (CombatSide::Player, ctx.player_idx),
                     (CombatSide::Enemy, idx),
                     amount,
                     ValueProp::MOVE,
                     ctx.enchantment,
+                    dctx_ref,
                 );
             }
         }

@@ -1,0 +1,97 @@
+// batch_r_8.txt — modifier-pipeline relics. These don't use the
+// RelicHook event surface; their behavior lives entirely in
+// combat.rs's modifier walks (relic_damage_additive_total,
+// relic_damage_multiplicative_total, relic_block_multiplicative_total,
+// apply_relic_hp_loss_modifiers, relic_modify_power_amount_given,
+// relic_modify_power_amount_received). The data-table arms are
+// `Some(vec![])` markers — the modifier walks key off relic id alone,
+// no per-relic effect-list to dispatch.
+//
+// Per-combat bookkeeping (Vambrace's block_used, RuinedHelmet's used,
+// PenNib's attack counter + double_id_h) is wired in play_card +
+// gain_block_full + apply_power.
+//
+// C# evidence (line cites for each relic):
+
+// PaperKrane.cs L39-50: shifts WeakPower multiplier by -0.15 when
+// owner is target. Implemented in relic_paper_krane_phrog_factor.
+"PaperKrane" => Some(vec![
+]),
+
+// PaperPhrog.cs L39-50: shifts VulnerablePower multiplier by +0.25
+// when owner is dealer (target is enemy). Same function.
+"PaperPhrog" => Some(vec![
+]),
+
+// StrikeDummy.cs L40-58: +3 damage on Strike-tagged attacks from
+// owner. Implemented in relic_damage_additive_total.
+"StrikeDummy" => Some(vec![
+]),
+
+// FakeStrikeDummy.cs L50-69: +1 damage on Strike-tagged attacks.
+"FakeStrikeDummy" => Some(vec![
+]),
+
+// MiniatureCannon.cs L38-57: +3 damage on upgraded attacks.
+"MiniatureCannon" => Some(vec![
+]),
+
+// MysticLighter.cs L38-52: +9 damage on enchanted attacks.
+"MysticLighter" => Some(vec![
+]),
+
+// VitruvianMinion.cs L41-75: ×2 damage AND ×2 block on Minion-tagged
+// cards from owner.
+"VitruvianMinion" => Some(vec![
+]),
+
+// PenNib.cs L131-198: ×2 damage on every 10th owner attack. Counter
+// + double_id_h slot managed in play_card.
+"PenNib" => Some(vec![
+]),
+
+// UndyingSigil.cs L50-73: ×0.5 damage received when dealer.HP <=
+// dealer.DoomPower. Implemented in relic_damage_multiplicative_total.
+"UndyingSigil" => Some(vec![
+]),
+
+// Vambrace.cs L86-127: ×2 block on the first powered card-source
+// block per combat. Counter `Vambrace_block_used` flipped in
+// gain_block_full once it fires.
+"Vambrace" => Some(vec![
+]),
+
+// TungstenRod.cs L39-46: -1 HP loss on owner damage taken.
+// Implemented in apply_relic_hp_loss_modifiers (target-side).
+"TungstenRod" => Some(vec![
+]),
+
+// TheBoot.cs L42-62: HP loss in [1, 5) clamped to 5 on owner attacks.
+// Implemented in apply_relic_hp_loss_modifiers (dealer-side via
+// target=Enemy + powered-attack gate).
+"TheBoot" => Some(vec![
+]),
+
+// SneckoSkull.cs L49-60: +1 Poison stack on every player-given
+// Poison application. Implemented in relic_modify_power_amount_given.
+"SneckoSkull" => Some(vec![
+]),
+
+// RuinedHelmet.cs L55-83: ×2 Strength gained on player, once per
+// combat. Implemented in relic_modify_power_amount_received.
+"RuinedHelmet" => Some(vec![
+]),
+
+// ===== Out-of-combat modifiers (no in-combat side; pure cosmetic in combat) =====
+
+// RegalPillow.cs L42-48: +15 rest-site heal. Out-of-combat.
+"RegalPillow" => Some(vec![
+]),
+
+// MembershipCard.cs L38-49: 50% off merchant prices. Out-of-combat.
+"MembershipCard" => Some(vec![
+]),
+
+// TheCourier.cs L47-54: 20% off merchant prices. Out-of-combat.
+"TheCourier" => Some(vec![
+]),
