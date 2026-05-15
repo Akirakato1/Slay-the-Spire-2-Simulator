@@ -315,13 +315,9 @@ trait PowerIdTrim {
 
 impl PowerIdTrim for sts2_sim::combat::PowerInstance {
     fn id_trim_power(&self) -> String {
-        // Power ids are stored as "VulnerablePower" in Rust, but C#
-        // ModelId form is "POWER.VULNERABLE". Strip "Power" suffix
-        // before slugify.
-        if let Some(stripped) = self.id.strip_suffix("Power") {
-            stripped.to_string()
-        } else {
-            self.id.clone()
-        }
+        // Rust stores power ids as the full class name ("VulnerablePower")
+        // and the C# ModelId is "POWER.VULNERABLE_POWER" (Slugify of the
+        // full class name). Don't strip the suffix.
+        self.id.clone()
     }
 }

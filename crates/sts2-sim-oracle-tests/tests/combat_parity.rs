@@ -15,12 +15,10 @@ fn unwrap_result(v: Value) -> Value {
     v["result"].clone()
 }
 
-/// Set up the C# rig and return the handle.
-fn setup_oracle(
-    oracle: &mut Oracle,
-    seed: i64,
-    enemy_id: &str,
-) -> i64 {
+/// Canonical audit scenario: Ironclad vs 2× BigDummy. Two enemies
+/// distinguishes ChosenEnemy (single-target) from AllEnemies (sweep)
+/// from RandomEnemy (RNG pick) cards/effects.
+fn setup_oracle(oracle: &mut Oracle, seed: i64, enemy_id: &str) -> i64 {
     let h = unwrap_result(
         oracle.call("combat_new", json!({})).expect("combat_new"),
     )
@@ -36,19 +34,22 @@ fn setup_oracle(
             }),
         )
         .expect("combat_add_player");
-    oracle
-        .call(
-            "combat_add_enemy",
-            json!({ "handle": h, "monster_id": enemy_id }),
-        )
-        .expect("combat_add_enemy");
+    for _ in 0..2 {
+        oracle
+            .call(
+                "combat_add_enemy",
+                json!({ "handle": h, "monster_id": enemy_id }),
+            )
+            .expect("combat_add_enemy");
+    }
     h
 }
 
-/// Set up the Rust rig.
+/// Set up the Rust rig with 2 enemies matching `setup_oracle`.
 fn setup_rust(enemy_modelid: &str) -> rust_rig::RustRig {
     let mut r = rust_rig::RustRig::new();
     r.add_player("CHARACTER.IRONCLAD", 42);
+    r.add_enemy(enemy_modelid);
     r.add_enemy(enemy_modelid);
     r
 }
@@ -228,4 +229,56 @@ fn parity_strike_upgraded() {
         rust_dump["enemies"][0]["current_hp"],
         "Strike+1 damage parity",
     );
+}
+
+/// Multi-target attack: Thunderclap deals 4 dmg to ALL enemies and
+/// applies 1 Vulnerable to each. With 2 BigDummies, both should take
+/// identical damage + status on both sides.
+#[test]
+#[ignore = "requires `dotnet build oracle-host -c Release` + STS2 game install"]
+fn parity_thunderclap_hits_both_enemies() {
+    let mut oracle = Oracle::spawn().expect("spawn oracle host");
+    let h = setup_oracle(&mut oracle, 42, "MONSTER.BIG_DUMMY");
+    let mut rust_cs = setup_rust("MONSTER.BIG_DUMMY");
+
+    oracle
+        .call(
+            "combat_force_card_to_hand",
+            json!({ "handle": h, "card_id": "CARD.THUNDERCLAP" }),
+        )
+        .expect("force_to_hand");
+    rust_cs.force_card_to_hand("CARD.THUNDERCLAP", 0);
+
+    // Thunderclap is AllEnemies — target_idx ignored.
+    oracle
+        .call(
+            "combat_play_card",
+            json!({ "handle": h, "hand_idx": 0 }),
+        )
+        .expect("play_card");
+    rust_cs.play_card(0, None);
+
+    let oracle_dump = unwrap_result(
+        oracle.call("combat_dump", json!({ "handle": h })).expect("dump"),
+    );
+    let rust_dump = rust_cs.dump();
+
+    let mut diffs = Vec::new();
+    collect_diffs("$", &oracle_dump, &rust_dump, &mut diffs);
+    report_diffs("thunderclap", &diffs);
+
+    for i in 0..2 {
+        assert_eq!(
+            oracle_dump["enemies"][i]["current_hp"],
+            rust_dump["enemies"][i]["current_hp"],
+            "Thunderclap dmg parity on enemy[{i}]",
+        );
+        // Each enemy should have a Vulnerable stack from Thunderclap.
+        let oracle_powers = &oracle_dump["enemies"][i]["powers"];
+        let rust_powers = &rust_dump["enemies"][i]["powers"];
+        assert_eq!(
+            oracle_powers, rust_powers,
+            "Thunderclap Vulnerable application parity on enemy[{i}]",
+        );
+    }
 }
