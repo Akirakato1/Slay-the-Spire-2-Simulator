@@ -1691,6 +1691,28 @@ internal static class GodotBypass
             }
         }
 
+        // Power AfterApplied bodies often touch RunManager.Instance.
+        // NetService.Platform (KnockdownPower, FlankingPower etc.) or
+        // similar headless-unsafe APIs. Patch each known offender to
+        // no-op via CompletedTaskPrefix.
+        string[] powersWithBadAfterApplied = {
+            "MegaCrit.Sts2.Core.Models.Powers.KnockdownPower",
+            "MegaCrit.Sts2.Core.Models.Powers.FlankingPower",
+            "MegaCrit.Sts2.Core.Models.Powers.CoveredPower",
+            "MegaCrit.Sts2.Core.Models.Powers.TagTeamPower",
+        };
+        foreach (var typeName in powersWithBadAfterApplied)
+        {
+            var t = asm.GetType(typeName, throwOnError: false);
+            if (t == null) continue;
+            var m = t.GetMethod("AfterApplied",
+                BindingFlags.Public | BindingFlags.Instance);
+            if (m == null) continue;
+            HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                m, typeof(SaveManagerPrefix),
+                nameof(SaveManagerPrefix.CompletedTaskPrefix));
+        }
+
         // Godot.Time.GetTicksMsec / Time.GetUnixTimeFromSystem segfault
         // when Godot's native interop isn't initialized. OnPlayWrapper
         // and several command bodies call Time.GetTicksMsec to time
