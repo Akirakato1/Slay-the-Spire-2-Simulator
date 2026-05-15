@@ -1,10 +1,10 @@
 # Data-driven coverage audit
 
-**Cards**:   data-table  488/577  (84.6%) +  legacy-match-arm-only 29  =  total handled 517/577 (89.6%)
+**Cards**:   data-table  490/577  (84.9%) +  legacy-match-arm-only 29  =  total handled 519/577 (89.9%)
 **Relics**:  encoded   87/294  (29.6%)  -> gap 207
 **Potions**: encoded   55/64  (85.9%)  -> gap 9
 
-Total entries in data tables: 630
+Total entries in data tables: 632
 
 ## Top primitives by use count
    503  AmountSpec::Canonical
@@ -28,13 +28,13 @@ Total entries in data tables: 630
      9  Effect::GainStars
      8  AmountSpec::CardCountInPile
      8  Effect::Forge
+     8  Effect::MoveCard
      8  Condition::Not
      7  Effect::DamageFromOsty
      7  Condition::IsOstyMissing
      7  Condition::RoundEquals
      7  RelicHook::BeforeTurnEnd
      6  AmountSpec::XEnergy
-     6  Effect::MoveCard
      6  CardPoolRef::Colorless
      6  RelicHook::BeforeSideTurnStart
      6  RelicHook::AfterDamageReceived
@@ -101,8 +101,6 @@ Total entries in data tables: 630
   - Rampage
   - Rattle
   - RightHandHand
-  - SecretTechnique
-  - SecretWeapon
   - Severance
   - Snap
   - Stoke
