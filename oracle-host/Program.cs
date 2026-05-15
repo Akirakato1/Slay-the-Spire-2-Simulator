@@ -1557,6 +1557,25 @@ internal static class GodotBypass
             "MegaCrit.Sts2.Core.Localization.LocString", "GetFormattedText",
             BindingFlags.Public | BindingFlags.Instance,
             typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.EmptyStringPrefix));
+        // LocString.Exists(string, string) static + LocString.Exists()
+        // instance — return true unconditionally. CardModel
+        // SelectionScreenPrompt etc. throw "no prompt for X" if the
+        // instance Exists() returns false; static Exists is used as an
+        // "is localization wired up" fast-path. We say yes to both so
+        // OnPlay bodies progress; downstream GetFormattedText returns "".
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Localization.LocString", "Exists",
+            BindingFlags.Public | BindingFlags.Static,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.TruePrefix));
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Localization.LocString", "Exists",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.TruePrefix));
+        // LocString.GetIfExists — returns null (no localization data).
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Localization.LocString", "GetIfExists",
+            BindingFlags.Public | BindingFlags.Static,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NullObjectPrefix));
         // Patch CardSelectCmd.From* methods to return empty selections.
         // Many Ancient relics' AfterObtained calls these (Astrolabe,
         // Pomander, Claws, NewLeaf, Beautiful/TriBoomerang/RoyalStamp,

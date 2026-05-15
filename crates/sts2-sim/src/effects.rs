@@ -6607,7 +6607,17 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
             Effect::ApplyPower { power_id: "TheGambitPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
         ]),
         "TheHunt" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
-        "TheScythe" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        "TheScythe" => Some(vec![
+        Effect::DealDamage {
+        amount: AmountSpec::Add {
+        left: Box::new(AmountSpec::Fixed(13)),
+        right: Box::new(AmountSpec::SourceCardCounter { key: "scythe_ramp".to_string() }),
+        },
+        target: Target::ChosenEnemy,
+        hits: 1,
+        },
+        Effect::IncrementSourceCardCounter { key: "scythe_ramp".to_string(), delta: AmountSpec::Canonical("Increase".to_string()) },
+        ]),
         "TheSealedThrone" => Some(vec![Effect::ApplyPower { power_id: "TheSealedThronePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "ThinkingAhead" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "Thrash" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 2 }]),
