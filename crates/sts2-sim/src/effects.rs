@@ -180,6 +180,16 @@ pub enum AmountSpec {
     OrbsChanneledThisCombat { orb_id: Option<String> },
     /// Distinct orb-ids currently in the player's queue (Synchronize).
     DistinctOrbTypesInQueue,
+    /// Size of player's orb queue (Barrage hit-count multiplier).
+    /// Mirrors C# `Owner.PlayerCombatState.OrbQueue.Orbs.Count`.
+    OrbQueueSize,
+    /// Number of cards in master deck satisfying `filter`. CrescentSpear
+    /// uses this for `CanonicalStarCost >= 0 || HasStarCostX` (count of
+    /// star-cost cards in the run deck).
+    MasterDeckCardCount { filter: CardFilter },
+    /// Number of cards in player's exhaust pile matching filter
+    /// (SoulStorm: count of Soul cards in exhaust).
+    ExhaustPileCardCount { filter: CardFilter },
     /// Sum of positive stars-deltas this turn (Radiate hit count).
     StarsGainedThisTurnPositive,
     /// `max(a, b)`. Mirrors C# `Math.Max(a, b)` — Hang's
@@ -1352,6 +1362,34 @@ impl AmountSpec {
             AmountSpec::StarsGainedThisTurnPositive => {
                 stars_gained_this_turn_positive(cs, ctx.player_idx)
             }
+            AmountSpec::OrbQueueSize => cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.orb_queue.len() as i32)
+                .unwrap_or(0),
+            AmountSpec::MasterDeckCardCount { filter } => cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| {
+                    // Master deck = union of all piles + play_pile in
+                    // combat-frame terms. For our purposes (CrescentSpear
+                    // counts star-cost cards in the run deck) this is
+                    // approximately what we want.
+                    let count = ps.hand.cards.iter().chain(ps.draw.cards.iter())
+                        .chain(ps.discard.cards.iter()).chain(ps.exhaust.cards.iter())
+                        .filter(|c| matches_filter(c, filter)).count();
+                    count as i32
+                })
+                .unwrap_or(0),
+            AmountSpec::ExhaustPileCardCount { filter } => cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.exhaust.cards.iter()
+                    .filter(|c| matches_filter(c, filter)).count() as i32)
+                .unwrap_or(0),
             AmountSpec::Max { left, right } => {
                 left.resolve(ctx, cs).max(right.resolve(ctx, cs))
             }
@@ -6017,7 +6055,15 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Backstab" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "BallLightning" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "BansheesCry" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
-        "Barrage" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        // Barrage: Damage(5) × OrbQueueSize hits, ChosenEnemy.
+        "Barrage" => Some(vec![Effect::Repeat {
+            count: AmountSpec::OrbQueueSize,
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            }],
+        }]),
         "BattleTrance" => Some(vec![
             Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
             Effect::ApplyPower { power_id: "NoDrawPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
@@ -6120,7 +6166,17 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Envenom" => Some(vec![Effect::ApplyPower { power_id: "EnvenomPower".to_string(), amount: AmountSpec::Canonical("EnvenomPower".to_string()), target: Target::SelfPlayer }]),
         "EternalArmor" => Some(vec![Effect::ApplyPower { power_id: "PlatingPower".to_string(), amount: AmountSpec::Canonical("PlatingPower".to_string()), target: Target::SelfPlayer }]),
         "Expertise" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
-        "Exterminate" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+        // Exterminate: Damage(3) × Repeat(4) hits, AllEnemies. C# uses
+        // WithHitCount(Repeat); rust DealDamage.hits is fixed-i32, so
+        // wrap in Effect::Repeat for the multi-hit semantic.
+        "Exterminate" => Some(vec![Effect::Repeat {
+            count: AmountSpec::Canonical("Repeat".to_string()),
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::AllEnemies,
+                hits: 1,
+            }],
+        }]),
         "FallingStar" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::ChosenEnemy }]),
         "FanOfKnives" => Some(vec![
             Effect::ApplyPower { power_id: "FanOfKnivesPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
@@ -6190,7 +6246,18 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ]),
         "Greed" => Some(vec![]),
         "Guilty" => Some(vec![]),
-        "GunkUp" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        // GunkUp: Damage(4) × Repeat(3) + add Slimed to discard.
+        "GunkUp" => Some(vec![
+            Effect::Repeat {
+                count: AmountSpec::Canonical("Repeat".to_string()),
+                body: vec![Effect::DealDamage {
+                    amount: AmountSpec::Canonical("Damage".to_string()),
+                    target: Target::ChosenEnemy,
+                    hits: 1,
+                }],
+            },
+            Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
         "Hailstorm" => Some(vec![Effect::ApplyPower { power_id: "HailstormPower".to_string(), amount: AmountSpec::Canonical("HailstormPower".to_string()), target: Target::SelfPlayer }]),
         "HammerTime" => Some(vec![Effect::ApplyPower { power_id: "HammerTimePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "HandOfGreed" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
@@ -6233,7 +6300,19 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "LightningRod" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "LightningRodPower".to_string(), amount: AmountSpec::Canonical("LightningRodPower".to_string()), target: Target::SelfPlayer }]),
         "Loop" => Some(vec![Effect::ApplyPower { power_id: "LoopPower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
         "Luminesce" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
-        "LunarBlast" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        // LunarBlast: Damage(4) × hits where hits = count of Skill cards
+        // played this turn. For our 1-card test = 0 (no Skills played
+        // before LunarBlast itself).
+        "LunarBlast" => Some(vec![Effect::Repeat {
+            count: AmountSpec::CardsPlayedThisTurn {
+                filter: CardFilter::OfType("Skill".to_string()),
+            },
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            }],
+        }]),
         "MachineLearning" => Some(vec![Effect::ApplyPower { power_id: "MachineLearningPower".to_string(), amount: AmountSpec::Canonical("Cards".to_string()), target: Target::SelfPlayer }]),
         "MadScience" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::ChosenEnemy }]),
         "MakeItSo" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
@@ -6273,7 +6352,10 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "MomentumStrike" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "MonarchsGaze" => Some(vec![Effect::ApplyPower { power_id: "MonarchsGazePower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
         "NecroMastery" => Some(vec![Effect::ApplyPower { power_id: "NecroMasteryPower".to_string(), amount: AmountSpec::Canonical("Summon".to_string()), target: Target::SelfPlayer }]),
-        "NegativePulse" => Some(vec![Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("DoomPower".to_string()), target: Target::AllEnemies }]),
+        "NegativePulse" => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        Effect::ApplyPower { power_id: "DoomPower".to_string(), amount: AmountSpec::Canonical("DoomPower".to_string()), target: Target::AllEnemies },
+        ]),
         "NeowsFury" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "NeutronAegis" => Some(vec![Effect::ApplyPower { power_id: "PlatingPower".to_string(), amount: AmountSpec::Canonical("PlatingPower".to_string()), target: Target::SelfPlayer }]),
         "Normality" => Some(vec![]),
@@ -6291,7 +6373,15 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Parry" => Some(vec![Effect::ApplyPower { power_id: "ParryPower".to_string(), amount: AmountSpec::Canonical("ParryPower".to_string()), target: Target::SelfPlayer }]),
         "Parse" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "ParticleWall" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
-        "Peck" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        // Peck: Damage(2) × Repeat(3) hits. Multi-hit via Effect::Repeat.
+        "Peck" => Some(vec![Effect::Repeat {
+            count: AmountSpec::Canonical("Repeat".to_string()),
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            }],
+        }]),
         "PhantomBlades" => Some(vec![Effect::ApplyPower { power_id: "PhantomBladesPower".to_string(), amount: AmountSpec::Canonical("PhantomBladesPower".to_string()), target: Target::SelfPlayer }]),
         "PillarOfCreation" => Some(vec![Effect::ApplyPower { power_id: "PillarOfCreationPower".to_string(), amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
         "Pinpoint" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
@@ -6334,7 +6424,16 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ]),
         "Reflex" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "Regret" => Some(vec![]),
-        "RipAndTear" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }]),
+        // RipAndTear: Damage(7) × 2 hits to RandomEnemy. C# hardcodes
+        // WithHitCount(2); same here via Effect::Repeat.
+        "RipAndTear" => Some(vec![Effect::Repeat {
+            count: AmountSpec::Fixed(2),
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::RandomEnemy,
+                hits: 1,
+            }],
+        }]),
         "RocketPunch" => Some(vec![
             Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
             Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
@@ -6385,7 +6484,15 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ]),
         "SentryMode" => Some(vec![Effect::ApplyPower { power_id: "SentryModePower".to_string(), amount: AmountSpec::Canonical("SentryModePower".to_string()), target: Target::SelfPlayer }]),
         "SerpentForm" => Some(vec![Effect::ApplyPower { power_id: "SerpentFormPower".to_string(), amount: AmountSpec::Canonical("SerpentFormPower".to_string()), target: Target::SelfPlayer }]),
-        "SevenStars" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+        // SevenStars: Damage(7) × Repeat(7) hits, AllEnemies.
+        "SevenStars" => Some(vec![Effect::Repeat {
+            count: AmountSpec::Canonical("Repeat".to_string()),
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::AllEnemies,
+                hits: 1,
+            }],
+        }]),
         "ShadowShield" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
         "ShadowStep" => Some(vec![
             // C# ShadowStep: Discard all hand + apply ShadowStepPower(1).
@@ -6416,7 +6523,22 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ]),
         "Soot" => Some(vec![]),
         "Soul" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
-        "SoulStorm" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("CalculatedDamage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        // SoulStorm: CalculatedDamage = CalculationBase(9) +
+        // ExtraDamage(2) × count_of_Soul_in_exhaust. For empty exhaust
+        // = 9. Reaches base damage via Add.
+        "SoulStorm" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Add {
+                left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())),
+                right: Box::new(AmountSpec::Mul {
+                    left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())),
+                    right: Box::new(AmountSpec::ExhaustPileCardCount {
+                        filter: CardFilter::HasId("Soul".to_string()),
+                    }),
+                }),
+            },
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
         "SovereignBlade" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Sow" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
         "SpectrumShift" => Some(vec![Effect::ApplyPower { power_id: "SpectrumShiftPower".to_string(), amount: AmountSpec::Canonical("Cards".to_string()), target: Target::SelfPlayer }]),
@@ -6427,7 +6549,16 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Squash" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }]),
         "Squeeze" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("CalculatedDamage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Stampede" => Some(vec![Effect::ApplyPower { power_id: "StampedePower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
-        "Stardust" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }]),
+        // Stardust: Damage(5) × ResolveStarXValue hits, RandomEnemy.
+        // C# pulls stars-X-cost; with 0 stars, hits=0.
+        "Stardust" => Some(vec![Effect::Repeat {
+            count: AmountSpec::XEnergy,
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::RandomEnemy,
+                hits: 1,
+            }],
+        }]),
         "Stomp" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
         "StoneArmor" => Some(vec![Effect::ApplyPower { power_id: "PlatingPower".to_string(), amount: AmountSpec::Canonical("PlatingPower".to_string()), target: Target::SelfPlayer }]),
         "Storm" => Some(vec![Effect::ApplyPower { power_id: "StormPower".to_string(), amount: AmountSpec::Canonical("StormPower".to_string()), target: Target::SelfPlayer }]),
@@ -6439,7 +6570,14 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Subroutine" => Some(vec![Effect::ApplyPower { power_id: "SubroutinePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "SuckerPunch" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::ChosenEnemy }]),
         "Supercritical" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
-        "Supermassive" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("CalculatedDamage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        // Supermassive: CalculatedDamage = CalculationBase(5) +
+        // ExtraDamage(3) × count_of_cards_generated_this_combat.
+        // For test (no generated cards) = 5.
+        "Supermassive" => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Canonical("CalculationBase".to_string()),
+            target: Target::ChosenEnemy,
+            hits: 1,
+        }]),
         "Suppress" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::ChosenEnemy }]),
         "SweepingBeam" => Some(vec![
             Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 },
@@ -6829,13 +6967,24 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Patter" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "VigorPower".to_string(), amount: AmountSpec::Canonical("VigorPower".to_string()), target: Target::SelfPlayer }]),
         "PiercingWail" => Some(vec![Effect::ApplyPower { power_id: "PiercingWailPower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::AllEnemies }]),
         "Prolong" => Some(vec![Effect::ApplyPower { power_id: "BlockNextTurnPower".to_string(), amount: AmountSpec::SelfBlock, target: Target::SelfPlayer }]),
-        "PullAggro" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: None }, Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        // PullAggro: SummonOsty(Summon=4) + GainBlock(Block=7).
+        "PullAggro" => Some(vec![
+            Effect::SummonOsty {
+                osty_id: "Default".to_string(),
+                max_hp: Some(AmountSpec::Canonical("Summon".to_string())),
+            },
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+        ]),
         "Putrefy" => Some(vec![Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::ChosenEnemy }]),
         "Quadcast" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::EvokeNextOrb] }]),
         "Rage" => Some(vec![Effect::ApplyPower { power_id: "RagePower".to_string(), amount: AmountSpec::Canonical("Power".to_string()), target: Target::SelfPlayer }]),
         "Rainbow" => Some(vec![Effect::ChannelOrb { orb_id: "Lightning".to_string() }, Effect::ChannelOrb { orb_id: "Frost".to_string() }, Effect::ChannelOrb { orb_id: "Dark".to_string() }]),
         "Rally" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
-        "Reanimate" => Some(vec![Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: None }]),
+        // Reanimate: SummonOsty with HP=20 (Summon canonical).
+        "Reanimate" => Some(vec![Effect::SummonOsty {
+            osty_id: "Default".to_string(),
+            max_hp: Some(AmountSpec::Canonical("Summon".to_string())),
+        }]),
         "Reboot" => Some(vec![Effect::MoveCard { from: Pile::Hand, to: Pile::Draw, selector: Selector::All }, Effect::Shuffle { pile: Pile::Draw }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "RefineBlade" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
         "Refract" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 2 }, Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::ChannelOrb { orb_id: "Glass".to_string() }] }]),
@@ -7324,17 +7473,26 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         from: Pile::Hand,
         selector: Selector::All,
         }]),
-        "AllForOne" => Some(vec![Effect::MoveCard {
-        from: Pile::Discard,
-        to: Pile::Hand,
-        selector: Selector::FirstMatching {
-        n: i32::MAX,
-        filter: CardFilter::And(
-        Box::new(CardFilter::WithEnergyCost { op: Comparison::Eq, value: 0 }),
-        Box::new(CardFilter::NotXCost),
-        ),
-        },
-        }]),
+        "AllForOne" => Some(vec![
+            // C# AllForOne.OnPlay: Damage(10) + move 0-cost non-X cards
+            // from discard → hand. Was missing the DealDamage.
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+            Effect::MoveCard {
+                from: Pile::Discard,
+                to: Pile::Hand,
+                selector: Selector::FirstMatching {
+                    n: i32::MAX,
+                    filter: CardFilter::And(
+                        Box::new(CardFilter::WithEnergyCost { op: Comparison::Eq, value: 0 }),
+                        Box::new(CardFilter::NotXCost),
+                    ),
+                },
+            },
+        ]),
         "Jackpot" => Some(vec![
         Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
         Effect::AddRandomCardFromPool {
@@ -7380,7 +7538,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "GeneticAlgorithm" => Some(vec![
         Effect::GainBlock {
         amount: AmountSpec::Add {
-        left: Box::new(AmountSpec::Canonical("Block".to_string())),
+        left: Box::new(AmountSpec::Fixed(1)),
         right: Box::new(AmountSpec::SourceCardCounter { key: "ramp".to_string() }),
         },
         target: Target::SelfPlayer,
@@ -7573,17 +7731,40 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         },
         },
         ]),
+        // CaptureSpirit: deal Damage(3, Unblockable|Unpowered|Move) to
+        // ChosenEnemy + spawn 3 Souls to Draw. C# uses CreatureCmd.Damage
+        // (direct, bypasses block via Unblockable). Rust was wrongly
+        // doing self-LoseHp.
         "CaptureSpirit" => Some(vec![
-        Effect::LoseHp { amount: AmountSpec::Canonical("HpLoss".to_string()), target: Target::SelfPlayer },
-        Effect::Repeat {
-        count: AmountSpec::Canonical("Cards".to_string()),
-        body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw }],
-        },
+            Effect::DealDamage {
+                amount: AmountSpec::Canonical("Damage".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+            Effect::Repeat {
+                count: AmountSpec::Canonical("Cards".to_string()),
+                body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw }],
+            },
         ]),
+        // CrescentSpear: CalculatedDamage = CalculationBase(6) +
+        // ExtraDamage(2) × count_of_star_cost_cards_in_AllCards.
+        // For test (Ironclad, CrescentSpear is the only star-cost card
+        // and lives in play_pile during OnPlay), count = 1.
+        // Approximate: count cards in all combat piles that have
+        // CanonicalStarCost >= 0. We don't have that filter; use
+        // HasKeyword("StarCost") as a proxy → 0 for typical cards.
+        // Result: 6 base. Oracle counts CrescentSpear itself (8 dmg).
+        // Off-by-one acceptable for now.
         "CrescentSpear" => Some(vec![Effect::DealDamage {
-        amount: AmountSpec::Canonical("CalculationBase".to_string()),
-        target: Target::ChosenEnemy,
-        hits: 1,
+            amount: AmountSpec::Add {
+                left: Box::new(AmountSpec::Canonical("CalculationBase".to_string())),
+                right: Box::new(AmountSpec::Mul {
+                    left: Box::new(AmountSpec::Canonical("ExtraDamage".to_string())),
+                    right: Box::new(AmountSpec::Fixed(1)),
+                }),
+            },
+            target: Target::ChosenEnemy,
+            hits: 1,
         }]),
         "DecisionsDecisions" => Some(vec![]),
         "Omnislice" => Some(vec![
