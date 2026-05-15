@@ -679,6 +679,49 @@ internal sealed class Dispatcher
                 return Ok(SerializeCombat(combat));
             }
 
+            case "combat_init_run_state":
+            {
+                // Upgrade the player's RunState from NullRunState to a
+                // real one via RunState.CreateForTest. The setter on
+                // Player.RunState requires the current to be
+                // NullRunState (one-time transition), so this must run
+                // exactly once per player. Unblocks Ancient relics
+                // whose AfterObtained reaches into RunState
+                // (CreateCard<T>, UnlockState, CardMultiplayerConstraint,
+                // CurrentMapPointHistoryEntry, etc.).
+                var combat = GetInstance(p);
+                var playerIdx = p["player_idx"]?.GetValue<int>() ?? 0;
+                var seed = p["seed"]?.GetValue<string?>();
+                var allies = (System.Collections.IList)_combat.Allies.GetValue(combat)!;
+                var ownerCreature = allies[playerIdx]!;
+                var ownerPlayer = _combat.CreaturePlayer.GetValue(ownerCreature)!;
+                try
+                {
+                    var playerListType = typeof(System.Collections.Generic.List<>)
+                        .MakeGenericType(_combat.CombatStateAddCardWithOwner.GetParameters()[1].ParameterType);
+                    var playerList = (System.Collections.IList)Activator.CreateInstance(playerListType)!;
+                    playerList.Add(ownerPlayer);
+                    // Optional args: acts=null, modifiers=null, gameMode=Standard,
+                    // ascensionLevel=0, seed.
+                    var args = new object?[] {
+                        playerList, null, null,
+                        Enum.ToObject(_combat.GameModeType, 0),
+                        0, seed
+                    };
+                    _combat.RunStateCreateForTest.Invoke(null, args);
+                }
+                catch (Exception ex)
+                {
+                    return new JsonObject {
+                        ["error"] = new JsonObject {
+                            ["code"] = -32000,
+                            ["message"] = $"init_run_state: {ex.InnerException?.Message ?? ex.Message}",
+                        },
+                    };
+                }
+                return Ok(JsonValue.Create(true));
+            }
+
             case "combat_grant_relic":
             {
                 var combat = GetInstance(p);
@@ -1612,6 +1655,8 @@ internal sealed class CombatReflectionBundle
     public required MethodInfo AfterSideTurnStartMethod { get; init; }
     public required ConstructorInfo CombatRoomFromState { get; init; }
     public required MethodInfo AfterRoomEnteredMethod { get; init; }
+    public required MethodInfo RunStateCreateForTest { get; init; }
+    public required Type GameModeType { get; init; }
 
     public object GetCharacterById(string id)
     {
@@ -1897,6 +1942,18 @@ internal sealed class CombatReflectionBundle
             BindingFlags.Public | BindingFlags.Instance,
             new[] { abstractRoomType })
             ?? throw new InvalidOperationException("AbstractModel.AfterRoomEntered not found");
+        // RunState.CreateForTest — upgrades NullRunState → real RunState.
+        // Signature: (players, acts, modifiers, gameMode, ascensionLevel, seed)
+        // with all params nullable / defaulted. We call with our existing
+        // player list so the RunState back-references the player and
+        // registers its deck cards.
+        var runStateType = asm.GetType("MegaCrit.Sts2.Core.Runs.RunState",
+            throwOnError: true)!;
+        var runStateCreateForTest = runStateType.GetMethod("CreateForTest",
+            BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("RunState.CreateForTest not found");
+        var gameModeType = asm.GetType("MegaCrit.Sts2.Core.Runs.GameMode",
+            throwOnError: true)!;
 
         return new CombatReflectionBundle
         {
@@ -1959,6 +2016,8 @@ internal sealed class CombatReflectionBundle
             AfterSideTurnStartMethod = afterSideTurnStart,
             CombatRoomFromState = combatRoomFromState,
             AfterRoomEnteredMethod = afterRoomEntered,
+            RunStateCreateForTest = runStateCreateForTest,
+            GameModeType = gameModeType,
         };
     }
 }

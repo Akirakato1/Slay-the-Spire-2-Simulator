@@ -35,7 +35,10 @@ fn relic_modelid(rust_id: &str) -> String {
     rust_rig::rust_to_modelid(rust_id, "RELIC")
 }
 
-/// Build a fresh oracle handle: combat_new + add_player + 2× add_enemy.
+/// Build a fresh oracle handle: combat_new + add_player + 2× add_enemy
+/// + init_run_state (upgrades player.RunState NullRunState → real
+/// RunState via CreateForTest, unlocking Ancient relics that need
+/// CreateCard<T>/UnlockState/CardMultiplayerConstraint/etc.).
 fn oracle_setup(oracle: &mut Oracle) -> anyhow::Result<i64> {
     let r = oracle.call("combat_new", json!({}))?;
     let h = r["result"]
@@ -55,6 +58,12 @@ fn oracle_setup(oracle: &mut Oracle) -> anyhow::Result<i64> {
             json!({ "handle": h, "monster_id": ENEMY_ID }),
         )?;
     }
+    // Best-effort RunState upgrade. If this fails the sweep continues
+    // with NullRunState (most relics still work; only Ancients break).
+    let _ = oracle.call(
+        "combat_init_run_state",
+        json!({ "handle": h, "seed": SEED.to_string() }),
+    );
     Ok(h)
 }
 
