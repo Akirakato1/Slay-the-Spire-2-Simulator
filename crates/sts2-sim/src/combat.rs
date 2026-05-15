@@ -1391,10 +1391,35 @@ impl CombatState {
     /// sign=+1 for IsPositive subclasses (SetupStrikePower,
     /// AnticipatePower); sign=-1 for IsPositive=false (ManglePower).
     fn tick_temporary_strength_powers(&mut self, side: CombatSide) {
+        // (temp-power id, sign, target-power). Sign + target unused now
+        // — decrement_power → apply_power(-amount) re-fires the temp
+        // power's BeforeApplied which itself applies -amount of the
+        // target power. We only need the LIST of temp ids here so we
+        // know which stacks to decrement at owner-turn end.
         const TEMP_POWERS: &[(&str, i32, &str)] = &[
+            // TempStrengthPower subclasses (IsPositive=true):
             ("SetupStrikePower", 1, "StrengthPower"),
+            ("CoordinatePower", 1, "StrengthPower"),
+            ("FeedingFrenzyPower", 1, "StrengthPower"),
+            ("FlexPotionPower", 1, "StrengthPower"),
+            ("ReptileTrinketPower", 1, "StrengthPower"),
+            // TempStrengthPower subclasses (IsPositive=false):
             ("ManglePower", -1, "StrengthPower"),
+            ("DarkShacklesPower", -1, "StrengthPower"),
+            ("CrushUnderPower", -1, "StrengthPower"),
+            ("DyingStarPower", -1, "StrengthPower"),
+            ("EnfeeblingTouchPower", -1, "StrengthPower"),
+            ("MonarchsGazeStrengthDownPower", -1, "StrengthPower"),
+            ("PiercingWailPower", -1, "StrengthPower"),
+            ("ShacklingPotionPower", -1, "StrengthPower"),
+            // TempDexterityPower subclasses:
             ("AnticipatePower", 1, "DexterityPower"),
+            ("HelicalDartPower", 1, "DexterityPower"),
+            ("SpeedPotionPower", 1, "DexterityPower"),
+            // TempFocusPower subclasses:
+            ("FocusedStrikePower", 1, "FocusPower"),
+            ("HotfixPower", 1, "FocusPower"),
+            ("SynchronizePower", 1, "FocusPower"),
         ];
         let n_allies = self.allies.len();
         let n_enemies = self.enemies.len();
@@ -3571,6 +3596,11 @@ impl CombatState {
             None
         } else if card_data.keywords.iter().any(|k| k == "Exhaust") {
             Some(PileType::Exhaust)
+        } else if card_id == "ParticleWall" {
+            // ParticleWall.GetResultPileType overrides Discard -> Hand.
+            // Mirrors C# ParticleWall.cs: the only card with this
+            // override. Keeps the played card in hand for re-play.
+            Some(PileType::Hand)
         } else {
             Some(PileType::Discard)
         };
@@ -3580,6 +3610,7 @@ impl CombatState {
         match dest_opt {
             Some(PileType::Discard) => ps.discard.cards.push(played_card),
             Some(PileType::Exhaust) => ps.exhaust.cards.push(played_card),
+            Some(PileType::Hand) => ps.hand.cards.push(played_card),
             None => { /* Power: consumed */ }
             _ => ps.discard.cards.push(played_card),
         }

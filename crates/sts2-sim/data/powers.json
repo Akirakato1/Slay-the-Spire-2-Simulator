@@ -479,6 +479,11 @@
     "allow_negative": true
   },
   {
+    "id": "FocusedStrikePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
     "id": "ForbiddenGrimoirePower",
     "power_type": "Buff",
     "stack_type": "Counter"
@@ -627,6 +632,11 @@
   },
   {
     "id": "HighVoltagePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "HotfixPower",
     "power_type": "Buff",
     "stack_type": "Counter"
   },
@@ -1325,6 +1335,11 @@
   },
   {
     "id": "SwordSagePower",
+    "power_type": "Buff",
+    "stack_type": "Counter"
+  },
+  {
+    "id": "SynchronizePower",
     "power_type": "Buff",
     "stack_type": "Counter"
   },
