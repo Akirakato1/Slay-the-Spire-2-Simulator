@@ -1,0 +1,50 @@
+// batch_r_5.txt - modifier-hook relics expressed as combat-frame Effect bodies.
+// Strategy: ModifyMaxEnergy maps to BeforeCombatStart -> IncreaseMaxEnergy.
+//          ModifyHandDraw (round-1-only) maps to BeforeCombatStart -> DrawCards.
+//          ModifyHandDraw (every-turn) maps to AfterPlayerTurnStart -> DrawCards.
+// Verified against C# decompile.
+
+// BagOfPreparation.cs L36-47: ModifyHandDraw on round 1 -> +Cards (2).
+// Encode as BeforeCombatStart -> DrawCards(Cards). Equivalent because
+// initial draw fires after BeforeCombatStart, so the extra cards stack.
+"BagOfPreparation" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+]),
+
+// BoomingConch.cs L36-53: ModifyHandDraw on round 1 in Elite -> +Cards (2).
+// We can't gate on RoomType (run-state); encode as BeforeCombatStart -> DrawCards
+// and accept that it fires on ALL combats not just Elite. Mild semantic drift.
+"BoomingConch" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+]),
+
+// PhilosophersStone.cs L60-68: ModifyMaxEnergy -> +Energy (1) permanent.
+// AfterRoomEntered (CombatRoom) also applies StrengthPower(1) to all enemies.
+"PhilosophersStone" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![
+        Effect::IncreaseMaxEnergy { delta: AmountSpec::Canonical("Energy".to_string()) },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::AllEnemies },
+     ]),
+]),
+
+// Bread.cs L69-78: AfterSideTurnStart owner+r==1 -> LoseEnergy(2) already in batch_r_1.
+// ModifyMaxEnergy(+1) when r >= 2: model as IncreaseMaxEnergy(+1) at
+// AfterSideTurnStart on round 2 first-fire. (The C# ModifyMaxEnergy
+// adds +1 every turn from r>=2; our IncreaseMaxEnergy is permanent so
+// fire once at r==2 to match the net per-turn bonus.)
+// Bread's original entry (round 1 LoseEnergy(2)) stays — batch_r_5 only
+// supersedes if we re-emit. Keep just the +1 r==2 rider here so both
+// fire together via two RelicHook entries on the same relic.
+"Bread" => Some(vec![
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
+     vec![Effect::LoseEnergy { amount: AmountSpec::Canonical("LoseEnergy".to_string()) }]),
+    (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+     vec![Effect::Conditional {
+        condition: Condition::RoundEquals { n: 2 },
+        then_branch: vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }],
+        else_branch: vec![],
+     }]),
+]),

@@ -554,6 +554,13 @@ pub enum Effect {
     /// Set `PlayerState.relic_counters[key]` to a specific value
     /// (typically 0 to reset).
     SetRelicCounter { key: String, value: AmountSpec },
+    /// Permanently adjust `PlayerState.turn_energy` (per-turn energy
+    /// refresh amount). Mirrors C# `ModifyMaxEnergy(player, amount) ->
+    /// amount + delta` on RelicModel. Fired at BeforeCombatStart to
+    /// apply the offset for the whole combat. PhilosophersStone (+1),
+    /// Bread (+1 from r>=2 via Conditional), Sozu (-1), Ectoplasm (-1),
+    /// VelvetChoker (-1 after N plays).
+    IncreaseMaxEnergy { delta: AmountSpec },
     /// Damage attributed to Osty companion (Protector-family).
     /// STUB — falls back to regular DealDamage for now.
     DamageFromOsty {
@@ -2006,6 +2013,12 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         "Bread" => Some(vec![
             (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: true },
              vec![Effect::LoseEnergy { amount: AmountSpec::Canonical("LoseEnergy".to_string()) }]),
+            (RelicHook::AfterSideTurnStart { owner_side_only: true, first_turn_only: false },
+             vec![Effect::Conditional {
+                condition: Condition::RoundEquals { n: 2 },
+                then_branch: vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }],
+                else_branch: vec![],
+             }]),
         ]),
 
         "CrackedCore" => Some(vec![
@@ -2643,6 +2656,24 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
                 then_branch: vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }],
                 else_branch: vec![],
              }]),
+        ]),
+
+        "BagOfPreparation" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        ]),
+
+        "BoomingConch" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        ]),
+
+        "PhilosophersStone" => Some(vec![
+            (RelicHook::BeforeCombatStart,
+             vec![
+                Effect::IncreaseMaxEnergy { delta: AmountSpec::Canonical("Energy".to_string()) },
+                Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::AllEnemies },
+             ]),
         ]),
 
 
@@ -4015,6 +4046,12 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             let v = value.resolve(ctx, cs);
             if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
                 ps.relic_counters.insert(key.clone(), v);
+            }
+        }
+        Effect::IncreaseMaxEnergy { delta } => {
+            let d = delta.resolve(ctx, cs);
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                ps.turn_energy = (ps.turn_energy + d).max(0);
             }
         }
         Effect::DamageFromOsty { amount, target } => {
