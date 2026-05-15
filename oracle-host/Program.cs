@@ -856,13 +856,21 @@ internal sealed class Dispatcher
 
     private JsonArray SerializePowers(object creature)
     {
-        var arr = new JsonArray();
         var powers = (System.Collections.IEnumerable?)_combat.CreaturePowers.GetValue(creature);
-        if (powers == null) return arr;
+        if (powers == null) return new JsonArray();
+        // Collect then sort by id to normalize against the Rust dump
+        // (which sorts at emit time).
+        var tmp = new List<(string id, int amount)>();
         foreach (var p in powers)
         {
-            var id = ModelIdString(_combat.AbstractModelId.GetValue(p));
+            var id = ModelIdString(_combat.AbstractModelId.GetValue(p)) ?? "";
             var amount = (int)_combat.PowerAmount.GetValue(p)!;
+            tmp.Add((id, amount));
+        }
+        tmp.Sort((a, b) => string.CompareOrdinal(a.id, b.id));
+        var arr = new JsonArray();
+        foreach (var (id, amount) in tmp)
+        {
             arr.Add(new JsonObject { ["id"] = id, ["amount"] = amount });
         }
         return arr;

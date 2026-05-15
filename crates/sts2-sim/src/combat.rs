@@ -93,6 +93,14 @@ pub struct PlayerState {
     pub hand: CardPile,
     pub discard: CardPile,
     pub exhaust: CardPile,
+    /// Transient pile holding the card being played during OnPlay
+    /// dispatch. Mirrors C# `PlayerCombatState.PlayPile`. play_card
+    /// pushes the played card here before invoking OnPlay so it's
+    /// visible to `AmountSpec::CardCountInPile { AllCombat }`
+    /// (PerfectedStrike etc. count themselves via the PlayPile branch
+    /// of `AllCards`). Routed out to discard / exhaust / consumed
+    /// after dispatch.
+    pub play_pile: Vec<CardInstance>,
     /// Current energy this turn.
     pub energy: i32,
     /// Per-turn energy refresh amount. Modified by relics like Velvet
@@ -3441,7 +3449,12 @@ impl CombatState {
         //    OnPlay before routing.
         let mut played_card = {
             let ps = self.allies[player_idx].player.as_mut().unwrap();
-            ps.hand.cards.remove(hand_idx)
+            let card = ps.hand.cards.remove(hand_idx);
+            // Mirror C# PlayerCombatState.PlayPile: push the playing
+            // card here so AmountSpec::CardCountInPile { AllCombat }
+            // counts it during OnPlay (PerfectedStrike's self-count).
+            ps.play_pile.push(card.clone());
+            card
         };
         // `cost_override_until_played` consumed by THIS play — clear so
         // the override doesn't survive if the card lands back in hand
@@ -3545,6 +3558,8 @@ impl CombatState {
             Some(PileType::Discard)
         };
         let ps = self.allies[player_idx].player.as_mut().unwrap();
+        // The card is no longer in PlayPile after routing.
+        ps.play_pile.clear();
         match dest_opt {
             Some(PileType::Discard) => ps.discard.cards.push(played_card),
             Some(PileType::Exhaust) => ps.exhaust.cards.push(played_card),
@@ -11842,6 +11857,7 @@ impl Creature {
                 hand: CardPile::new(PileType::Hand),
                 discard: CardPile::new(PileType::Discard),
                 exhaust: CardPile::new(PileType::Exhaust),
+                play_pile: Vec::new(),
                 energy: DEFAULT_TURN_ENERGY,
                 turn_energy: DEFAULT_TURN_ENERGY,
                 relics: setup.relics,
@@ -14868,7 +14884,9 @@ mod tests {
     #[test]
     fn perfected_strike_baseline_counts_starter_strikes() {
         // Starter Ironclad deck has 5 Strike-tagged cards (StrikeIronclad).
-        // PerfectedStrike base = 6 + 2*5 = 16.
+        // PerfectedStrike itself ALSO has the Strike tag and counts via
+        // C# PlayerCombatState.AllCards (which includes PlayPile during
+        // OnPlay). Total = 6 → damage = 6 + 2*6 = 18.
         let mut cs = ironclad_combat();
         let card = card_by_id("PerfectedStrike").unwrap();
         cs.allies[0]
@@ -14882,12 +14900,12 @@ mod tests {
         let hp_before = cs.enemies[0].current_hp;
         let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
         assert_eq!(r, PlayResult::Ok);
-        assert_eq!(cs.enemies[0].current_hp, hp_before - 16);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 18);
     }
 
     #[test]
     fn upgraded_perfected_strike_uses_three_per_strike() {
-        // 6 + 3*5 = 21.
+        // 6 + 3*6 = 24 (6 Strikes including the playing PerfectedStrike).
         let mut cs = ironclad_combat();
         let card = card_by_id("PerfectedStrike").unwrap();
         cs.allies[0]
@@ -14901,7 +14919,7 @@ mod tests {
         let hp_before = cs.enemies[0].current_hp;
         let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
         assert_eq!(r, PlayResult::Ok);
-        assert_eq!(cs.enemies[0].current_hp, hp_before - 21);
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 24);
     }
 
     #[test]
@@ -14937,9 +14955,9 @@ mod tests {
         let hp_before = cs.enemies[0].current_hp;
         let r = cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
         assert_eq!(r, PlayResult::Ok);
-        // 5 StrikeIronclad + 1 SetupStrike still in piles after play.
-        // Damage = 6 + 2*6 = 18.
-        assert_eq!(cs.enemies[0].current_hp, hp_before - 18);
+        // 5 StrikeIronclad + 1 SetupStrike in piles + PerfectedStrike
+        // itself in PlayPile during OnPlay = 7. Damage = 6 + 2*7 = 20.
+        assert_eq!(cs.enemies[0].current_hp, hp_before - 20);
     }
 
     // ---------- SwordBoomerang tests -------------------------------------

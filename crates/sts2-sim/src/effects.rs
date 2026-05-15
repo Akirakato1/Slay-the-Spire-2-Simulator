@@ -1195,10 +1195,33 @@ impl AmountSpec {
                 match pile {
                     PileSelector::Single(p) => count_in(*p),
                     PileSelector::AllCombat => {
+                        // C# PlayerCombatState.AllCards = Hand + Draw +
+                        // Discard + Exhaust + Play. play_card pushes
+                        // the played card into `play_pile` for the
+                        // duration of OnPlay so it's countable here
+                        // (PerfectedStrike etc. count themselves).
+                        let play_count = cs
+                            .allies
+                            .get(ctx.player_idx)
+                            .and_then(|c| c.player.as_ref())
+                            .map(|ps| {
+                                ps.play_pile
+                                    .iter()
+                                    .filter(|c| {
+                                        crate::card::by_id(&c.id)
+                                            .map(|d| card_metadata_matches_filter(
+                                                d.card_type, &d.keywords, &d.tags, filter,
+                                            ))
+                                            .unwrap_or(false)
+                                    })
+                                    .count() as i32
+                            })
+                            .unwrap_or(0);
                         count_in(Pile::Hand)
                             + count_in(Pile::Discard)
                             + count_in(Pile::Draw)
                             + count_in(Pile::Exhaust)
+                            + play_count
                     }
                 }
             }
@@ -5969,7 +5992,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "RocketPunch" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "RollingBoulder" => Some(vec![Effect::ApplyPower { power_id: "RollingBoulderPower".to_string(), amount: AmountSpec::Canonical("RollingBoulderPower".to_string()), target: Target::SelfPlayer }]),
         "Royalties" => Some(vec![Effect::ApplyPower { power_id: "RoyaltiesPower".to_string(), amount: AmountSpec::Canonical("Gold".to_string()), target: Target::SelfPlayer }]),
-        "Rupture" => Some(vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
+        "Rupture" => Some(vec![Effect::ApplyPower { power_id: "RupturePower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
         "Scrape" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "SculptingStrike" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Seance" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
@@ -6028,7 +6051,10 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Taunt" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }]),
         "TearAsunder" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "TeslaCoil" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
-        "TheGambit" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        "TheGambit" => Some(vec![
+            Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
+            Effect::ApplyPower { power_id: "TheGambitPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
+        ]),
         "TheHunt" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "TheScythe" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "TheSealedThrone" => Some(vec![Effect::ApplyPower { power_id: "TheSealedThronePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
@@ -6338,7 +6364,21 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Conqueror" => Some(vec![Effect::Forge { amount: AmountSpec::Canonical("Forge".to_string()) }, Effect::ApplyPower { power_id: "ConquerorPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy }]),
         "Convergence" => Some(vec![Effect::ApplyPower { power_id: "RetainHandPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "StarNextTurnPower".to_string(), amount: AmountSpec::Canonical("Stars".to_string()), target: Target::SelfPlayer }]),
         "CorrosiveWave" => Some(vec![Effect::ApplyPower { power_id: "CorrosiveWavePower".to_string(), amount: AmountSpec::Canonical("CorrosiveWave".to_string()), target: Target::SelfPlayer }]),
-        "DarkShackles" => Some(vec![Effect::ApplyPower { power_id: "DarkShacklesPower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::ChosenEnemy }]),
+        "DarkShackles" => Some(vec![
+            // DarkShacklesPower extends TemporaryStrengthPower (IsPositive
+            // = false): on apply, silently grants the target negative
+            // Strength equal to the StrengthLoss amount; at end of
+            // target's turn, removes itself and restores Strength.
+            Effect::ApplyPower { power_id: "DarkShacklesPower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::ChosenEnemy },
+            Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::Mul {
+                    left: Box::new(AmountSpec::Fixed(-1)),
+                    right: Box::new(AmountSpec::Canonical("StrengthLoss".to_string())),
+                },
+                target: Target::ChosenEnemy,
+            },
+        ]),
         "Dash" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Delay" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
         "Dualcast" => Some(vec![Effect::EvokeNextOrb, Effect::EvokeNextOrb]),

@@ -153,6 +153,7 @@ pub fn combat_add_player(cs: &mut CombatState, character_modelid: &str, _seed: u
             hand: CardPile::new(PileType::Hand),
             discard: CardPile::new(PileType::Discard),
             exhaust: CardPile::new(PileType::Exhaust),
+            play_pile: Vec::new(),
             energy: 0,  // matches C# pre-turn-start (PlayerCombatState.Energy = 0)
             turn_energy: 3,  // Ironclad MaxEnergy
             relics: cd.starting_relics.clone(),
@@ -242,7 +243,9 @@ pub fn combat_dump(cs: &CombatState) -> Value {
 
 fn serialize_creature_with_master(c: &Creature, master_deck: &[(String, i32)]) -> Value {
     let is_player = c.kind == CreatureKind::Player;
-    let powers: Vec<Value> = c
+    // Sort powers by id so JSON-array order differences between Rust
+    // and C# don't show up as diffs.
+    let mut powers: Vec<Value> = c
         .powers
         .iter()
         .map(|p| json!({
@@ -250,6 +253,9 @@ fn serialize_creature_with_master(c: &Creature, master_deck: &[(String, i32)]) -
             "amount": p.amount,
         }))
         .collect();
+    powers.sort_by(|a, b| {
+        a["id"].as_str().unwrap_or("").cmp(b["id"].as_str().unwrap_or(""))
+    });
     let mut obj = serde_json::Map::new();
     obj.insert("name".into(), Value::Null);
     obj.insert("current_hp".into(), Value::from(c.current_hp));
