@@ -536,14 +536,40 @@ impl CombatState {
         // clear → fire AfterBlockCleared hook).
         let mut block_cleared_player = false;
         let mut block_cleared_enemy = false;
+        // SturdyClamp / RunicPyramid block-clear retention. C# pattern:
+        // ShouldClearBlock returns false on the relic owner → block is
+        // NOT cleared. SturdyClamp then runs AfterPreventingBlockClear
+        // to lose down to 10. RunicPyramid retains all block (no
+        // post-prevent reduction).
+        let player_relics_pre_clear = relic_ids_on_side(self, CombatSide::Player);
+        let player_has_sturdy = player_relics_pre_clear
+            .iter()
+            .any(|r| r == "SturdyClamp");
+        let player_has_runic = player_relics_pre_clear
+            .iter()
+            .any(|r| r == "RunicPyramid");
+        let player_block_retain_max: Option<i32> = if player_has_runic {
+            Some(i32::MAX)
+        } else if player_has_sturdy {
+            Some(10)
+        } else {
+            None
+        };
         match side {
             CombatSide::Player => {
                 for ally in self.allies.iter_mut() {
                     if !preserves(ally) {
-                        if ally.block > 0 {
+                        // Apply block-retention cap if SturdyClamp /
+                        // RunicPyramid is owned. SturdyClamp: cap at 10.
+                        // RunicPyramid: retain all.
+                        let final_block = match player_block_retain_max {
+                            Some(cap) => ally.block.min(cap),
+                            None => 0,
+                        };
+                        if ally.block > 0 && final_block == 0 {
                             block_cleared_player = true;
                         }
-                        ally.block = 0;
+                        ally.block = final_block;
                     }
                     if let Some(ps) = ally.player.as_mut() {
                         ps.energy = ps.turn_energy;
@@ -901,6 +927,13 @@ impl CombatState {
         let ctx =
             crate::effects::EffectContext::for_potion_use(player_idx, target, potion_id);
         crate::effects::execute_effects(self, &effects, &ctx);
+        // AfterPotionUsed combat-side hook — ReptileTrinket applies
+        // ReptileTrinketPower per potion use.
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterPotionUsed,
+            CombatSide::Player,
+        );
         true
     }
 
@@ -1608,12 +1641,22 @@ impl CombatState {
         }
         let drawn = drawn_ids.len() as i32;
         let round = self.round_number;
+        let is_initial_draw = round <= 1;
         for card_id in drawn_ids {
             self.combat_log.push(CombatEvent::CardDrawn {
                 round,
                 player_idx,
-                card_id,
+                card_id: card_id.clone(),
             });
+            // AfterCardEnteredCombat fires per card on the initial-draw
+            // (round 1). Regalite gains 2 block per card.
+            if is_initial_draw {
+                crate::effects::fire_relic_hooks(
+                    self,
+                    crate::effects::RelicHookKind::AfterCardEnteredCombat,
+                    CombatSide::Player,
+                );
+            }
         }
         if did_reshuffle {
             // AfterShuffle relic hook (BiiigHug etc.).
@@ -1731,6 +1774,59 @@ impl CombatState {
     /// Apply `amount` damage to one creature. Block absorbs first; remainder
     /// drops `current_hp` to a floor of 0. Returns `DamageOutcome`
     /// describing how the damage split for callers / hook listeners.
+    /// LizardTail revive: when player-side `current_hp` would
+    /// transition to 0 and the player owns an unused LizardTail,
+    /// restore HP to `max(1, max_hp/2)` and mark the relic used.
+    /// Returns true if the revive fired.
+    fn maybe_lizard_tail_revive(&mut self, side: CombatSide, target_idx: usize) -> bool {
+        if side != CombatSide::Player {
+            return false;
+        }
+        let owns_unused = self
+            .allies
+            .iter()
+            .any(|a| {
+                a.player
+                    .as_ref()
+                    .map(|p| {
+                        p.relics.iter().any(|r| r == "LizardTail")
+                            && p.relic_counters
+                                .get("LizardTail_used")
+                                .copied()
+                                .unwrap_or(0)
+                                == 0
+                    })
+                    .unwrap_or(false)
+            });
+        if !owns_unused {
+            return false;
+        }
+        let Some(target) = creature_mut(self, side, target_idx) else {
+            return false;
+        };
+        let max_hp = target.max_hp;
+        let revive_to = (max_hp / 2).max(1);
+        target.current_hp = revive_to;
+        // Mark used.
+        if let Some(ps) = self
+            .allies
+            .iter_mut()
+            .find_map(|a| a.player.as_mut())
+        {
+            ps.relic_counters
+                .insert("LizardTail_used".to_string(), 1);
+        }
+        // AfterPreventingDeath relic hook (the heal-back step in C#
+        // happens via the same dispatcher; we don't re-heal here since
+        // we already set HP).
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterPreventingDeath,
+            CombatSide::Player,
+        );
+        true
+    }
+
     pub fn apply_damage(
         &mut self,
         side: CombatSide,
@@ -1767,6 +1863,11 @@ impl CombatState {
             };
             damage_creature(target, amount, hp_loss_cap)
         };
+        // LizardTail revive: if this hit was fatal on the player side,
+        // restore HP and mark the relic used.
+        if outcome.fatal {
+            self.maybe_lizard_tail_revive(side, target_idx);
+        }
         // HardenedShellPower bookkeeping: bump damageReceivedThisTurn
         // by the realized hp_lost. C# AfterDamageReceived adds
         // result.UnblockedDamage (i.e. hp_lost in our model).
@@ -1864,6 +1965,9 @@ impl CombatState {
             hp_lost,
             fatal: pre_hit_hp > 0 && target.current_hp == 0,
         };
+        if outcome.fatal {
+            self.maybe_lizard_tail_revive(side, target_idx);
+        }
         if hp_loss_cap.is_some() && outcome.hp_lost > 0 {
             if let Some(target) = creature_mut(self, side, target_idx) {
                 if let Some(ms) = target.monster.as_mut() {

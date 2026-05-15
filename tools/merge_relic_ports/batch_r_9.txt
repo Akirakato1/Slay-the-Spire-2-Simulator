@@ -1,0 +1,37 @@
+// batch_r_9.txt — combat-frame relics using one-off hooks added in
+// the same patch: AfterCardEnteredCombat, AfterPotionUsed,
+// AfterPreventingDeath. SturdyClamp + RunicPyramid get marker entries
+// since their behavior lives inline in combat.rs's block-clear path.
+
+// Regalite.cs L38-44: AfterCardEnteredCombat → owner gains 2 unpowered
+// block per card. Fires once per drawn card on initial draw.
+"Regalite" => Some(vec![
+    (RelicHook::AfterCardEnteredCombat,
+     vec![Effect::GainBlock { amount: AmountSpec::Fixed(2), target: Target::SelfPlayer }]),
+]),
+
+// ReptileTrinket.cs L51-61: AfterPotionUsed (in-combat) → apply
+// ReptileTrinketPower(3) to self. The C# uses a custom Power id
+// "ReptileTrinketPower" with StrengthPower-ish hover tip.
+"ReptileTrinket" => Some(vec![
+    (RelicHook::AfterPotionUsed,
+     vec![Effect::ApplyPower {
+        power_id: "ReptileTrinketPower".to_string(),
+        amount: AmountSpec::Fixed(3),
+        target: Target::SelfPlayer,
+     }]),
+]),
+
+// LizardTail.cs L76-82: AfterPreventingDeath body is the heal step.
+// In our impl, the revive itself (setting HP) happens inline in
+// maybe_lizard_tail_revive; the AfterPreventingDeath hook fires
+// afterwards. Body is empty since the heal is folded into the inline
+// revive (HP set to max_hp/2). The data-table arm just registers the
+// relic so the audit counts it.
+"LizardTail" => Some(vec![
+]),
+
+// SturdyClamp.cs L50-73: block-clear retention to 10. Inline in
+// combat.rs's begin_turn block-clear path.
+"SturdyClamp" => Some(vec![
+]),

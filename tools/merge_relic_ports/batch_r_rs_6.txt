@@ -1,0 +1,18 @@
+// batch_r_rs_6.txt — run-state relics using AfterGoldGained hook.
+
+// DragonFruit.cs L45-52: AfterGoldGained → +1 MaxHp.
+"DragonFruit" => Some(vec![(
+    RunStateHook::AfterGoldGained,
+    vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(1) }],
+)]),
+
+// BowlerHat.cs L87-119: ShouldGainGold computes 25% bonus, then
+// AfterGoldGained applies it via PlayerCmd.GainGold (with re-entrancy
+// guard). We approximate: AfterGoldGained → +floor(gold/4) via a fixed
+// percentage. The recursion guard is implemented in
+// fire_run_state_after_gold_gained. We can't read the just-gained
+// amount here (no run-state ctx threading), so the AfterGoldGained
+// body uses a fixed bonus — known divergence from C# spec; audit
+// will flag this when comparing to gold totals.
+// SKIP BowlerHat: needs amount-of-last-gold context plumbed into
+//   run-state EffectContext to compute 25% of the just-gained amount.

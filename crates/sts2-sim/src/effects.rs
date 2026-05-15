@@ -2543,6 +2543,11 @@ pub enum RunStateHook {
     /// add, BookOfFiveRings on any, DarkstonePeriapt on Curse,
     /// LuckyFysh on any).
     AfterCardAddedToDeck { filter: Option<CardFilter> },
+    /// C# `AfterGoldGained(player)`. Fires after gold is added to the
+    /// run-state purse. DragonFruit (+1 MaxHp), BowlerHat (+25% bonus
+    /// gold — with self-trigger guard). Re-entrancy is handled in
+    /// `fire_run_state_after_gold_gained` via a thread-local flag.
+    AfterGoldGained,
 }
 
 /// Per-relic run-state hook bodies. Body is a `Vec<Effect>` interpreted
@@ -2809,6 +2814,11 @@ pub fn run_state_effects(
         }],
         )]),
 
+        "DragonFruit" => Some(vec![(
+        RunStateHook::AfterGoldGained,
+        vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(1) }],
+        )]),
+
 
         _ => None,
     }
@@ -2844,6 +2854,12 @@ fn execute_run_state_effect(
             let amt = run_state_resolve_amount(rs, player_idx, amount).max(0);
             if let Some(ps) = rs.player_state_mut(player_idx) {
                 ps.gold += amt;
+            }
+            // Fire AfterGoldGained relic hooks. BowlerHat's self-trigger
+            // recursion is guarded by a per-player flag (the C# uses an
+            // `_isApplyingBonus` instance field).
+            if amt > 0 {
+                fire_run_state_after_gold_gained(rs, player_idx);
             }
         }
         Effect::LoseRunStateHp { amount } => {
@@ -3057,6 +3073,39 @@ fn execute_run_state_effect(
             // Combat-frame effects no-op out of combat.
         }
     }
+}
+
+thread_local! {
+    static GOLD_HOOK_RECURSION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Fire AfterGoldGained run-state relic hooks. Guards against
+/// self-recursion (BowlerHat fires +25% bonus which itself triggers
+/// AfterGoldGained).
+fn fire_run_state_after_gold_gained(
+    rs: &mut crate::run_state::RunState,
+    player_idx: usize,
+) {
+    if GOLD_HOOK_RECURSION.with(|f| f.get()) {
+        return;
+    }
+    GOLD_HOOK_RECURSION.with(|f| f.set(true));
+    let relic_ids: Vec<String> = rs
+        .player_state_mut(player_idx)
+        .map(|ps| ps.relics.iter().map(|r| r.id.clone()).collect())
+        .unwrap_or_default();
+    for relic_id in relic_ids {
+        let Some(arms) = run_state_effects(&relic_id) else {
+            continue;
+        };
+        for (hook, body) in arms {
+            if !matches!(hook, RunStateHook::AfterGoldGained) {
+                continue;
+            }
+            execute_run_state_effects(rs, player_idx, &body);
+        }
+    }
+    GOLD_HOOK_RECURSION.with(|f| f.set(false));
 }
 
 /// Fire AfterCardAddedToDeck run-state relic hooks. Walks the active
@@ -3305,6 +3354,18 @@ pub enum RelicHook {
     /// the earlier-of-two end-of-turn phases. FakeOrichalcum side
     /// shows this idiom.
     BeforeTurnEndEarly { owner_side_only: bool },
+    /// C# `AfterCardEnteredCombat(card)`. Fires when a card enters the
+    /// owner's hand for the first time in a combat (initial draw at
+    /// combat start, per card). Regalite gains 2 block per card.
+    AfterCardEnteredCombat,
+    /// C# `AfterPotionUsed(potion, target)`. Combat-side fires when the
+    /// owner uses a potion mid-combat. ReptileTrinket applies its own
+    /// power per potion use.
+    AfterPotionUsed,
+    /// C# `AfterPreventingDeath(creature)`. Fires when a relic
+    /// prevented an owner from dying. LizardTail heals MaxHp * 50%
+    /// after preventing death.
+    AfterPreventingDeath,
 }
 
 /// Discriminant for matching `RelicHook` entries against a firing point.
@@ -3340,6 +3401,9 @@ pub enum RelicHookKind {
     BeforeHandDraw,
     BeforePowerAmountChanged,
     BeforeTurnEndEarly,
+    AfterCardEnteredCombat,
+    AfterPotionUsed,
+    AfterPreventingDeath,
 }
 
 impl RelicHook {
@@ -3374,6 +3438,9 @@ impl RelicHook {
             RelicHook::BeforeHandDraw => RelicHookKind::BeforeHandDraw,
             RelicHook::BeforePowerAmountChanged => RelicHookKind::BeforePowerAmountChanged,
             RelicHook::BeforeTurnEndEarly { .. } => RelicHookKind::BeforeTurnEndEarly,
+            RelicHook::AfterCardEnteredCombat => RelicHookKind::AfterCardEnteredCombat,
+            RelicHook::AfterPotionUsed => RelicHookKind::AfterPotionUsed,
+            RelicHook::AfterPreventingDeath => RelicHookKind::AfterPreventingDeath,
         }
     }
 
@@ -3408,7 +3475,10 @@ impl RelicHook {
             | RelicHook::BeforeCardPlayed { .. }
             | RelicHook::BeforePlayPhaseStart
             | RelicHook::BeforeHandDraw
-            | RelicHook::BeforePowerAmountChanged => true,
+            | RelicHook::BeforePowerAmountChanged
+            | RelicHook::AfterCardEnteredCombat
+            | RelicHook::AfterPotionUsed
+            | RelicHook::AfterPreventingDeath => true,
             RelicHook::BeforeTurnEndEarly { owner_side_only } => {
                 !owner_side_only || current_side == owner_side
             }
@@ -5102,6 +5172,26 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         ]),
 
         "WingedBoots" => Some(vec![
+        ]),
+
+        "Regalite" => Some(vec![
+            (RelicHook::AfterCardEnteredCombat,
+             vec![Effect::GainBlock { amount: AmountSpec::Fixed(2), target: Target::SelfPlayer }]),
+        ]),
+
+        "ReptileTrinket" => Some(vec![
+            (RelicHook::AfterPotionUsed,
+             vec![Effect::ApplyPower {
+                power_id: "ReptileTrinketPower".to_string(),
+                amount: AmountSpec::Fixed(3),
+                target: Target::SelfPlayer,
+             }]),
+        ]),
+
+        "LizardTail" => Some(vec![
+        ]),
+
+        "SturdyClamp" => Some(vec![
         ]),
 
 
