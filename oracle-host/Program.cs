@@ -59,11 +59,19 @@ internal static class Program
             }
             catch (TargetInvocationException ex) when (ex.InnerException is not null)
             {
-                response = new JsonObject { ["error"] = ex.InnerException.Message };
+                response = new JsonObject
+                {
+                    ["error"] = ex.InnerException.Message,
+                    ["trace"] = ex.InnerException.StackTrace,
+                };
             }
             catch (Exception ex)
             {
-                response = new JsonObject { ["error"] = ex.Message };
+                response = new JsonObject
+                {
+                    ["error"] = ex.Message,
+                    ["trace"] = ex.StackTrace,
+                };
             }
 
             Console.Out.WriteLine(response.ToJsonString());
@@ -124,6 +132,7 @@ internal sealed class Dispatcher
     private readonly MethodInfo _weightedNextItemGeneric;
     private readonly PropertyInfo _counterProp;
     private readonly PropertyInfo _seedProp;
+    private readonly CombatReflectionBundle _combat;
 
     private Dispatcher(
         Type rngType,
@@ -151,7 +160,8 @@ internal sealed class Dispatcher
         MethodInfo nextItemGeneric,
         MethodInfo weightedNextItemGeneric,
         PropertyInfo counterProp,
-        PropertyInfo seedProp)
+        PropertyInfo seedProp,
+        CombatReflectionBundle combat)
     {
         _rngType = rngType;
         _rngCtor = ctor;
@@ -179,6 +189,7 @@ internal sealed class Dispatcher
         _weightedNextItemGeneric = weightedNextItemGeneric;
         _counterProp = counterProp;
         _seedProp = seedProp;
+        _combat = combat;
     }
 
     public static Dispatcher Create(string gameDir, string dllPath)
@@ -311,6 +322,8 @@ internal sealed class Dispatcher
         var seed = rngType.GetProperty("Seed")
             ?? throw new InvalidOperationException("Seed property not found");
 
+        var combatBundle = CombatReflectionBundle.Build(asm);
+
         return new Dispatcher(rngType, ctor, ctorNamed,
             stringHelperHash, stringHelperSnake, listExtStableShuffle, actBundles, samBundle,
             nextIntSingle, nextIntRange,
@@ -318,7 +331,7 @@ internal sealed class Dispatcher
             nextFloatSingle, nextFloatRange, nextUIntSingle, nextUIntRange,
             nextGaussianDouble, nextGaussianFloat, nextGaussianInt,
             fastForward, shuffleGen, nextItemGen, weightedNextItemGen,
-            counter, seed);
+            counter, seed, combatBundle);
     }
 
     public JsonObject Dispatch(string method, JsonObject p)
@@ -591,6 +604,58 @@ internal sealed class Dispatcher
                 return Ok(JsonValue.Create(true));
             }
 
+            // ========================================================
+            // Phase 1: Combat scaffold. Mock-combat construction and
+            // state-dump RPCs. No card execution yet — that's Phase 2.
+            // ========================================================
+            case "combat_new":
+            {
+                // CombatState(EncounterModel=null, IRunState=null, ...).
+                // NullRunState.Instance is the default fallback. We pass
+                // explicit nulls for all optional params.
+                var inst = _combat.CombatStateCtor.Invoke(
+                    new object?[] { null, null, null, null });
+                var handle = _nextHandle++;
+                _instances[handle] = inst!;
+                return Ok(JsonValue.Create(handle));
+            }
+
+            case "combat_add_player":
+            {
+                var combat = GetInstance(p);
+                var characterId = p["character_id"]!.GetValue<string>();
+                var unlock = _combat.UnlockNone;
+                var characterModel = _combat.GetCharacterById(characterId);
+                // Player.CreateForNewRun(character, unlockState, netId)
+                var player = _combat.PlayerCreateForNewRun.Invoke(
+                    null, new object[] { characterModel, unlock, 0UL })!;
+                _combat.AddPlayer.Invoke(combat, new[] { player });
+                return Ok(JsonValue.Create(true));
+            }
+
+            case "combat_add_enemy":
+            {
+                var combat = GetInstance(p);
+                var monsterId = p["monster_id"]!.GetValue<string>();
+                var slot = p["slot"]?.GetValue<string?>();
+                var monsterModel = _combat.GetMonsterById(monsterId);
+                // monsterModel.ToMutable()
+                var mutable = _combat.ToMutable.Invoke(monsterModel, null)!;
+                // combatState.CreateCreature(monster, CombatSide.Enemy, slot).
+                // CombatSide enum: None=0, Player=1, Enemy=2.
+                var enemySide = Enum.ToObject(_combat.CombatSideType, 2);
+                var creature = _combat.CreateCreature.Invoke(
+                    combat, new object?[] { mutable, enemySide, slot });
+                _combat.AddCreature.Invoke(combat, new[] { creature });
+                return Ok(JsonValue.Create(true));
+            }
+
+            case "combat_dump":
+            {
+                var combat = GetInstance(p);
+                return Ok(SerializeCombat(combat));
+            }
+
             default:
                 return new JsonObject { ["error"] = $"unknown method: {method}" };
         }
@@ -602,6 +667,47 @@ internal sealed class Dispatcher
         if (!_instances.TryGetValue(handle, out var inst))
             throw new InvalidOperationException($"no rng instance for handle {handle}");
         return inst;
+    }
+
+    private JsonObject SerializeCombat(object combat)
+    {
+        var round = (int)_combat.RoundNumber.GetValue(combat)!;
+        var side = (int)Convert.ChangeType(
+            _combat.CurrentSide.GetValue(combat)!, typeof(int));
+        var allies = (System.Collections.IEnumerable)_combat.Allies.GetValue(combat)!;
+        var enemies = (System.Collections.IEnumerable)_combat.Enemies.GetValue(combat)!;
+        var alliesArr = new JsonArray();
+        foreach (var c in allies) alliesArr.Add(SerializeCreature(c));
+        var enemiesArr = new JsonArray();
+        foreach (var c in enemies) enemiesArr.Add(SerializeCreature(c));
+        return new JsonObject
+        {
+            ["round_number"] = round,
+            ["current_side"] = side,
+            ["allies"] = alliesArr,
+            ["enemies"] = enemiesArr,
+        };
+    }
+
+    private JsonObject SerializeCreature(object creature)
+    {
+        // Name getter can NRE for partially-initialized creatures; we
+        // capture the type name as a fallback identifier.
+        string? name = null;
+        try { name = (string?)_combat.CreatureName.GetValue(creature); }
+        catch { /* fallback to null */ }
+        var hp = (int)_combat.CreatureCurrentHp.GetValue(creature)!;
+        var maxHp = (int)_combat.CreatureMaxHp.GetValue(creature)!;
+        var block = (int)_combat.CreatureBlock.GetValue(creature)!;
+        var isPlayer = (bool)_combat.CreatureIsPlayer.GetValue(creature)!;
+        return new JsonObject
+        {
+            ["name"] = name,
+            ["current_hp"] = hp,
+            ["max_hp"] = maxHp,
+            ["block"] = block,
+            ["is_player"] = isPlayer,
+        };
     }
 
     private static JsonObject Ok(JsonNode? result) => new() { ["result"] = result };
@@ -689,3 +795,293 @@ internal sealed record StandardActMapReflectionBundle(
     FieldInfo MpParents,
     FieldInfo McCol,
     FieldInfo McRow);
+
+/// Holds Harmony patches that bypass the game's Godot-dependent
+/// singletons. Each patch is registered once at dispatcher startup.
+internal static class GodotBypass
+{
+    private static bool _applied;
+    public static object? UninitializedSaveManager;
+
+    public static void Apply(Assembly asm)
+    {
+        if (_applied) return;
+        _applied = true;
+
+        // Pre-build an uninitialized SaveManager so the patched
+        // get_Instance can hand it out. Callers can then invoke
+        // instance methods (we patch the specific ones that touch
+        // Godot/I-O state).
+        var smType = asm.GetType("MegaCrit.Sts2.Core.Saves.SaveManager",
+            throwOnError: true)!;
+        UninitializedSaveManager =
+            System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(smType);
+
+        var harmonyAsm = AssemblyLoadContext.GetLoadContext(asm)!
+            .LoadFromAssemblyName(new AssemblyName("0Harmony"));
+        var harmonyType = harmonyAsm.GetType("HarmonyLib.Harmony", throwOnError: true)!;
+        var harmonyCtor = harmonyType.GetConstructor(new[] { typeof(string) })!;
+        var harmony = harmonyCtor.Invoke(new object[] { "sts2-sim.oracle" })!;
+        var patchMethod = harmonyType.GetMethod("Patch",
+            BindingFlags.Public | BindingFlags.Instance)!;
+        var hmType = harmonyAsm.GetType("HarmonyLib.HarmonyMethod", throwOnError: true)!;
+        var hmCtor = hmType.GetConstructor(new[] { typeof(MethodInfo) })!;
+
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Saves.SaveManager", "get_Instance",
+            BindingFlags.Public | BindingFlags.Static,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.GetInstancePrefix));
+        // No-op prefixes for SaveManager methods that touch I/O / Godot
+        // state. Each prefix returns false to skip the original body.
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Saves.SaveManager", "MarkRelicAsSeen",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NoOp));
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Saves.SaveManager", "MarkPotionAsSeen",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NoOp));
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Saves.SaveManager", "MarkCardAsSeen",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NoOp));
+        // SaveManager.Progress reads `_progressSaveManager.Progress`,
+        // both null on our uninitialized SM. Patch the getter to
+        // return an uninitialized ProgressState; downstream method
+        // calls on it are patched below.
+        var psType = asm.GetType("MegaCrit.Sts2.Core.Saves.ProgressState",
+            throwOnError: true)!;
+        SaveManagerPrefix.UninitializedProgressState =
+            System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(psType);
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Saves.SaveManager", "get_Progress",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.GetProgressPrefix));
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Saves.ProgressState", "GetStatsForCharacter",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.NullObjectPrefix));
+    }
+
+    private static void HarmonyPatchPrefix(
+        Assembly asm, object harmony, MethodInfo patchMethod,
+        ConstructorInfo hmCtor, string typeName, string methodName,
+        BindingFlags flags, Type prefixHost, string prefixName)
+    {
+        var target = asm.GetType(typeName, throwOnError: true)!
+            .GetMethod(methodName, flags)
+            ?? throw new InvalidOperationException(
+                $"target {typeName}.{methodName} not found");
+        var prefix = prefixHost.GetMethod(prefixName,
+            BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException(
+                $"prefix {prefixHost.Name}.{prefixName} not found");
+        var hm = hmCtor.Invoke(new object[] { prefix });
+        // Build the args array matching the Patch overload's parameter
+        // count exactly. First arg = target MethodBase, second = prefix
+        // HarmonyMethod, remaining = null (postfix/transpiler/finalizer/
+        // ilmanipulator depending on Harmony version).
+        var paramCount = patchMethod.GetParameters().Length;
+        var args = new object?[paramCount];
+        args[0] = target;
+        args[1] = hm;
+        for (int i = 2; i < paramCount; i++) args[i] = null;
+        patchMethod.Invoke(harmony, args);
+    }
+}
+
+internal static class SaveManagerPrefix
+{
+    public static object? UninitializedProgressState;
+
+    // Return the uninitialized SaveManager. Callers do `.MarkXxxAsSeen`
+    // and similar — those methods are individually patched to no-op.
+    public static bool GetInstancePrefix(ref object? __result)
+    {
+        __result = GodotBypass.UninitializedSaveManager;
+        return false;
+    }
+    public static bool GetProgressPrefix(ref object? __result)
+    {
+        __result = UninitializedProgressState;
+        return false;
+    }
+    // Skip the original body for void-returning methods.
+    public static bool NoOp() => false;
+    // Skip + return null for object-returning methods.
+    public static bool NullObjectPrefix(ref object? __result)
+    {
+        __result = null;
+        return false;
+    }
+}
+
+internal sealed class CombatReflectionBundle
+{
+    public required ConstructorInfo CombatStateCtor { get; init; }
+    public required object UnlockNone { get; init; }
+    public required MethodInfo PlayerCreateForNewRun { get; init; }
+    public required MethodInfo AddPlayer { get; init; }
+    public required MethodInfo CreateCreature { get; init; }
+    public required MethodInfo AddCreature { get; init; }
+    public required MethodInfo ToMutable { get; init; }
+    public required MethodInfo GetCharacterByIdMethod { get; init; }
+    public required MethodInfo GetMonsterByIdMethod { get; init; }
+    public required MethodInfo ModelIdDeserialize { get; init; }
+    public required Type CombatSideType { get; init; }
+    public required PropertyInfo RoundNumber { get; init; }
+    public required PropertyInfo CurrentSide { get; init; }
+    public required PropertyInfo Allies { get; init; }
+    public required PropertyInfo Enemies { get; init; }
+    public required PropertyInfo CreatureName { get; init; }
+    public required PropertyInfo CreatureCurrentHp { get; init; }
+    public required PropertyInfo CreatureMaxHp { get; init; }
+    public required PropertyInfo CreatureBlock { get; init; }
+    public required PropertyInfo CreatureIsPlayer { get; init; }
+
+    public object GetCharacterById(string id)
+    {
+        var modelId = ModelIdDeserialize.Invoke(null, new object[] { id })!;
+        return GetCharacterByIdMethod.Invoke(null, new object[] { modelId })
+            ?? throw new InvalidOperationException(
+                $"GetCharacterById returned null for {id}");
+    }
+    public object GetMonsterById(string id)
+    {
+        var modelId = ModelIdDeserialize.Invoke(null, new object[] { id })!;
+        return GetMonsterByIdMethod.Invoke(null, new object[] { modelId })
+            ?? throw new InvalidOperationException(
+                $"GetMonsterById returned null for {id}");
+    }
+
+    public static CombatReflectionBundle Build(Assembly asm)
+    {
+        GodotBypass.Apply(asm);
+
+        // Populate ModelDb before any CombatState construction so that
+        // Character / Monster / Card / Relic registries are non-empty.
+        var modelDb = asm.GetType("MegaCrit.Sts2.Core.Models.ModelDb",
+            throwOnError: true)!;
+        var init = modelDb.GetMethod("Init",
+            BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("ModelDb.Init not found");
+        init.Invoke(null, null);
+        // InitIds() depends on ModelIdSerializationCache being primed,
+        // which itself requires the multiplayer net-id registry to be
+        // bootstrapped. Skipping — Init() alone is enough for the
+        // ModelDb._contentById lookup (`GetById<T>(id)`). InitIds binds
+        // ModelId to instances for net serialization, which our offline
+        // dispatcher doesn't need.
+
+        var combatStateType = asm.GetType("MegaCrit.Sts2.Core.Combat.CombatState",
+            throwOnError: true)!;
+        var combatStateCtor = combatStateType.GetConstructors()
+            .First(c => c.GetParameters().Length >= 1);
+
+        var playerType = asm.GetType("MegaCrit.Sts2.Core.Entities.Players.Player",
+            throwOnError: true)!;
+        var characterModelType = asm.GetType(
+            "MegaCrit.Sts2.Core.Models.CharacterModel",
+            throwOnError: true)!;
+        var unlockStateType = asm.GetType("MegaCrit.Sts2.Core.Unlocks.UnlockState",
+            throwOnError: true)!;
+        // UnlockState has a static `none` field with an empty unlock set —
+        // perfect for the mock combat scaffold.
+        var unlockNoneField = unlockStateType.GetField("none",
+            BindingFlags.Public | BindingFlags.Static)
+            ?? throw new InvalidOperationException("UnlockState.none static field not found");
+        var unlockNone = unlockNoneField.GetValue(null)
+            ?? throw new InvalidOperationException("UnlockState.none was null");
+        // Player.CreateForNewRun(CharacterModel, UnlockState, ulong)
+        var playerCreate = playerType.GetMethods(
+            BindingFlags.Public | BindingFlags.Static)
+            .First(m => m.Name == "CreateForNewRun"
+                && m.GetParameters().Length == 3
+                && !m.IsGenericMethod
+                && m.GetParameters()[0].ParameterType == characterModelType);
+
+        var addPlayer = combatStateType.GetMethod("AddPlayer",
+            BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("CombatState.AddPlayer not found");
+        var createCreature = combatStateType.GetMethod("CreateCreature",
+            BindingFlags.Public | BindingFlags.Instance)
+            ?? throw new InvalidOperationException("CombatState.CreateCreature not found");
+        var addCreature = combatStateType.GetMethod("AddCreature",
+            BindingFlags.Public | BindingFlags.Instance,
+            new[] { asm.GetType("MegaCrit.Sts2.Core.Entities.Creatures.Creature",
+                throwOnError: true)! })
+            ?? throw new InvalidOperationException("CombatState.AddCreature not found");
+
+        var monsterModelType = asm.GetType("MegaCrit.Sts2.Core.Models.MonsterModel",
+            throwOnError: true)!;
+        var toMutable = monsterModelType.GetMethod("ToMutable",
+            BindingFlags.Public | BindingFlags.Instance,
+            Type.EmptyTypes)
+            ?? throw new InvalidOperationException("MonsterModel.ToMutable not found");
+
+        // ModelDb.GetById<T>(ModelId id). We need ModelId.Deserialize(string)
+        // to bridge from the string id ("CHARACTER.IRONCLAD") to ModelId.
+        var modelIdType = asm.GetType("MegaCrit.Sts2.Core.Models.ModelId",
+            throwOnError: true)!;
+        var modelIdDeserialize = modelIdType.GetMethod("Deserialize",
+            BindingFlags.Public | BindingFlags.Static,
+            new[] { typeof(string) })
+            ?? throw new InvalidOperationException("ModelId.Deserialize(string) not found");
+        var getByIdGen = modelDb.GetMethods(
+            BindingFlags.Public | BindingFlags.Static)
+            .First(m => m.Name == "GetById" && m.IsGenericMethod
+                && m.GetParameters().Length == 1
+                && m.GetParameters()[0].ParameterType == modelIdType);
+        var getCharacterById = getByIdGen.MakeGenericMethod(characterModelType);
+        var getMonsterById = getByIdGen.MakeGenericMethod(monsterModelType);
+
+        var combatSideType = asm.GetType("MegaCrit.Sts2.Core.Combat.CombatSide",
+            throwOnError: true)!;
+
+        var roundNumber = combatStateType.GetProperty("RoundNumber")
+            ?? throw new InvalidOperationException("RoundNumber not found");
+        var currentSide = combatStateType.GetProperty("CurrentSide")
+            ?? throw new InvalidOperationException("CurrentSide not found");
+        var allies = combatStateType.GetProperty("Allies")
+            ?? throw new InvalidOperationException("Allies not found");
+        var enemies = combatStateType.GetProperty("Enemies")
+            ?? throw new InvalidOperationException("Enemies not found");
+
+        var creatureType = asm.GetType("MegaCrit.Sts2.Core.Entities.Creatures.Creature",
+            throwOnError: true)!;
+        var creatureName = creatureType.GetProperty("Name")
+            ?? throw new InvalidOperationException("Creature.Name not found");
+        var creatureCurrentHp = creatureType.GetProperty("CurrentHp")
+            ?? throw new InvalidOperationException("Creature.CurrentHp not found");
+        var creatureMaxHp = creatureType.GetProperty("MaxHp")
+            ?? throw new InvalidOperationException("Creature.MaxHp not found");
+        var creatureBlock = creatureType.GetProperty("Block")
+            ?? throw new InvalidOperationException("Creature.Block not found");
+        var creatureIsPlayer = creatureType.GetProperty("IsPlayer")
+            ?? throw new InvalidOperationException("Creature.IsPlayer not found");
+
+        return new CombatReflectionBundle
+        {
+            CombatStateCtor = combatStateCtor,
+            UnlockNone = unlockNone,
+            PlayerCreateForNewRun = playerCreate,
+            AddPlayer = addPlayer,
+            CreateCreature = createCreature,
+            AddCreature = addCreature,
+            ToMutable = toMutable,
+            GetCharacterByIdMethod = getCharacterById,
+            GetMonsterByIdMethod = getMonsterById,
+            ModelIdDeserialize = modelIdDeserialize,
+            CombatSideType = combatSideType,
+            RoundNumber = roundNumber,
+            CurrentSide = currentSide,
+            Allies = allies,
+            Enemies = enemies,
+            CreatureName = creatureName,
+            CreatureCurrentHp = creatureCurrentHp,
+            CreatureMaxHp = creatureMaxHp,
+            CreatureBlock = creatureBlock,
+            CreatureIsPlayer = creatureIsPlayer,
+        };
+    }
+}
