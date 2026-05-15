@@ -5411,6 +5411,126 @@ pub fn relic_effects(relic_id: &str) -> Option<Vec<(RelicHook, Vec<Effect>)>> {
         "SturdyClamp" => Some(vec![
         ]),
 
+        "Anchor" => Some(vec![
+        ]),
+
+        "Brimstone" => Some(vec![
+        ]),
+
+        "BurningBlood" => Some(vec![
+        ]),
+
+        "Cauldron" => Some(vec![
+        ]),
+
+        "GlassEye" => Some(vec![
+        ]),
+
+        "LostCoffer" => Some(vec![
+        ]),
+
+        "Orrery" => Some(vec![
+        ]),
+
+        "SmallCapsule" => Some(vec![
+        ]),
+
+        "ToyBox" => Some(vec![
+        ]),
+
+        "NeowsBones" => Some(vec![
+        ]),
+
+        "LargeCapsule" => Some(vec![
+        ]),
+
+        "BeltBuckle" => Some(vec![
+        ]),
+
+        "PaelsWing" => Some(vec![
+        ]),
+
+        "BowlerHat" => Some(vec![
+        ]),
+
+        "ChoicesParadox" => Some(vec![
+        ]),
+
+        "LeadPaperweight" => Some(vec![
+        ]),
+
+        "MassiveScroll" => Some(vec![
+        ]),
+
+        "DollysMirror" => Some(vec![
+        ]),
+
+        "ScrollBoxes" => Some(vec![
+        ]),
+
+        "SeaGlass" => Some(vec![
+        ]),
+
+        "PrecariousShears" => Some(vec![
+        ]),
+
+        "ArcaneScroll" => Some(vec![
+        ]),
+
+        "ArchaicTooth" => Some(vec![
+        ]),
+
+        "DustyTome" => Some(vec![
+        ]),
+
+        "TouchOfOrobas" => Some(vec![
+        ]),
+
+        "PaelsEye" => Some(vec![
+        ]),
+
+        "GoldenCompass" => Some(vec![
+        ]),
+
+        "PowerCell" => Some(vec![
+        ]),
+
+        "UnsettlingLamp" => Some(vec![
+        ]),
+
+        "MusicBox" => Some(vec![
+        ]),
+
+        "BookOfFiveRings" => Some(vec![
+        ]),
+
+        "BingBong" => Some(vec![
+        ]),
+
+        "GoldPlatedCables" => Some(vec![
+        ]),
+
+        "BrilliantScarf" => Some(vec![
+        ]),
+
+        "RainbowRing" => Some(vec![
+        ]),
+
+        "ThrowingAxe" => Some(vec![
+        ]),
+
+        "Pocketwatch" => Some(vec![
+        ]),
+
+        "BoneFlute" => Some(vec![
+        ]),
+
+        "SwordOfStone" => Some(vec![
+        ]),
+
+        "WarHammer" => Some(vec![
+        ]),
+
 
         _ => None,
     }

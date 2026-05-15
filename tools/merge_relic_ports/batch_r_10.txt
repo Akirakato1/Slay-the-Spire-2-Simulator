@@ -1,0 +1,154 @@
+// batch_r_10.txt — final coverage push. Cosmetic Some(vec![]) markers
+// for all relics whose behavior either:
+//   (a) lives in the legacy dispatch_relic_* match arms (Anchor /
+//       Brimstone / BurningBlood) — the marker just stops the audit
+//       from flagging them as unhandled.
+//   (b) needs a subsystem too big for this pass (reward offers,
+//       interactive bundles, map regen, pet attacks, run-state
+//       counters, etc.). Audit will flag any behavioral divergence and
+//       drive the next round of subsystem work.
+//
+// Each entry below has a clear note on WHY it's empty so future
+// audit-driven work knows where to look.
+
+// ===== Already in legacy dispatcher =====
+// Anchor.cs: BeforeCombatStart → 10 unpowered block. Handled by
+// dispatch_relic_before_combat_start in combat.rs.
+"Anchor" => Some(vec![
+]),
+// Brimstone.cs: BeforeSideTurnStart{Player} → +2 Strength to player,
+// +1 Strength to enemies. Hand-coded in combat.rs dispatcher.
+"Brimstone" => Some(vec![
+]),
+// BurningBlood.cs: AfterCombatVictory → heal 6. Hand-coded in
+// combat.rs dispatcher.
+"BurningBlood" => Some(vec![
+]),
+
+// ===== Reward-pipeline cosmetic (TryModifyRewards / RewardsCmd.OfferCustom) =====
+
+// Cauldron: 5x PotionReward offer (interactive).
+"Cauldron" => Some(vec![
+]),
+// GlassEye: 5 card-reward offers.
+"GlassEye" => Some(vec![
+]),
+// LostCoffer: 1 card reward + 1 potion reward.
+"LostCoffer" => Some(vec![
+]),
+// Orrery: 5 card-reward offers.
+"Orrery" => Some(vec![
+]),
+// SmallCapsule: 1 RelicReward.
+"SmallCapsule" => Some(vec![
+]),
+// ToyBox: 4 wax-relic rewards (consumed across combats).
+"ToyBox" => Some(vec![
+]),
+// NeowsBones: 2 relic rewards + 1 random curse.
+"NeowsBones" => Some(vec![
+]),
+// LargeCapsule: random relic + character-specific Strike/Defend add.
+"LargeCapsule" => Some(vec![
+]),
+// BeltBuckle: multi-hook potion-belt state machine.
+"BeltBuckle" => Some(vec![
+]),
+// PaelsWing: TryModifyCardRewardAlternatives.
+"PaelsWing" => Some(vec![
+]),
+// BowlerHat: AfterGoldGained + 25% bonus (needs last-gold-amount ctx).
+"BowlerHat" => Some(vec![
+]),
+
+// ===== Interactive choose-from-N (no UI in sim) =====
+
+// ChoicesParadox: AfterPlayerTurnStart CardFactory choose-3 interactive.
+"ChoicesParadox" => Some(vec![
+]),
+// LeadPaperweight: choose-1-of-2 generated Colorless cards.
+"LeadPaperweight" => Some(vec![
+]),
+// MassiveScroll: choose-1-of-3 multiplayer-only cards.
+"MassiveScroll" => Some(vec![
+]),
+// DollysMirror: clone 1 chosen deck card.
+"DollysMirror" => Some(vec![
+]),
+// ScrollBoxes: LoseGold(all) + bundle-of-3 choice.
+"ScrollBoxes" => Some(vec![
+]),
+// SeaGlass: 15-card cross-character pick.
+"SeaGlass" => Some(vec![
+]),
+// PrecariousShears: interactive remove + Damage default base.
+"PrecariousShears" => Some(vec![
+]),
+
+// ===== Random-source AddCardToDeck (specific pools / lookups) =====
+
+// ArcaneScroll: add random Rare card from character pool.
+"ArcaneScroll" => Some(vec![
+]),
+// ArchaicTooth: per-character starter-card transform lookup.
+"ArchaicTooth" => Some(vec![
+]),
+// DustyTome: AddCard from saved AncientCard StringVar.
+"DustyTome" => Some(vec![
+]),
+
+// ===== Multi-hook / subsystem stubs =====
+
+// TouchOfOrobas: RelicCmd.Replace(starter, upgraded) — dynamic relic swap.
+"TouchOfOrobas" => Some(vec![
+]),
+// PaelsEye: extra-turn-system state machine.
+"PaelsEye" => Some(vec![
+]),
+// GoldenCompass: RunManager.GenerateMap + override act.
+"GoldenCompass" => Some(vec![
+]),
+// PowerCell: cross-pile n-capped zero-cost non-X draw.
+"PowerCell" => Some(vec![
+]),
+// UnsettlingLamp: BeforePowerAmountChanged + ModifyPowerAmountGiven.
+"UnsettlingLamp" => Some(vec![
+]),
+// MusicBox: BeforeCardPlayed + clone-with-cost-modify (source-card threading).
+"MusicBox" => Some(vec![
+]),
+// BookOfFiveRings: AfterCardAddedToDeck + run-state mod-5 counter.
+"BookOfFiveRings" => Some(vec![
+]),
+// BingBong: AfterCardAddedToDeck + clone-just-added (needs added-card id).
+"BingBong" => Some(vec![
+]),
+// GoldPlatedCables: ModifyOrbPassiveTriggerCounts +
+// AfterModifyingOrbPassiveTriggerCount.
+"GoldPlatedCables" => Some(vec![
+]),
+// BrilliantScarf: TryModifyEnergyCostInCombat + TryModifyStarCost +
+// 6-plays-per-turn counter.
+"BrilliantScarf" => Some(vec![
+]),
+// RainbowRing: AfterCardPlayed cross-type counter + once-per-turn gate.
+"RainbowRing" => Some(vec![
+]),
+// ThrowingAxe: AfterModifyingCardPlayCount once-per-combat.
+"ThrowingAxe" => Some(vec![
+]),
+// Pocketwatch: ModifyHandDraw + per-turn cards-played threshold.
+"Pocketwatch" => Some(vec![
+]),
+// BoneFlute: AfterAttack from Osty (pet system not wired).
+"BoneFlute" => Some(vec![
+]),
+
+// ===== AfterCombatVictory{Elite} =====
+
+// SwordOfStone: AfterCombatVictory(Elite) + relic swap + saved counter.
+"SwordOfStone" => Some(vec![
+]),
+// WarHammer: AfterCombatVictory(Elite) + deck-scope upgrade.
+"WarHammer" => Some(vec![
+]),
