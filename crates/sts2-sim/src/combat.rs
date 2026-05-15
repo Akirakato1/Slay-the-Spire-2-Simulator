@@ -2799,9 +2799,13 @@ impl CombatState {
             .get_mut(player_idx)
             .and_then(|c| c.player.as_mut())
         {
+            // C# GlassOrb._passiveVal starts at 4m. Store it in
+            // evoke_val_bonus so EvokeVal = ModifyOrbValue(bonus) * 2
+            // resolves to 8 on a fresh Glass orb (matches oracle).
+            let initial_bonus = if orb_id == "GlassOrb" { 4 } else { 0 };
             ps.orb_queue.push(OrbInstance {
                 id: orb_id.to_string(),
-                evoke_val_bonus: 0,
+                evoke_val_bonus: initial_bonus,
             });
         }
         // Emit OrbChanneled history event.
@@ -2869,13 +2873,24 @@ impl CombatState {
         }
     }
 
+    /// Mirror of C# `OrbModel.ModifyOrbValue` — walks the player's
+    /// powers and applies each `ModifyOrbValue` modifier. Only
+    /// `FocusPower` is wired today (TempFocus subclasses fold into it
+    /// at apply-time so its `Amount` already reflects both permanent
+    /// and temporary stacks). Result is clamped at 0 to match C# `Math.Max`.
+    pub fn modify_orb_value(&self, player_idx: usize, base_value: i32) -> i32 {
+        let focus = self.get_power_amount(CombatSide::Player, player_idx, "FocusPower");
+        (base_value + focus).max(0)
+    }
+
     /// Per-orb evoke behavior. Mirrors the body of each Orb's
     /// `Evoke()` method in C# `Models/Orbs/`.
     fn run_orb_evoke(&mut self, player_idx: usize, orb: &OrbInstance) {
         match orb.id.as_str() {
             "LightningOrb" => {
-                // Damage 1 random alive enemy by 8 (base EvokeVal),
-                // unpowered. C# LightningOrb.cs:93.
+                // C# LightningOrb.EvokeVal = ModifyOrbValue(8m), Unpowered
+                // damage to 1 random alive enemy.
+                let dmg = self.modify_orb_value(player_idx, 8);
                 let alive: Vec<usize> = self
                     .enemies
                     .iter()
@@ -2889,23 +2904,28 @@ impl CombatState {
                 self.deal_damage(
                     (CombatSide::Player, player_idx),
                     (CombatSide::Enemy, alive[pick]),
-                    8,
+                    dmg,
                     ValueProp::UNPOWERED,
                 );
             }
             "FrostOrb" => {
                 // C# FrostOrb.EvokeVal = ModifyOrbValue(5m), Unpowered.
+                let blk = self.modify_orb_value(player_idx, 5);
                 self.gain_block_with_props(
                     CombatSide::Player,
                     player_idx,
-                    5,
+                    blk,
                     ValueProp::UNPOWERED,
                 );
             }
             "DarkOrb" => {
                 // C# DarkOrb._evokeVal starts at 6m; passive adds
-                // PassiveVal=6 per trigger. Evoke = _evokeVal applied as
-                // unpowered damage to weakest enemy.
+                // ModifyOrbValue(PassiveVal=6) per trigger. Evoke applies
+                // _evokeVal as unpowered damage to weakest enemy. The
+                // accumulated `evoke_val_bonus` already had Focus folded
+                // in by the passive (run_orb_passive). The 6m initial is
+                // a raw 6 in C# (not ModifyOrbValue-scaled on init).
+                let dmg = 6 + orb.evoke_val_bonus;
                 let alive: Vec<(usize, i32)> = self
                     .enemies
                     .iter()
@@ -2923,22 +2943,46 @@ impl CombatState {
                 self.deal_damage(
                     (CombatSide::Player, player_idx),
                     (CombatSide::Enemy, target_idx),
-                    6 + orb.evoke_val_bonus,
+                    dmg,
                     ValueProp::UNPOWERED,
                 );
             }
             "PlasmaOrb" => {
-                // GainEnergy(EvokeVal). C# PlasmaOrb.cs.
+                // C# PlasmaOrb.EvokeVal = 2m (NOT ModifyOrbValue-scaled —
+                // energy gain bypasses Focus). GainEnergy(2).
                 if let Some(ps) = self
                     .allies
                     .get_mut(player_idx)
                     .and_then(|c| c.player.as_mut())
                 {
-                    ps.energy += 2; // PlasmaOrb EvokeVal default = 2
+                    ps.energy += 2;
                 }
             }
             "GlassOrb" => {
-                // GlassOrb: complex; deferred. Currently no-op.
+                // C# GlassOrb._passiveVal = 4m initial. EvokeVal =
+                // PassiveVal * 2 = ModifyOrbValue(_passiveVal) * 2.
+                // Applied as unpowered damage to ALL hittable enemies.
+                // `evoke_val_bonus` holds the per-instance _passiveVal,
+                // initialized to 4 at channel time (see channel_orb).
+                let passive = self.modify_orb_value(player_idx, orb.evoke_val_bonus);
+                let dmg = passive * 2;
+                if dmg <= 0 {
+                    return;
+                }
+                let alive: Vec<usize> = self
+                    .enemies
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, e)| if e.current_hp > 0 { Some(i) } else { None })
+                    .collect();
+                for idx in alive {
+                    self.deal_damage(
+                        (CombatSide::Player, player_idx),
+                        (CombatSide::Enemy, idx),
+                        dmg,
+                        ValueProp::UNPOWERED,
+                    );
+                }
             }
             _ => {}
         }
@@ -2950,7 +2994,8 @@ impl CombatState {
     fn run_orb_passive(&mut self, player_idx: usize, orb: &OrbInstance) {
         match orb.id.as_str() {
             "LightningOrb" => {
-                // PassiveVal = 3.
+                // C# LightningOrb.PassiveVal = ModifyOrbValue(3m).
+                let dmg = self.modify_orb_value(player_idx, 3);
                 let alive: Vec<usize> = self
                     .enemies
                     .iter()
@@ -2964,22 +3009,23 @@ impl CombatState {
                 self.deal_damage(
                     (CombatSide::Player, player_idx),
                     (CombatSide::Enemy, alive[pick]),
-                    3,
+                    dmg,
                     ValueProp::UNPOWERED,
                 );
             }
             "FrostOrb" => {
                 // C# FrostOrb.PassiveVal = ModifyOrbValue(2m).
+                let blk = self.modify_orb_value(player_idx, 2);
                 self.gain_block_with_props(
                     CombatSide::Player,
                     player_idx,
-                    2,
+                    blk,
                     ValueProp::UNPOWERED,
                 );
             }
             "DarkOrb" => {
-                // Accumulate charge into front-of-queue orb. We need
-                // mutable access to the orb instance; find it by id+pos.
+                // C# DarkOrb passive: _evokeVal += ModifyOrbValue(6m).
+                let bump = self.modify_orb_value(player_idx, 6);
                 if let Some(ps) = self
                     .allies
                     .get_mut(player_idx)
@@ -2987,19 +3033,54 @@ impl CombatState {
                 {
                     for o in ps.orb_queue.iter_mut() {
                         if o.id == "DarkOrb" {
-                            o.evoke_val_bonus += 6; // PassiveVal default
+                            o.evoke_val_bonus += bump;
                             break;
                         }
                     }
                 }
             }
             "PlasmaOrb" => {
+                // C# PlasmaOrb.PassiveVal = 1m (NOT ModifyOrbValue-scaled).
                 if let Some(ps) = self
                     .allies
                     .get_mut(player_idx)
                     .and_then(|c| c.player.as_mut())
                 {
-                    ps.energy += 1; // PlasmaOrb PassiveVal default = 1
+                    ps.energy += 1;
+                }
+            }
+            "GlassOrb" => {
+                // C# GlassOrb passive: damages ALL hittable enemies for
+                // PassiveVal (=ModifyOrbValue(_passiveVal)), then
+                // decrements _passiveVal by 1 (floor 0).
+                let passive = self.modify_orb_value(player_idx, orb.evoke_val_bonus);
+                if passive > 0 {
+                    let alive: Vec<usize> = self
+                        .enemies
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, e)| if e.current_hp > 0 { Some(i) } else { None })
+                        .collect();
+                    for idx in alive {
+                        self.deal_damage(
+                            (CombatSide::Player, player_idx),
+                            (CombatSide::Enemy, idx),
+                            passive,
+                            ValueProp::UNPOWERED,
+                        );
+                    }
+                    if let Some(ps) = self
+                        .allies
+                        .get_mut(player_idx)
+                        .and_then(|c| c.player.as_mut())
+                    {
+                        for o in ps.orb_queue.iter_mut() {
+                            if o.id == "GlassOrb" {
+                                o.evoke_val_bonus = (o.evoke_val_bonus - 1).max(0);
+                                break;
+                            }
+                        }
+                    }
                 }
             }
             _ => {}

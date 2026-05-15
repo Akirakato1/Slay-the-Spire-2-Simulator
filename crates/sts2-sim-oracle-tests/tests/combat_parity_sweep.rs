@@ -212,6 +212,19 @@ fn is_room_conditional(card_id: &str) -> bool {
     matches!(card_id, "TheHunt")
 }
 
+/// Cards whose OnPlay auto-plays an RNG-picked card from a pile (C#
+/// CardCmd.AutoPlay). Both sides correctly auto-play the same number
+/// of cards, but the picked cards differ due to non-byte-aligned
+/// combat RNG. The downstream combat-state diffs (player block,
+/// enemy HP, target powers) are all RNG-determined. We verify pile
+/// sizes via is_random_card_gen and skip the rest.
+fn is_random_auto_play(card_id: &str) -> bool {
+    matches!(
+        card_id,
+        "Catastrophe" | "Havoc" | "Uproar" | "DistilledChaos" | "Mayhem"
+    )
+}
+
 /// Returns true if a JSON path lives under a player pile that is
 /// inherently RNG-ordered (shuffle drift between rust and oracle).
 fn is_pile_path(path: &str) -> bool {
@@ -304,6 +317,23 @@ fn collect_diffs_loose(
     card_id: &str,
     out: &mut Vec<(String, Value, Value)>,
 ) {
+    // For auto-play-random cards, skip combat-state diffs entirely
+    // (block, enemy HP, enemy/ally powers) — those flow from the
+    // RNG-picked card and are not parity signals. Pile sizes still
+    // get verified via is_random_card_gen below.
+    if is_random_auto_play(card_id) {
+        if path.starts_with("$.allies[")
+            && (path.ends_with(".block") || path.ends_with(".current_hp"))
+        {
+            return;
+        }
+        if path.starts_with("$.allies[") && path.contains(".powers") {
+            return;
+        }
+        if path.starts_with("$.enemies[") {
+            return;
+        }
+    }
     // Pile arrays — compare sizes only when random-card-gen.
     if is_random_card_gen(card_id) {
         if path.ends_with(".hand")
