@@ -1768,47 +1768,28 @@ pub fn power_effects(power_id: &str) -> Vec<PowerHook> {
         // The AfterTurnEnd cleanup is handled by
         // tick_temporary_strength_powers (hand-coded in combat.rs)
         // which already iterates these power ids and undoes.
-        "SetupStrikePower" => vec![PowerHook::BeforeApplied {
-            body: vec![Effect::ApplyPower {
-                power_id: "StrengthPower".to_string(),
-                amount: AmountSpec::OwnerPowerAmount("SetupStrikePower".to_string()),
-                target: Target::SelfActor,
-            }],
-        }],
-        "CoordinatePower" => vec![PowerHook::BeforeApplied {
-            body: vec![Effect::ApplyPower {
-                power_id: "StrengthPower".to_string(),
-                amount: AmountSpec::OwnerPowerAmount("CoordinatePower".to_string()),
-                target: Target::SelfActor,
-            }],
-        }],
-        "AnticipatePower" => vec![PowerHook::BeforeApplied {
-            body: vec![Effect::ApplyPower {
-                power_id: "DexterityPower".to_string(),
-                amount: AmountSpec::OwnerPowerAmount("AnticipatePower".to_string()),
-                target: Target::SelfActor,
-            }],
-        }],
-        "ManglePower" => vec![PowerHook::BeforeApplied {
-            body: vec![Effect::ApplyPower {
-                power_id: "StrengthPower".to_string(),
-                amount: AmountSpec::Mul {
-                    left: Box::new(AmountSpec::Fixed(-1)),
-                    right: Box::new(AmountSpec::OwnerPowerAmount("ManglePower".to_string())),
-                },
-                target: Target::SelfActor,
-            }],
-        }],
-        "DarkShacklesPower" => vec![PowerHook::BeforeApplied {
-            body: vec![Effect::ApplyPower {
-                power_id: "StrengthPower".to_string(),
-                amount: AmountSpec::Mul {
-                    left: Box::new(AmountSpec::Fixed(-1)),
-                    right: Box::new(AmountSpec::OwnerPowerAmount("DarkShacklesPower".to_string())),
-                },
-                target: Target::SelfActor,
-            }],
-        }],
+        "SetupStrikePower" => vec![temp_strength_pos("SetupStrikePower")],
+        "CoordinatePower" => vec![temp_strength_pos("CoordinatePower")],
+        "AnticipatePower" => vec![temp_dexterity_pos("AnticipatePower")],
+        "ManglePower" => vec![temp_strength_neg("ManglePower")],
+        "DarkShacklesPower" => vec![temp_strength_neg("DarkShacklesPower")],
+        // Other TemporaryStrengthPower subclasses with IsPositive=false
+        // (silently apply -amount Strength on apply):
+        "CrushUnderPower" => vec![temp_strength_neg("CrushUnderPower")],
+        "DyingStarPower" => vec![temp_strength_neg("DyingStarPower")],
+        "EnfeeblingTouchPower" => vec![temp_strength_neg("EnfeeblingTouchPower")],
+        "MonarchsGazeStrengthDownPower" => vec![temp_strength_neg("MonarchsGazeStrengthDownPower")],
+        "PiercingWailPower" => vec![temp_strength_neg("PiercingWailPower")],
+        "ShacklingPotionPower" => vec![temp_strength_neg("ShacklingPotionPower")],
+        // TemporaryStrengthPower subclasses with IsPositive=true
+        // (silently apply +amount Strength on apply):
+        "FeedingFrenzyPower" => vec![temp_strength_pos("FeedingFrenzyPower")],
+        "FlexPotionPower" => vec![temp_strength_pos("FlexPotionPower")],
+        "ReptileTrinketPower" => vec![temp_strength_pos("ReptileTrinketPower")],
+        // TemporaryDexterityPower subclasses (positive only — no
+        // negative-dex subclasses ship in STS2):
+        "HelicalDartPower" => vec![temp_dexterity_pos("HelicalDartPower")],
+        "SpeedPotionPower" => vec![temp_dexterity_pos("SpeedPotionPower")],
 
         "DemonFormPower" => vec![PowerHook::AfterSideTurnStart {
             filter: HookSideFilter::OwnerSide,
@@ -1853,6 +1834,45 @@ pub fn fire_power_hooks_after_side_turn_start(
 /// `BeforeApplied` invocation order in `PowerCmd.Apply<T>`).
 /// `Target::SelfActor` in the body resolves to the target creature
 /// receiving the power (NOT the applier).
+/// Helper: BeforeApplied body that grants +OwnerPowerAmount of
+/// StrengthPower to the target (TempStrengthPower with IsPositive=true).
+fn temp_strength_pos(self_id: &str) -> PowerHook {
+    PowerHook::BeforeApplied {
+        body: vec![Effect::ApplyPower {
+            power_id: "StrengthPower".to_string(),
+            amount: AmountSpec::OwnerPowerAmount(self_id.to_string()),
+            target: Target::SelfActor,
+        }],
+    }
+}
+
+/// Helper: BeforeApplied body that grants -OwnerPowerAmount of
+/// StrengthPower to the target (TempStrengthPower with IsPositive=false).
+fn temp_strength_neg(self_id: &str) -> PowerHook {
+    PowerHook::BeforeApplied {
+        body: vec![Effect::ApplyPower {
+            power_id: "StrengthPower".to_string(),
+            amount: AmountSpec::Mul {
+                left: Box::new(AmountSpec::Fixed(-1)),
+                right: Box::new(AmountSpec::OwnerPowerAmount(self_id.to_string())),
+            },
+            target: Target::SelfActor,
+        }],
+    }
+}
+
+/// Helper: BeforeApplied body for TempDexterityPower subclasses
+/// (positive-only — no negative-dex subclasses in STS2).
+fn temp_dexterity_pos(self_id: &str) -> PowerHook {
+    PowerHook::BeforeApplied {
+        body: vec![Effect::ApplyPower {
+            power_id: "DexterityPower".to_string(),
+            amount: AmountSpec::OwnerPowerAmount(self_id.to_string()),
+            target: Target::SelfActor,
+        }],
+    }
+}
+
 pub fn fire_power_hook_before_applied(
     cs: &mut CombatState,
     target_side: CombatSide,
