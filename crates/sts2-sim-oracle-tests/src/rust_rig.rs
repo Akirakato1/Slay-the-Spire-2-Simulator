@@ -54,6 +54,27 @@ impl RustRig {
     pub fn force_card_to_hand(&mut self, card_modelid: &str, upgrade: i32) {
         combat_force_card_to_hand(&mut self.combat, card_modelid, upgrade);
     }
+    /// Grant a relic mid-combat. Mirrors the oracle host's
+    /// `combat_grant_relic` RPC — pushes the relic id onto the player's
+    /// `relics` list. AfterObtained run-state effects are NOT fired here
+    /// (those belong to the run-state VM, not combat). BeforeCombatStart
+    /// hooks are exposed via `fire_before_combat_start` for the caller
+    /// to invoke explicitly, so test setups can sequence "grant +
+    /// trigger" in lockstep with the oracle.
+    pub fn grant_relic(&mut self, relic_modelid: &str) {
+        let relic_rust = modelid_to_rust(relic_modelid);
+        if let Some(ps) = self.combat.allies[0].player.as_mut() {
+            if !ps.relics.contains(&relic_rust) {
+                ps.relics.push(relic_rust);
+            }
+        }
+    }
+    /// Fire every player-relic's BeforeCombatStart hook. Caller invokes
+    /// after granting any relics that should be present "from the start
+    /// of combat" — Anchor (10 block), BloodVial (3 HP), etc.
+    pub fn fire_before_combat_start(&mut self) {
+        self.combat.fire_before_combat_start_hooks();
+    }
     pub fn play_card(&mut self, hand_idx: usize, target_idx: Option<usize>) -> bool {
         combat_play_card(&mut self.combat, hand_idx, target_idx)
     }

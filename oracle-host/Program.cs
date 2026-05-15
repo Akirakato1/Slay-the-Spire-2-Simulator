@@ -679,6 +679,91 @@ internal sealed class Dispatcher
                 return Ok(SerializeCombat(combat));
             }
 
+            case "combat_grant_relic":
+            {
+                var combat = GetInstance(p);
+                var relicId = p["relic_id"]!.GetValue<string>();
+                var playerIdx = p["player_idx"]?.GetValue<int>() ?? 0;
+                var allies = (System.Collections.IList)_combat.Allies.GetValue(combat)!;
+                var ownerCreature = allies[playerIdx]!;
+                var ownerPlayer = _combat.CreaturePlayer.GetValue(ownerCreature)!;
+                var canonicalRelic = _combat.GetRelicById(relicId);
+                var mutableRelic = _combat.RelicToMutable.Invoke(canonicalRelic, null)!;
+                // RelicCmd.Obtain handles AddRelicInternal + AfterObtained.
+                // Returns a Task; await synchronously via .GetAwaiter().GetResult().
+                try
+                {
+                    var task = _combat.RelicCmdObtain.Invoke(null,
+                        new object[] { mutableRelic, ownerPlayer, -1 })!;
+                    var awaiter = task.GetType().GetMethod("GetAwaiter")!
+                        .Invoke(task, null)!;
+                    awaiter.GetType().GetMethod("GetResult")!.Invoke(awaiter, null);
+                }
+                catch (Exception ex)
+                {
+                    return new JsonObject {
+                        ["error"] = new JsonObject {
+                            ["code"] = -32000,
+                            ["message"] = $"grant_relic({relicId}): {ex.InnerException?.Message ?? ex.Message}",
+                        },
+                    };
+                }
+                return Ok(JsonValue.Create(true));
+            }
+
+            case "combat_fire_before_combat_start":
+            {
+                // Fire the two "combat start" hooks the rust simulator
+                // collapses under `RelicHook::BeforeCombatStart`:
+                //   - C# `RelicModel.BeforeCombatStart()`
+                //   - C# `RelicModel.AfterRoomEntered(CombatRoom)`
+                // Different C# relics override different hooks (Anchor
+                // → BeforeCombatStart; BronzeScales / DataDisk / RedSkull
+                // / Vajra / OddlySmoothStone → AfterRoomEntered) but
+                // both fire at functionally the same moment.
+                // Hook.* statics are no-op'd in this harness; this RPC
+                // restores the relic-relevant slice without re-enabling
+                // the listener-iteration code paths that NRE on partial
+                // model init.
+                var combat = GetInstance(p);
+                var playerIdx = p["player_idx"]?.GetValue<int>() ?? 0;
+                var allies = (System.Collections.IList)_combat.Allies.GetValue(combat)!;
+                var ownerCreature = allies[playerIdx]!;
+                var ownerPlayer = _combat.CreaturePlayer.GetValue(ownerCreature)!;
+                var relics = (System.Collections.IEnumerable?)_combat.PlayerRelics.GetValue(ownerPlayer);
+                if (relics == null)
+                {
+                    return Ok(JsonValue.Create(true));
+                }
+                var fakeRoom = _combat.CombatRoomFromState.Invoke(new[] { combat })!;
+                var errors = new JsonArray();
+                void FireHook(MethodInfo method, object relic, object?[]? args)
+                {
+                    try
+                    {
+                        var task = method.Invoke(relic, args)!;
+                        var awaiter = task.GetType().GetMethod("GetAwaiter")!
+                            .Invoke(task, null)!;
+                        awaiter.GetType().GetMethod("GetResult")!.Invoke(awaiter, null);
+                    }
+                    catch (Exception ex)
+                    {
+                        var id = _combat.AbstractModelId.GetValue(relic);
+                        errors.Add($"{method.Name}({id}): {ex.InnerException?.Message ?? ex.Message}");
+                    }
+                }
+                foreach (var r in relics)
+                {
+                    if (r == null) continue;
+                    FireHook(_combat.BeforeCombatStartMethod, r, null);
+                    FireHook(_combat.AfterRoomEnteredMethod, r, new object?[] { fakeRoom });
+                }
+                var result = new JsonObject();
+                result["ok"] = JsonValue.Create(true);
+                result["errors"] = errors;
+                return Ok(result);
+            }
+
             case "combat_force_card_to_hand":
             {
                 var combat = GetInstance(p);
@@ -1422,6 +1507,13 @@ internal sealed class CombatReflectionBundle
     public required MethodInfo CardToMutable { get; init; }
     public required MethodInfo CombatStateAddCardWithOwner { get; init; }
     public required MethodInfo GetCardByIdMethod { get; init; }
+    public required MethodInfo GetRelicByIdMethod { get; init; }
+    public required MethodInfo RelicToMutable { get; init; }
+    public required MethodInfo RelicCmdObtain { get; init; }
+    public required MethodInfo BeforeCombatStartMethod { get; init; }
+    public required MethodInfo AfterSideTurnStartMethod { get; init; }
+    public required ConstructorInfo CombatRoomFromState { get; init; }
+    public required MethodInfo AfterRoomEnteredMethod { get; init; }
 
     public object GetCharacterById(string id)
     {
@@ -1443,6 +1535,13 @@ internal sealed class CombatReflectionBundle
         return GetCardByIdMethod.Invoke(null, new object[] { modelId })
             ?? throw new InvalidOperationException(
                 $"GetCardById returned null for {id}");
+    }
+    public object GetRelicById(string id)
+    {
+        var modelId = ModelIdDeserialize.Invoke(null, new object[] { id })!;
+        return GetRelicByIdMethod.Invoke(null, new object[] { modelId })
+            ?? throw new InvalidOperationException(
+                $"GetRelicById returned null for {id}");
     }
 
     public static CombatReflectionBundle Build(Assembly asm)
@@ -1655,6 +1754,52 @@ internal sealed class CombatReflectionBundle
             ?? throw new InvalidOperationException("CombatState.AddCard(card, owner) not found");
         var getCardById = getByIdGen.MakeGenericMethod(cardType);
 
+        // Relic reflection: ModelDb.GetById<RelicModel>(id) +
+        // RelicCmd.Obtain(relic, player, -1) + AfterObtained.
+        var relicModelType = asm.GetType(
+            "MegaCrit.Sts2.Core.Models.RelicModel", throwOnError: true)!;
+        var getRelicById = getByIdGen.MakeGenericMethod(relicModelType);
+        var relicToMutable = relicModelType.GetMethod("ToMutable",
+            BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes)
+            ?? throw new InvalidOperationException("RelicModel.ToMutable not found");
+        var relicCmdType = asm.GetType(
+            "MegaCrit.Sts2.Core.Commands.RelicCmd", throwOnError: true)!;
+        // RelicCmd.Obtain(RelicModel, Player, int) — the 3-arg overload.
+        var relicObtain = relicCmdType.GetMethods(
+            BindingFlags.Public | BindingFlags.Static)
+            .First(m => m.Name == "Obtain"
+                && !m.IsGenericMethod
+                && m.GetParameters().Length == 3
+                && m.GetParameters()[0].ParameterType == relicModelType
+                && m.GetParameters()[1].ParameterType == playerType);
+        // BeforeCombatStart is declared virtual on AbstractModel and lives
+        // in the model class. Reflection by name on AbstractModel covers
+        // every subclass via virtual dispatch.
+        var beforeCombatStart = abstractModelType.GetMethod(
+            "BeforeCombatStart",
+            BindingFlags.Public | BindingFlags.Instance,
+            Type.EmptyTypes)
+            ?? throw new InvalidOperationException("AbstractModel.BeforeCombatStart not found");
+        var afterSideTurnStart = abstractModelType.GetMethod(
+            "AfterSideTurnStart",
+            BindingFlags.Public | BindingFlags.Instance,
+            new[] { combatSideType, combatStateType })
+            ?? throw new InvalidOperationException("AbstractModel.AfterSideTurnStart not found");
+        // CombatRoom(CombatState) ctor — synthesizes the AbstractRoom
+        // arg that AfterRoomEntered relics inspect via `room is CombatRoom`.
+        var combatRoomType = asm.GetType(
+            "MegaCrit.Sts2.Core.Rooms.CombatRoom", throwOnError: true)!;
+        var combatRoomFromState = combatRoomType.GetConstructor(
+            new[] { combatStateType })
+            ?? throw new InvalidOperationException("CombatRoom(CombatState) not found");
+        var abstractRoomType = asm.GetType(
+            "MegaCrit.Sts2.Core.Rooms.AbstractRoom", throwOnError: true)!;
+        var afterRoomEntered = abstractModelType.GetMethod(
+            "AfterRoomEntered",
+            BindingFlags.Public | BindingFlags.Instance,
+            new[] { abstractRoomType })
+            ?? throw new InvalidOperationException("AbstractModel.AfterRoomEntered not found");
+
         return new CombatReflectionBundle
         {
             CombatStateCtor = combatStateCtor,
@@ -1709,6 +1854,13 @@ internal sealed class CombatReflectionBundle
             CardToMutable = cardToMutable,
             CombatStateAddCardWithOwner = addCardWithOwner,
             GetCardByIdMethod = getCardById,
+            GetRelicByIdMethod = getRelicById,
+            RelicToMutable = relicToMutable,
+            RelicCmdObtain = relicObtain,
+            BeforeCombatStartMethod = beforeCombatStart,
+            AfterSideTurnStartMethod = afterSideTurnStart,
+            CombatRoomFromState = combatRoomFromState,
+            AfterRoomEnteredMethod = afterRoomEntered,
         };
     }
 }
