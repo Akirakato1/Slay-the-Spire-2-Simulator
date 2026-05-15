@@ -1422,12 +1422,12 @@ impl CombatState {
                 }
             }
         }
-        for (s, idx, id, sign, amount, target) in undo {
-            // Remove the temp-power stack entirely.
+        for (s, idx, id, _sign, amount, _target) in undo {
+            // decrement_power → apply_power(id, -amount) fires
+            // BeforeApplied for the temp power, which itself applies
+            // -amount of the target power (Strength/Dexterity),
+            // undoing the original silent grant. Single call only.
             self.decrement_power(s, idx, id, amount);
-            // Subtract sign * amount of the target power (undoing the
-            // BeforeApplied silent grant).
-            self.apply_power(s, idx, target, -(sign * amount));
         }
     }
 
@@ -2282,6 +2282,18 @@ impl CombatState {
         if amount == 0 {
             return self.get_power_amount(side, target_idx, power_id);
         }
+        // PowerHook::BeforeApplied — TemporaryStrengthPower subclasses
+        // (SetupStrikePower / ManglePower / DarkShacklesPower /
+        // CoordinatePower etc.) silently apply a matching Strength
+        // change on apply. Mirrors C# `BeforeApplied(applier, amount)`
+        // invocation in PowerCmd.Apply<T>.
+        crate::effects::fire_power_hook_before_applied(
+            self,
+            side,
+            target_idx,
+            power_id,
+            amount,
+        );
         // Audit fix #5: BeforePowerAmountChanged hook fires once before
         // the apply mutates the stack. Currently a no-op — ArtifactPower
         // and similar modifier-pipeline relics will register here when
@@ -3860,16 +3872,12 @@ fn dispatch_on_play(
         "Anticipate" => {
             let Some(card) = card_by_id(card_id) else { return false; };
             let dex = canonical_int_value(card, "Dexterity", upgrade_level);
+            // AnticipatePower's BeforeApplied hook silently grants
+            // +Dexterity on apply (see power_effects::AnticipatePower).
             cs.apply_power(
                 CombatSide::Player,
                 player_idx,
                 "AnticipatePower",
-                dex,
-            );
-            cs.apply_power(
-                CombatSide::Player,
-                player_idx,
-                "DexterityPower",
                 dex,
             );
             true
@@ -4153,8 +4161,9 @@ fn dispatch_on_play(
                 ValueProp::MOVE,
                 enchantment,
             );
+            // ManglePower's BeforeApplied hook silently applies the
+            // negative Strength on apply (see power_effects).
             cs.apply_power(target.0, target.1, "ManglePower", strength_loss);
-            cs.apply_power(target.0, target.1, "StrengthPower", -strength_loss);
             true
         }
         // Impervious (Ironclad rare Exhaust Skill, 2 cost, Self): 30
@@ -4184,16 +4193,12 @@ fn dispatch_on_play(
                 ValueProp::MOVE,
                 enchantment,
             );
+            // SetupStrikePower's BeforeApplied hook silently applies
+            // +Strength on apply (see power_effects).
             cs.apply_power(
                 CombatSide::Player,
                 player_idx,
                 "SetupStrikePower",
-                strength,
-            );
-            cs.apply_power(
-                CombatSide::Player,
-                player_idx,
-                "StrengthPower",
                 strength,
             );
             true

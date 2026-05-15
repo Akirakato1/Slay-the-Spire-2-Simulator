@@ -305,12 +305,23 @@ fn run_one_card(oracle: &mut Oracle, card: &CardData) -> SweepResult {
 }
 
 #[test]
-#[ignore = "requires oracle host + STS2 install; long-running (sweeps all Ironclad/Colorless cards)"]
-fn sweep_ironclad_and_colorless() {
+#[ignore = "requires oracle host + STS2 install; long-running (sweeps every playable card on Ironclad)"]
+fn sweep_all_cards_on_ironclad() {
+    // Every class card works on every class — STS2's design — so we
+    // test every playable card on Ironclad as the canonical scenario.
+    // Skip pools that have no playable cards or are scaffolding:
+    //   Status / Curse — Unplayable; nothing to assert.
+    //   Quest / Deprecated — not real cards.
+    // Skip X-cost cards (need explicit energy setup, tested separately).
     let cards: Vec<&'static CardData> = card::ALL_CARDS
         .iter()
         .filter(|c| {
-            (c.pool == "Ironclad" || c.pool == "Colorless")
+            let playable_pool = matches!(
+                c.pool.as_str(),
+                "Ironclad" | "Silent" | "Defect" | "Regent" | "Necrobinder"
+                    | "Colorless" | "Token" | "Event"
+            );
+            playable_pool
                 && !c.has_energy_cost_x
                 && c.card_type != sts2_sim::card::CardType::Status
                 && c.card_type != sts2_sim::card::CardType::Curse

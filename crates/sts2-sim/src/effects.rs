@@ -1670,11 +1670,21 @@ pub enum PowerHook {
         filter: HookSideFilter,
         body: Vec<Effect>,
     },
-    // TODO (audit §2): BeforeSideTurnStart, BeforeTurnEnd, AfterApplied,
-    // AfterRemoved, BeforeAttack, AfterAttack, AfterDamageGiven,
-    // BeforeDamageReceived, AfterDamageReceived, AfterCardPlayed,
-    // BeforeCardPlayed, AfterDeath, OnHostDeath, ShouldClearBlock,
-    // ShouldDie, ...
+    /// C# `BeforeApplied(applier, amount)`. Fires when an instance of
+    /// this power is being applied to a creature. Used by
+    /// `TemporaryStrengthPower` subclasses (SetupStrikePower /
+    /// ManglePower / DarkShacklesPower / CoordinatePower / etc.) which
+    /// silently grant a matching Strength change on apply, then undo
+    /// the change when the power ticks down at side turn end.
+    /// `body` executes with `Target::SelfActor` resolving to the
+    /// creature the power is being applied to (NOT the applier — i.e.
+    /// the new owner of the power).
+    BeforeApplied { body: Vec<Effect> },
+    // TODO (audit §2): BeforeSideTurnStart, BeforeTurnEnd,
+    // AfterApplied, AfterRemoved, BeforeAttack, AfterAttack,
+    // AfterDamageGiven, BeforeDamageReceived, AfterDamageReceived,
+    // AfterCardPlayed, BeforeCardPlayed, AfterDeath, OnHostDeath,
+    // ShouldClearBlock, ShouldDie, ...
 }
 
 /// Discriminant for hook side-filtering. Mirrors the C#
@@ -1745,6 +1755,61 @@ pub fn power_effects(power_id: &str) -> Vec<PowerHook> {
         }],
         // DemonFormPower: at start of owner's turn, apply
         // StrengthPower(Amount) to owner. Permanent ramp.
+        // TemporaryStrengthPower subclasses: on apply, silently grant
+        // a matching Strength change. C# `BeforeApplied` hook. The
+        // amount of Strength applied equals the apply amount (passed
+        // to the hook body as ctx.actor_amount, exposed via
+        // `AmountSpec::OwnerPowerAmount(self_id)`).
+        //
+        // sign: +1 for IsPositive subclasses (SetupStrike, Coordinate,
+        //       Anticipate) → grant +Strength.
+        //       -1 for IsPositive=false (Mangle, DarkShackles) → grant
+        //       -Strength.
+        // The AfterTurnEnd cleanup is handled by
+        // tick_temporary_strength_powers (hand-coded in combat.rs)
+        // which already iterates these power ids and undoes.
+        "SetupStrikePower" => vec![PowerHook::BeforeApplied {
+            body: vec![Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::OwnerPowerAmount("SetupStrikePower".to_string()),
+                target: Target::SelfActor,
+            }],
+        }],
+        "CoordinatePower" => vec![PowerHook::BeforeApplied {
+            body: vec![Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::OwnerPowerAmount("CoordinatePower".to_string()),
+                target: Target::SelfActor,
+            }],
+        }],
+        "AnticipatePower" => vec![PowerHook::BeforeApplied {
+            body: vec![Effect::ApplyPower {
+                power_id: "DexterityPower".to_string(),
+                amount: AmountSpec::OwnerPowerAmount("AnticipatePower".to_string()),
+                target: Target::SelfActor,
+            }],
+        }],
+        "ManglePower" => vec![PowerHook::BeforeApplied {
+            body: vec![Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::Mul {
+                    left: Box::new(AmountSpec::Fixed(-1)),
+                    right: Box::new(AmountSpec::OwnerPowerAmount("ManglePower".to_string())),
+                },
+                target: Target::SelfActor,
+            }],
+        }],
+        "DarkShacklesPower" => vec![PowerHook::BeforeApplied {
+            body: vec![Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::Mul {
+                    left: Box::new(AmountSpec::Fixed(-1)),
+                    right: Box::new(AmountSpec::OwnerPowerAmount("DarkShacklesPower".to_string())),
+                },
+                target: Target::SelfActor,
+            }],
+        }],
+
         "DemonFormPower" => vec![PowerHook::AfterSideTurnStart {
             filter: HookSideFilter::OwnerSide,
             body: vec![Effect::ApplyPower {
@@ -1780,6 +1845,35 @@ pub fn fire_power_hooks_after_side_turn_start(
         PowerHook::AfterSideTurnStart { filter, body } => Some((*filter, body.as_slice())),
         _ => None,
     });
+}
+
+/// Fire any registered `BeforeApplied` body for `power_id` on the
+/// target creature. Called from `apply_power` BEFORE the actual
+/// stack mutation, so the body's effects apply first (mirrors C#
+/// `BeforeApplied` invocation order in `PowerCmd.Apply<T>`).
+/// `Target::SelfActor` in the body resolves to the target creature
+/// receiving the power (NOT the applier).
+pub fn fire_power_hook_before_applied(
+    cs: &mut CombatState,
+    target_side: CombatSide,
+    target_idx: usize,
+    power_id: &str,
+    apply_amount: i32,
+) {
+    let hooks = power_effects(power_id);
+    for hook in hooks {
+        if let PowerHook::BeforeApplied { body } = hook {
+            // Build a context whose actor is the receiving creature
+            // (the new owner of the power). `actor_amount` is the
+            // amount being applied so the body can reference it via
+            // `AmountSpec::OwnerPowerAmount(power_id)`.
+            let ctx = EffectContext::for_power_hook(
+                (target_side, target_idx),
+                apply_amount,
+            );
+            execute_effects(cs, &body, &ctx);
+        }
+    }
 }
 
 /// Walk every living creature's powers and execute any matching
@@ -6406,19 +6500,12 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Convergence" => Some(vec![Effect::ApplyPower { power_id: "RetainHandPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "StarNextTurnPower".to_string(), amount: AmountSpec::Canonical("Stars".to_string()), target: Target::SelfPlayer }]),
         "CorrosiveWave" => Some(vec![Effect::ApplyPower { power_id: "CorrosiveWavePower".to_string(), amount: AmountSpec::Canonical("CorrosiveWave".to_string()), target: Target::SelfPlayer }]),
         "DarkShackles" => Some(vec![
-            // DarkShacklesPower extends TemporaryStrengthPower (IsPositive
-            // = false): on apply, silently grants the target negative
-            // Strength equal to the StrengthLoss amount; at end of
-            // target's turn, removes itself and restores Strength.
+            // DarkShacklesPower extends TemporaryStrengthPower
+            // (IsPositive=false). Its BeforeApplied hook
+            // (power_effects::DarkShacklesPower) silently applies
+            // -StrengthLoss Strength to the target; we just apply the
+            // wrapping DarkShacklesPower here.
             Effect::ApplyPower { power_id: "DarkShacklesPower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::ChosenEnemy },
-            Effect::ApplyPower {
-                power_id: "StrengthPower".to_string(),
-                amount: AmountSpec::Mul {
-                    left: Box::new(AmountSpec::Fixed(-1)),
-                    right: Box::new(AmountSpec::Canonical("StrengthLoss".to_string())),
-                },
-                target: Target::ChosenEnemy,
-            },
         ]),
         "Dash" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Delay" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "EnergyNextTurnPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
@@ -6728,8 +6815,9 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "BladeDance" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Cards".to_string()), body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }] }]),
         "Snakebite" => Some(vec![Effect::ApplyPower { power_id: "PoisonPower".to_string(), amount: AmountSpec::Canonical("Poison".to_string()), target: Target::ChosenEnemy }]),
         "Anticipate" => Some(vec![
+        // AnticipatePower's BeforeApplied hook (power_effects)
+        // silently grants matching +Dexterity on apply.
         Effect::ApplyPower { power_id: "AnticipatePower".to_string(), amount: AmountSpec::Canonical("Dexterity".to_string()), target: Target::SelfPlayer },
-        Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("Dexterity".to_string()), target: Target::SelfPlayer },
         ]),
         "Ricochet" => Some(vec![Effect::Repeat { count: AmountSpec::Canonical("Repeat".to_string()), body: vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }] }]),
         "CloakAndDagger" => Some(vec![
@@ -6754,13 +6842,14 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         }]),
         "Mangle" => Some(vec![
         Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        // ManglePower's BeforeApplied silently applies -StrengthLoss
+        // Strength to the target on apply (see power_effects).
         Effect::ApplyPower { power_id: "ManglePower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::ChosenEnemy },
-        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("StrengthLoss".to_string())), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::ChosenEnemy },
         ]),
         "SetupStrike" => Some(vec![
         Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+        // SetupStrikePower's BeforeApplied silently grants +Strength on apply.
         Effect::ApplyPower { power_id: "SetupStrikePower".to_string(), amount: AmountSpec::Canonical("Strength".to_string()), target: Target::SelfPlayer },
-        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("Strength".to_string()), target: Target::SelfPlayer },
         ]),
         "Feed" => Some(vec![
         Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
@@ -7481,6 +7570,34 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             // `free_this_turn` cost override is deferred — the runtime
             // doesn't yet thread it onto generated CardInstances.
             //
+            // Filter out cards already in player's combat state (any
+            // pile or master-deck-reflected pile) to mirror C#
+            // `CardFactory.GetDistinctForCombat`. InfernalBlade /
+            // JackOfAllTrades / similar use this filter.
+            let already_in_combat: std::collections::HashSet<String> = cs
+                .allies
+                .get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| {
+                    let mut s = std::collections::HashSet::new();
+                    for pile in [&ps.hand, &ps.draw, &ps.discard, &ps.exhaust] {
+                        for c in &pile.cards {
+                            s.insert(c.id.clone());
+                        }
+                    }
+                    for c in &ps.play_pile {
+                        s.insert(c.id.clone());
+                    }
+                    s
+                })
+                .unwrap_or_default();
+            let candidates: Vec<String> = candidates
+                .into_iter()
+                .filter(|id| !already_in_combat.contains(id))
+                .collect();
+            if candidates.is_empty() {
+                return;
+            }
             // Use a fresh CombatCardGeneration RNG matching C#:
             // `RunState.Rng.CombatCardGeneration` on NullRunState
             // returns a stream seeded from empty-string → 0 → named
