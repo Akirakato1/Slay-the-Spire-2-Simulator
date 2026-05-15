@@ -1,0 +1,249 @@
+// ============================================================================
+// batch_r_rs_3.txt — AfterObtained relic run-state encodings (batch 3)
+//
+// Picks up where batch_r_rs_1 / batch_r_rs_2 left off. Many SKIPs in batch_r_rs_1
+// are now unblocked by AddCardToRunStateDeck (mid-run deck additions) and
+// LoseRunStateMaxHp.
+//
+// Allowed run-state Effect variants:
+//   GainRunStateMaxHp / GainRunStateGold / LoseRunStateHp / LoseRunStateMaxHp /
+//   GainRelic / LoseRelic / GainPotionToBelt / AddCardToRunStateDeck /
+//   GainMaxPotionSlots
+//
+// AmountSpec::Canonical resolves to 0 at run-state scope, so literal Fixed(N)
+// is used where N is the C# DynamicVar BaseValue.
+//
+// SKIPs document the precise reason — usually because the C# body relies on
+// a primitive the dispatcher doesn't yet implement.
+// ============================================================================
+
+// ===== Newly-unblocked AddCardToDeck entries =====
+
+// JewelryBox.cs L8-14: AfterObtained → AddCard<Apotheosis> to deck (bottom).
+"JewelryBox" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::AddCardToRunStateDeck { card_id: "Apotheosis".to_string(), upgrade: 0 }],
+)]),
+
+// NeowsTorment.cs L6-13: AfterObtained → AddCard<NeowsFury> to deck.
+"NeowsTorment" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::AddCardToRunStateDeck { card_id: "NeowsFury".to_string(), upgrade: 0 }],
+)]),
+
+// Storybook.cs L8-15: AfterObtained → AddCard<BrightestFlame> to deck.
+"Storybook" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::AddCardToRunStateDeck { card_id: "BrightestFlame".to_string(), upgrade: 0 }],
+)]),
+
+// TanxsWhistle.cs L8-15: AfterObtained → AddCard<Whistle> to deck.
+"TanxsWhistle" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::AddCardToRunStateDeck { card_id: "Whistle".to_string(), upgrade: 0 }],
+)]),
+
+// PaelsHorn.cs L8-19: AfterObtained → 2x AddCard<Relax> to deck.
+"PaelsHorn" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![
+        Effect::AddCardToRunStateDeck { card_id: "Relax".to_string(), upgrade: 0 },
+        Effect::AddCardToRunStateDeck { card_id: "Relax".to_string(), upgrade: 0 },
+    ],
+)]),
+
+// SereTalon.cs L24-37: 2 random curses + 3 Wish to deck. Wish add is encodable;
+// the random-curse selection isn't (needs run-state RNG over curse pool).
+// Encode the deterministic Wish×3 add only.
+"SereTalon" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![
+        Effect::AddCardToRunStateDeck { card_id: "Wish".to_string(), upgrade: 0 },
+        Effect::AddCardToRunStateDeck { card_id: "Wish".to_string(), upgrade: 0 },
+        Effect::AddCardToRunStateDeck { card_id: "Wish".to_string(), upgrade: 0 },
+    ],
+)]),
+
+// PreservedFog.cs L8-19: interactive 3-card removal + AddCurseToDeck<Folly>.
+// Encode the deterministic Folly add; interactive removal SKIPped.
+"PreservedFog" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::AddCardToRunStateDeck { card_id: "Folly".to_string(), upgrade: 0 }],
+)]),
+
+// FragrantMushroom.cs L17-22: LoseHp(15) + upgrade 2 random upgradable cards.
+// Encode the LoseRunStateHp side; upgrade-2-random needs interactive deck-scan.
+"FragrantMushroom" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(15) }],
+)]),
+
+// PrecariousShears.cs L9-19: 2-card interactive removal then LoseHp(damage).
+// Encode the LoseRunStateHp side; interactive removal SKIPped.
+// CanonicalVars CardsVar(2), DamageVar(unknown — defaults to 16 per cookbook
+// reference; let it default if not in source). C# decompile shows just CardsVar(2);
+// the damage var has a hidden default in DamageVar's base constructor — at run-state
+// we conservatively encode 16 (the value implied by C# behaviour notes in dev wiki).
+// To stay conservative, encode 0 and SKIP-note this; better to under-apply than over.
+// SKIP PrecariousShears: damage value not pinned by CanonicalVars in decompile;
+//   needs DamageVar lookup to be confident.
+
+// ===== +Max potion slots (newly unlocked vocabulary) =====
+
+// AlchemicalCoffer.cs L20-29: GainMaxPotionCount(4) + procure 4 random potions.
+// Encode the +4 slots; random-potion procurement at run-state SKIPped (needs
+// PotionFactory RNG).
+"AlchemicalCoffer" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::GainMaxPotionSlots { delta: AmountSpec::Fixed(4) }],
+)]),
+
+// ===== SKIPs (categorized) =====
+
+// --- Interactive deck mutation (transform / enchant / remove / upgrade) ---
+// SKIP ArchaicTooth: per-character starter-card transformation lookup, runtime ModelDb dispatch.
+// SKIP Astrolabe: CardSelectCmd.FromDeckForTransformation(3) — interactive transform.
+// SKIP BeautifulBracelet: CardSelectCmd.FromDeckForEnchantment<Swift>(3) — interactive enchant.
+// SKIP BiiigHug: CardSelectCmd.FromDeckForRemoval(4) — interactive remove + Soot-on-shuffle hook.
+// SKIP Claws: CardSelectCmd.FromDeckForTransformation → Maul (preserving Upgrade/Enchant) — interactive.
+// SKIP ElectricShrymp: CardSelectCmd.FromDeckForEnchantment<Imbued>(1) — interactive enchant.
+// SKIP EmptyCage: CardSelectCmd.FromDeckForRemoval(2) — interactive remove.
+// SKIP GnarledHammer: CardSelectCmd.FromDeckForEnchantment<Sharp>(3) — interactive enchant.
+// SKIP Kifuda: CardSelectCmd.FromDeckForEnchantment<Adroit>(3) — interactive enchant.
+// SKIP NewLeaf: CardSelectCmd.FromDeckForTransformation(1) — interactive transform.
+// SKIP PaelsGrowth: CardSelectCmd.FromDeckForEnchantment<Clone>(1) + rest-site option — interactive.
+// SKIP PaelsTooth: CardSelectCmd.FromDeckForRemoval(5) — interactive, plus per-combat re-add hook.
+// SKIP Pomander: CardSelectCmd.FromDeckForUpgrade — interactive upgrade.
+// SKIP PreciseScissors: CardSelectCmd.FromDeckForRemoval(1) — interactive remove.
+// SKIP PunchDagger: CardSelectCmd.FromDeckForEnchantment<Momentum>(1) — interactive enchant.
+// SKIP TriBoomerang: CardSelectCmd.FromDeckForEnchantment<Instinct>(3) — interactive enchant.
+// SKIP YummyCookie: CardSelectCmd.FromDeckForUpgrade(4) — interactive upgrade.
+
+// --- Deck-scan mutations needing UpgradeCards/TransformCards/EnchantCards at run-state ---
+// SKIP NeowsTalisman: upgrades the player's starter Strike + Defend cards — needs
+//   UpgradeCards-at-run-state with rarity/tag filter.
+// SKIP NutritiousSoup: enchants every Basic Strike with TezcatarasEmber — needs
+//   EnchantCards-at-run-state primitive + tag filter.
+// SKIP PaelsClaw: enchants entire deck with Goopy — needs EnchantCards primitive.
+// SKIP PandorasBox: transforms every Basic Strike/Defend with a random card —
+//   needs TransformCards-at-run-state with random destination per card.
+// SKIP RoyalStamp: enchants a random RoyallyApproved-eligible card — needs run-state RNG.
+// SKIP SandCastle: upgrades 6 random upgradable cards — needs UpgradeCards at run-state.
+// SKIP WarPaint: upgrades 2 random upgradable Skills — needs UpgradeCards at run-state with type filter.
+// SKIP Whetstone: upgrades 2 random upgradable Attacks — needs UpgradeCards at run-state with type filter.
+// SKIP NutritiousSoup is also blocked by Enchant primitive.
+
+// --- Interactive choose-from-N card-pick ---
+// SKIP HeftyTablet: choose-1-of-3 generated Rare + add Injury — choice screen.
+// SKIP LeadPaperweight: choose-1-of-2 generated Colorless cards — choice screen.
+// SKIP MassiveScroll: choose-1-of-3 multiplayer-only cards — choice + filter.
+
+// --- Reward offers (custom reward set) ---
+// SKIP Cauldron: 5x PotionReward via RewardsCmd.OfferCustom.
+// SKIP GlassEye: 5 card-reward offers (2 common, 2 uncommon, 1 rare).
+// SKIP LargeCapsule: 2 random relic rewards + character-specific Strike/Defend add.
+// SKIP LostCoffer: 1 card reward + 1 potion reward.
+// SKIP NeowsBones: 2 valid relic rewards + 1 random curse.
+// SKIP Orrery: 5 card-reward offers.
+// SKIP SmallCapsule: 1 random relic reward.
+// SKIP ToyBox: 4 wax-relic rewards (each consumed across 3 combats).
+
+// --- Random-source AddCardToDeck (need card RNG resolution) ---
+// SKIP ArcaneScroll: AddCard of a random Rare-rarity card from the character's pool —
+//   needs run-state random-card-from-pool primitive that mutates deck.
+// SKIP DollysMirror: clones one chosen deck card — needs interactive deck-pick clone.
+// SKIP DustyTome: AddCard from a saved AncientCard StringVar — needs persistent stringvar
+//   lookup at obtain-time.
+
+// --- Heal / damage to current HP that needs % MaxHp arithmetic ---
+// SKIP FakeLeesWaffle: Heal(MaxHp * 10%) — no percentage-heal primitive at run-state.
+
+// --- Map regen / map quest annotation / relic swap ---
+// SKIP FurCoat: marks N future Monster/Elite rooms via ModifyGeneratedMapLate.
+// SKIP GoldenCompass: forces map regeneration with overridden act type.
+// SKIP TouchOfOrobas: RelicCmd.Replace(starterRelic, upgradedRelic) — dynamic by character.
+
+// --- Combat-only / pure state cache AfterObtained body ---
+// SKIP PaelsEye: AfterObtained only caches CombatManager.IsPartOfPlayerTurn.
+// SKIP PumpkinCandle: AfterObtained only records the current act index.
+// SKIP Byrdpip: AfterObtained transforms ByrdonisEgg cards + SummonPet — pet system.
+// SKIP PaelsLegion: AfterObtained rolls pet skin + summons pet if in combat.
+
+// --- ModifyRewards / TryModifyRewards hooks (run-state-scope reward modifiers) ---
+// SKIP AmethystAubergine: TryModifyRewards adds GoldReward(15) to combat-room rewards.
+// SKIP BlackStar: TryModifyRewards adds RelicReward in Elite rooms.
+// SKIP DreamCatcher: TryModifyRestSiteHealRewards adds CardReward at rest site.
+// SKIP Driftwood: TryModifyRewardsLate makes card-rewards re-rollable.
+// SKIP FresnelLens: TryModifyCardRewardOptionsLate enchants Nimble on rewards.
+// SKIP FrozenEgg: TryModifyCardRewardOptionsLate upgrades Power rewards.
+// SKIP MoltenEgg: TryModifyCardRewardOptionsLate upgrades Attack rewards.
+// SKIP ToxicEgg: TryModifyCardRewardOptionsLate upgrades Skill rewards.
+// SKIP Glitter: TryModifyCardRewardOptionsLate enchants Glam on rewards.
+// SKIP LavaRock: TryModifyRewards adds 2 RelicRewards on Act 1 boss.
+// SKIP MealTicket: AfterRoomEntered(Merchant) → Heal(15) — Merchant-room hook needed.
+// SKIP MeatCleaver: TryModifyRestSiteOptions adds CookRestSiteOption.
+// SKIP MembershipCard: ModifyMerchantPrice -50% — pricing hook.
+// SKIP Shovel: TryModifyRestSiteOptions adds DigRestSiteOption.
+// SKIP TheCourier: ModifyMerchantPrice -20% — pricing hook.
+// SKIP TinyMailbox: TryModifyRestSiteHealRewards adds 2 PotionRewards.
+// SKIP WhiteStar: TryModifyRewards adds CardReward(Boss-pool) at Elite.
+// SKIP WingCharm: TryModifyCardRewardOptionsLate enchants Swift on rewards.
+// SKIP WongosMysteryTicket: TryModifyRewards adds 2 RelicRewards after 5 combats.
+// SKIP Bookmark: TryModifyRewards (not present); actually AfterTurnEnd combat hook — not run-state.
+// SKIP MawBank: AfterRoomEntered(BaseRoom) + AfterItemPurchased — run-state map hook.
+// SKIP LordsParasol: AfterRoomEntered(Merchant) buy-everything — interactive merchant.
+// SKIP PrayerWheel: TryModifyRewards adds CardReward in Monster rooms.
+// SKIP SilverCrucible: TryModifyCardRewardOptionsLate upgrades reward cards in treasure rooms.
+// SKIP ScrollBoxes: LoseGold(all) + bundle-of-3 interactive choice.
+// SKIP SeaGlass: 15-card interactive uniform-rarity selection from a swapped character pool.
+
+// --- Empty class / no override body ---
+// SKIP Circlet: no override body.
+// SKIP DeprecatedRelic: no override body.
+// SKIP DingyRug: no override body.
+// SKIP FakeMerchantsRug: no override body.
+// SKIP IceCream: no override body.
+// SKIP JuzuBracelet: no override body.
+// SKIP MiniatureTent: no override body.
+// SKIP PaperKrane: no override body.
+// SKIP PaperPhrog: no override body.
+// SKIP RingingTriangle: no override body.
+// SKIP RunicPyramid: no override body (dispatcher-level handling).
+// SKIP VakuuCardSelector: utility-only class.
+// SKIP WhiteBeastStatue: no override body (dispatcher-level handling).
+// SKIP WongoCustomerAppreciationBadge: no override body.
+
+// --- Combat-frame relics (no AfterObtained body to encode here) ---
+// (These appear in batch_r_6 as combat-frame hooks; they have no run-state side.)
+// Anchor, ArtOfWar, BingBong, BlessedAntler, BloodVial, BoneFlute, BookOfFiveRings,
+// BookRepairKnife, BowlerHat, BrilliantScarf, Brimstone, BurningBlood, BurningSticks,
+// ChemicalX, ChoicesParadox, DarkstonePeriapt, DataDisk, DelicateFrond, DivineRight,
+// DragonFruit, Ectoplasm, EmberTea, EternalFeather, FakeBloodVial, FakeStrikeDummy,
+// FakeVenerableTeaSet, FestivePopper, Fiddle, GalacticDust, GamblingChip, GhostSeed,
+// Girya, GoldPlatedCables, Gorget, GremlinHorn, HistoryCourse, IntimidatingHelmet,
+// JeweledMask, JossPaper, LastingCandy, LavaRock, LizardTail, LuckyFysh, Metronome,
+// MiniRegent, MiniatureCannon, MoltenEgg, MusicBox, MysticLighter, OddlySmoothStone,
+// PaelsBlood, PaelsWing, PenNib, PetrifiedToad, Planisphere, Pocketwatch, PollinousCore,
+// PowerCell, PrismaticGem, PumpkinCandle, RadiantPearl, RainbowRing, RegalPillow,
+// Regalite, ReptileTrinket, RingOfTheDrake, RingOfTheSnake, RuinedHelmet, SneckoSkull,
+// Sozu, SparklingRouge, SpikedGauntlets, StoneCracker, StoneHumidifier, StrikeDummy,
+// SturdyClamp, SwordOfStone, TheAbacus, TheBoot, ThrowingAxe, ToastyMittens, Toolbox,
+// TungstenRod, UnceasingTop, UndyingSigil, UnsettlingLamp, Vajra, Vambrace, VelvetChoker,
+// VenerableTeaSet, VexingPuzzlebox, VitruvianMinion, WarHammer, WhisperingEarring,
+// WingedBoots, FakeOrichalcum (already encoded).
+
+// ===== Summary =====
+// New run-state: 9 (JewelryBox, NeowsTorment, Storybook, TanxsWhistle, PaelsHorn,
+//                  SereTalon, PreservedFog, FragrantMushroom, AlchemicalCoffer)
+// Still SKIPped: ~80
+//   Top SKIP blocker categories:
+//     1. Interactive deck mutation (CardSelectCmd.FromDeckFor*) (~17) — needs
+//        interactive deck-pick primitive at run-state.
+//     2. Reward-offer / reward-modify hooks (~25) — needs reward-pipeline
+//        at run-state (CardReward, RelicReward, PotionReward, GoldReward).
+//     3. Random deck-scan mutations (Upgrade/Enchant/Transform N cards) (~8) —
+//        needs UpgradeCards-at-run-state with filter + run-state RNG.
+//     4. Map / merchant / rest-site hooks (~10) — needs run-state hook surface
+//        for Merchant/RestSite/MapPoint events.
+//     5. Empty classes (~14) — no override body to encode.
+//     6. Combat-only AfterObtained no-op (~6) — body only caches state.

@@ -1,57 +1,56 @@
 # Data-driven coverage audit
 
 **Cards**:   data-table  577/577  (100.0%) +  legacy-match-arm-only 0  =  total handled 577/577 (100.0%)
-**Relics**:  relic_effects 87 +  run_state_effects 18  =  combined 105/294 (35.7%)
+**Relics**:  relic_effects 120 +  run_state_effects 27  =  combined 147/294 (50.0%)
 **Potions**: encoded   56/64  (87.5%)  -> gap 8
 
-Total entries in data tables: 720
+Total entries in data tables: 753
 
 ## Top primitives by use count
-   575  AmountSpec::Canonical
-   251  Effect::ApplyPower
-   199  Effect::DealDamage
+   591  AmountSpec::Canonical
+   258  Effect::ApplyPower
+   200  Effect::DealDamage
+    93  AmountSpec::Fixed
     91  Effect::GainBlock
-    80  AmountSpec::Fixed
-    59  Effect::DrawCards
+    65  Effect::DrawCards
+    46  Effect::Conditional
     42  Effect::Repeat
-    40  Effect::Conditional
     38  Effect::GainEnergy
+    36  RelicHook::BeforeCombatStart
     25  AmountSpec::Mul
     24  AmountSpec::Add
     23  RelicHook::AfterSideTurnStart
     21  Effect::AddCardToPile
-    20  Effect::AddRandomCardFromPool
+    21  Effect::AddRandomCardFromPool
     16  RelicHook::AfterCardPlayed
-    15  RelicHook::BeforeCombatStart
+    15  RelicHook::AfterPlayerTurnStart
     14  Effect::ChannelOrb
     12  Effect::SummonOsty
-    11  Condition::Not
+    12  Condition::Not
+    10  Effect::GainStars
     10  Effect::DamageFromOsty
     10  Condition::IsOstyMissing
+    10  Effect::IncreaseMaxEnergy
      9  AmountSpec::CardCountInPile
      9  Effect::Forge
-     9  Effect::GainStars
+     9  Effect::ExhaustCards
      9  AmountSpec::XEnergy
      9  Effect::MoveCard
      8  Effect::LoseHp
-     8  Effect::ExhaustCards
+     8  Effect::Heal
+     8  Condition::RoundEquals
      7  CardPoolRef::Colorless
-     7  Condition::RoundEquals
+     7  RelicHook::BeforeSideTurnStart
+     7  Effect::ModifyRelicCounter
      7  RelicHook::BeforeTurnEnd
-     6  Effect::Heal
-     6  RelicHook::BeforeSideTurnStart
      6  RelicHook::AfterDamageReceived
      5  AmountSpec::TargetPowerAmount
+     5  CardPoolRef::CharacterAny
      5  CardPoolRef::CharacterAttack
-     5  Condition::IsUpgraded
-     5  Effect::IncrementSourceCardCounter
-     5  Effect::MoveCardWithPosition
-     5  RelicHook::AfterPlayerTurnStart
 
 ## Unencoded cards (gap)
 
 ## Unencoded relics (gap)
-  - AlchemicalCoffer
   - AmethystAubergine
   - Anchor
   - ArcaneScroll
@@ -63,8 +62,6 @@ Total entries in data tables: 720
   - BiiigHug
   - BingBong
   - BlackStar
-  - BlessedAntler
-  - BloodVial
   - BoneFlute
   - BookOfFiveRings
   - BookRepairKnife
@@ -73,57 +70,41 @@ Total entries in data tables: 720
   - BrilliantScarf
   - Brimstone
   - BurningBlood
-  - BurningSticks
   - Cauldron
   - ChemicalX
   - ChoicesParadox
   - Circlet
   - Claws
   - DarkstonePeriapt
-  - DataDisk
-  - DelicateFrond
   - DeprecatedRelic
   - DingyRug
-  - DivineRight
   - DollysMirror
   - DragonFruit
   - DreamCatcher
   - Driftwood
   - DustyTome
-  - Ectoplasm
   - ElectricShrymp
-  - EmberTea
   - EmptyCage
   - EternalFeather
-  - FakeBloodVial
   - FakeLeesWaffle
   - FakeMerchantsRug
   - FakeStrikeDummy
   - FakeVenerableTeaSet
-  - FestivePopper
-  - Fiddle
-  - FragrantMushroom
   - FresnelLens
   - FrozenEgg
   - FurCoat
   - GalacticDust
-  - GamblingChip
-  - GhostSeed
   - Girya
   - GlassEye
   - Glitter
   - GnarledHammer
   - GoldPlatedCables
   - GoldenCompass
-  - Gorget
   - GremlinHorn
   - HeftyTablet
   - HistoryCourse
   - IceCream
   - IntimidatingHelmet
-  - JeweledMask
-  - JewelryBox
-  - JossPaper
   - JuzuBracelet
   - Kifuda
   - LargeCapsule
@@ -148,43 +129,32 @@ Total entries in data tables: 720
   - MysticLighter
   - NeowsBones
   - NeowsTalisman
-  - NeowsTorment
   - NewLeaf
   - NinjaScroll
   - NutritiousSoup
-  - OddlySmoothStone
   - Orrery
-  - PaelsBlood
   - PaelsClaw
   - PaelsEye
   - PaelsGrowth
-  - PaelsHorn
   - PaelsTooth
   - PaelsWing
   - PandorasBox
   - PaperKrane
   - PaperPhrog
   - PenNib
-  - PetrifiedToad
   - Planisphere
   - Pocketwatch
-  - PollinousCore
   - Pomander
   - PowerCell
   - PrayerWheel
   - PrecariousShears
   - PreciseScissors
-  - PreservedFog
-  - PrismaticGem
-  - PumpkinCandle
   - PunchDagger
   - RadiantPearl
   - RainbowRing
   - RegalPillow
   - Regalite
   - ReptileTrinket
-  - RingOfTheDrake
-  - RingOfTheSnake
   - RingingTriangle
   - RoyalStamp
   - RuinedHelmet
@@ -192,28 +162,20 @@ Total entries in data tables: 720
   - SandCastle
   - ScrollBoxes
   - SeaGlass
-  - SereTalon
   - Shovel
   - SilverCrucible
   - SlingOfCourage
   - SmallCapsule
   - SneckoSkull
-  - Sozu
-  - SparklingRouge
-  - SpikedGauntlets
-  - StoneCracker
   - StoneHumidifier
-  - Storybook
   - StrikeDummy
   - SturdyClamp
   - SwordOfStone
-  - TanxsWhistle
   - TheAbacus
   - TheBoot
   - TheCourier
   - ThrowingAxe
   - TinyMailbox
-  - ToastyMittens
   - Toolbox
   - TouchOfOrobas
   - ToxicEgg
@@ -223,16 +185,12 @@ Total entries in data tables: 720
   - UnceasingTop
   - UndyingSigil
   - UnsettlingLamp
-  - Vajra
   - Vambrace
-  - VelvetChoker
   - VenerableTeaSet
-  - VexingPuzzlebox
   - VitruvianMinion
   - WarHammer
   - WarPaint
   - Whetstone
-  - WhisperingEarring
   - WhiteBeastStatue
   - WhiteStar
   - WingCharm

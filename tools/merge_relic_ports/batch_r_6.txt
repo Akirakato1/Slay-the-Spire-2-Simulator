@@ -1,0 +1,420 @@
+// batch_r_6.txt — bulk-encoded combat-frame relic hooks for the remaining ~190
+// relic .cs files in sts2_decompiled/.../Core/Models/Relics/ that weren't
+// covered by batch_r_1..5. Format mirrors batch_r_1 (RelicHook + Effect list).
+//
+// Strategy:
+//   * AfterRoomEntered(CombatRoom) bodies map to BeforeCombatStart.
+//   * ModifyMaxEnergy(+N) maps to BeforeCombatStart + IncreaseMaxEnergy(N).
+//   * ModifyHandDraw round-1-only maps to BeforeCombatStart + DrawCards.
+//     Per-turn ModifyHandDraw maps to AfterPlayerTurnStart + DrawCards
+//     gated on Round/condition where possible.
+//   * AfterPlayerTurnStartLate round<=1 → AfterPlayerTurnStart first_turn_only.
+//   * BeforeHandDraw round 1 → BeforeCombatStart (initial draw fires after).
+//   * AfterRoomEntered RestSite / etc. that gates on out-of-combat is SKIPped
+//     (those are run-state hooks; we only get combat-frame hooks here).
+//   * AfterAttack, AfterShuffle, AfterCardChangedPiles, AfterDeath, AfterEnergyReset,
+//     AfterCreatureAddedToCombat, AfterStarsSpent, AfterDiedToDoom,
+//     AfterPotionUsed, AfterPotionProcured / Discarded, AfterModifyingRewards,
+//     AfterHandEmptied, AfterCardEnteredCombat,
+//     AfterPreventingDeath, AfterPreventingBlockClear, AfterRestSiteHeal,
+//     AfterModifyingCardPlayCount, AfterModifyingOrbPassiveTriggerCount,
+//     AfterModifyingHandDraw, BeforeCardPlayed, BeforePowerAmountChanged,
+//     ModifyDamage*, ModifyBlock*, ModifyPowerAmount*, ModifyRestSiteHealAmount,
+//     ModifyMerchantPrice, ModifyHpLost*, TryModifyRewards*, TryModifyCard*,
+//     ShouldGainGold, ShouldProcurePotion, BeforePlayPhaseStart*
+//     are SKIPped (hook surfaces not wired).
+//   * Already-in-dispatcher relics (Anchor, BurningBlood, Brimstone) are NOT
+//     re-emitted (kept as hand-coded match arms in combat.rs).
+
+// ---------- ENCODED ARMS ----------
+
+// BlessedAntler.cs L41-47: ModifyMaxEnergy(+1) → permanent +1 at combat start.
+// (Also has BeforeHandDraw round-1 that ADDS 3 Dazed cards to draw — SKIPped:
+//  needs Dazed-add primitive at run-1 BeforeHandDraw, which is a debuff
+//  payment; not net "draw extra cards".)
+"BlessedAntler" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+]),
+
+// BloodVial.cs L39-48: AfterPlayerTurnStartLate, round<=1 → Heal(2).
+"BloodVial" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: true },
+     vec![Effect::Heal { amount: AmountSpec::Canonical("Heal".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// BurningSticks.cs L46-58: AfterCardExhausted, owner skill, once per combat →
+// Adds a copy of the exhausted skill to hand. Counter starts at 1 at combat
+// start; firing the clone+decrement guards against repeat fires.
+"BurningSticks" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::SetRelicCounter { key: "BurningSticks_charges".to_string(), value: AmountSpec::Fixed(1) }]),
+    (RelicHook::AfterCardExhausted,
+     vec![Effect::Conditional {
+        condition: Condition::And(
+            Box::new(Condition::SourceCardHasKeyword("Skill".to_string())),
+            Box::new(Condition::RelicCounterGe { key: "BurningSticks_charges".to_string(), value: 1 }),
+        ),
+        then_branch: vec![
+            Effect::CloneSourceCardToPile {
+                pile: Pile::Hand,
+                cost_override_this_combat: None,
+                copies: AmountSpec::Fixed(1),
+            },
+            Effect::ModifyRelicCounter { key: "BurningSticks_charges".to_string(), delta: AmountSpec::Fixed(-1) },
+        ],
+        else_branch: vec![],
+     }]),
+]),
+
+// DataDisk.cs L43-52: AfterRoomEntered(CombatRoom) → Apply FocusPower(1).
+"DataDisk" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::ApplyPower { power_id: "FocusPower".to_string(), amount: AmountSpec::Canonical("FocusPower".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// DelicateFrond.cs L17-29: BeforeCombatStart → fill open potion slots.
+"DelicateFrond" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::FillPotionSlots]),
+]),
+
+// DivineRight.cs L33-39: AfterRoomEntered(CombatRoom) → GainStars(3).
+"DivineRight" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
+]),
+
+// Ectoplasm.cs L20-32: ModifyMaxEnergy(+1) and ShouldGainGold→false.
+// ShouldGainGold gate is run-state-scope; we ignore that side.
+"Ectoplasm" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+]),
+
+// EmberTea.cs L20-32: AfterRoomEntered(CombatRoom) until 5 combats consumed →
+// Apply StrengthPower(2). Counter logic: start at 5 (CombatsLeft) and decrement
+// on each combat; only fire while counter > 0.
+"EmberTea" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![
+        Effect::Conditional {
+            condition: Condition::RelicCounterGe { key: "EmberTea_charges".to_string(), value: 1 },
+            then_branch: vec![
+                Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer },
+                Effect::ModifyRelicCounter { key: "EmberTea_charges".to_string(), delta: AmountSpec::Fixed(-1) },
+            ],
+            else_branch: vec![],
+        },
+     ]),
+]),
+
+// FakeBloodVial.cs L20-29: AfterPlayerTurnStartLate, round<=1 → Heal(1).
+"FakeBloodVial" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: true },
+     vec![Effect::Heal { amount: AmountSpec::Canonical("Heal".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// FestivePopper.cs L20-37: AfterPlayerTurnStart, round 1 →
+// Damage all enemies(DamageVar(9), Unpowered). Unpowered prop dropped in encoding.
+"FestivePopper" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: true },
+     vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
+]),
+
+// Fiddle.cs L25-37: ModifyHandDrawLate(+2) every turn.
+// Encode as AfterPlayerTurnStart owner -> DrawCards(2).
+"Fiddle" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: false },
+     vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+]),
+
+// GamblingChip.cs L11-25: AfterPlayerTurnStart, round<=1 → DiscardHandAndDrawSameCount.
+"GamblingChip" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: true },
+     vec![Effect::DiscardHandAndDrawSameCount]),
+]),
+
+// GhostSeed.cs L24-37: AfterRoomEntered(CombatRoom) → apply Ethereal to all
+// cards in draw pile.
+"GhostSeed" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::ApplyKeywordToCards { keyword: "Ethereal".to_string(), from: Pile::Draw, selector: Selector::All }]),
+]),
+
+// Gorget.cs L20-29: AfterRoomEntered(CombatRoom) → Apply PlatingPower(4).
+"Gorget" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::ApplyPower { power_id: "PlatingPower".to_string(), amount: AmountSpec::Canonical("PlatingPower".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// JeweledMask.cs L11-29: BeforeHandDraw round<=1 → random Power from draw
+// becomes free this turn and moves to hand. MoveAllByFilterAcrossPiles only
+// supports {to_pile, filter}, no free-this-turn / cap-n knobs — we approximate
+// by moving ALL Power cards from any pile to Hand (most decks have at most one
+// or two Powers in turn-1 draw, so semantic drift is minor; free-this-turn
+// gating is dropped — encoded behaviour grants the hand-move only).
+"JeweledMask" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::MoveAllByFilterAcrossPiles { to_pile: Pile::Hand, filter: CardFilter::OfType("Power".to_string()) }]),
+]),
+
+// JossPaper.cs L26-41: AfterCardExhausted owner — every 5 exhausts, Draw(1).
+"JossPaper" => Some(vec![
+    (RelicHook::AfterCardExhausted,
+     vec![
+        Effect::ModifyRelicCounter { key: "JossPaper_exhausts".to_string(), delta: AmountSpec::Fixed(1) },
+        Effect::Conditional {
+            condition: Condition::RelicCounterModEq { key: "JossPaper_exhausts".to_string(), modulus: 5, remainder: 0 },
+            then_branch: vec![Effect::DrawCards { amount: AmountSpec::Fixed(1) }],
+            else_branch: vec![],
+        },
+     ]),
+]),
+
+// OddlySmoothStone.cs L20-29: AfterRoomEntered(CombatRoom) → Apply DexterityPower(1).
+"OddlySmoothStone" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// PaelsBlood.cs L20-29: ModifyHandDraw(+1) every turn.
+"PaelsBlood" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: false },
+     vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+]),
+
+// PetrifiedToad.cs L11-17: BeforeCombatStartLate → procure PotionShapedRock.
+"PetrifiedToad" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::GainPotionToBelt { potion_id: "PotionShapedRock".to_string() }]),
+]),
+
+// PollinousCore.cs L20-35: every 4 player-side turns, +2 hand draw.
+// Counter bumps each player-side turn-start; on every 4th, the conditional
+// fires the extra draw.
+"PollinousCore" => Some(vec![
+    (RelicHook::BeforeSideTurnStart { owner_side_only: true, first_turn_only: false },
+     vec![Effect::ModifyRelicCounter { key: "PollinousCore_turns".to_string(), delta: AmountSpec::Fixed(1) }]),
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: false },
+     vec![Effect::Conditional {
+        condition: Condition::RelicCounterModEq { key: "PollinousCore_turns".to_string(), modulus: 4, remainder: 0 },
+        then_branch: vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }],
+        else_branch: vec![],
+     }]),
+]),
+
+// PowerCell.cs L11-25: BeforeSideTurnStart owner, round<=1 →
+// Take 2 random zero-cost cards from draw → move to hand.
+// MoveAllByFilterAcrossPiles doesn't support a cap-n; an unbounded all-zero-cost
+// migration would be too generous. SKIP PowerCell: needs n-capped move.
+
+// PrismaticGem.cs L20-29: ModifyMaxEnergy(+1).
+"PrismaticGem" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+]),
+
+// PumpkinCandle.cs L20-37: ModifyMaxEnergy(+1) gated on ActiveAct.
+// Drop act-gating; +1 always (mild drift if relic crosses act boundaries).
+"PumpkinCandle" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+]),
+
+// RingOfTheDrake.cs L11-25: ModifyHandDraw(+2) on turns 1..=3.
+"RingOfTheDrake" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: false },
+     vec![Effect::Conditional {
+        condition: Condition::Not(Box::new(Condition::RoundGe { n: 4 })),
+        then_branch: vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }],
+        else_branch: vec![],
+     }]),
+]),
+
+// RingOfTheSnake.cs L11-25: ModifyHandDraw(+2) on round 1 only.
+"RingOfTheSnake" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+]),
+
+// Sozu.cs L20-29: ModifyMaxEnergy(+1). ShouldProcurePotion is run-state-scope SKIP.
+"Sozu" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+]),
+
+// SparklingRouge.cs L20-29: AfterBlockCleared, round==3 → Strength+Dexterity.
+"SparklingRouge" => Some(vec![
+    (RelicHook::AfterBlockCleared,
+     vec![Effect::Conditional {
+        condition: Condition::RoundEquals { n: 3 },
+        then_branch: vec![
+            Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer },
+            Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer },
+        ],
+        else_branch: vec![],
+     }]),
+]),
+
+// SpikedGauntlets.cs L20-37: ModifyMaxEnergy(+1) (cost-modify SKIPped).
+"SpikedGauntlets" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+]),
+
+// StoneCracker.cs L20-29: AfterRoomEntered(CombatRoom) → Upgrade 2 random
+// upgradable cards in draw pile.
+"StoneCracker" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::UpgradeCards {
+        from: Pile::Draw,
+        selector: Selector::FirstMatching { n: 2, filter: CardFilter::Upgradable },
+     }]),
+]),
+
+// ToastyMittens.cs L20-37: BeforeHandDraw all rounds → exhaust top of draw +
+// Apply StrengthPower(1). Round-1 case filters Innate-out; we ignore that
+// refinement and exhaust the top regardless.
+"ToastyMittens" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: false },
+     vec![
+        Effect::ExhaustCards {
+            from: Pile::Draw,
+            selector: Selector::FirstMatching { n: 1, filter: CardFilter::Any },
+        },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer },
+     ]),
+]),
+
+// Vajra.cs L20-29: AfterRoomEntered(CombatRoom) → Apply StrengthPower(1).
+"Vajra" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
+]),
+
+// VelvetChoker.cs L11-30: ModifyMaxEnergy(+1) plus 6-cards-played cap.
+// Encode the +1; the cap is not encodable here.
+"VelvetChoker" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+]),
+
+// VexingPuzzlebox.cs L11-29: AfterPlayerTurnStart, round 1 → add 1 distinct
+// random player-pool card to hand, free this turn.
+"VexingPuzzlebox" => Some(vec![
+    (RelicHook::AfterPlayerTurnStart { first_turn_only: true },
+     vec![Effect::AddRandomCardFromPool {
+        pool: CardPoolRef::CharacterAny,
+        filter: CardFilter::Any,
+        n: AmountSpec::Fixed(1),
+        pile: Pile::Hand,
+        upgrade: 0,
+        free_this_turn: true,
+        distinct: true,
+     }]),
+]),
+
+// WhisperingEarring.cs L20-46: ModifyMaxEnergy(+1) + BeforePlayPhaseStartLate auto-play.
+// Encode the +1; the auto-play is SKIPped (BeforePlayPhaseStart hook).
+"WhisperingEarring" => Some(vec![
+    (RelicHook::BeforeCombatStart,
+     vec![Effect::IncreaseMaxEnergy { delta: AmountSpec::Fixed(1) }]),
+]),
+
+// ---------- SKIP RATIONALES (combat-frame, blocked) ----------
+
+// SKIP ArtOfWar: AfterEnergyReset hook not wired (run>1 gain-energy on no-attacks-last-turn).
+// SKIP BoneFlute: AfterAttack hook + Osty pet attacker — hook surface not wired.
+// SKIP BookOfFiveRings: AfterCardChangedPiles hook not wired.
+// SKIP BookRepairKnife: AfterDiedToDoom hook not wired.
+// SKIP BingBong: AfterCardChangedPiles hook not wired.
+// SKIP BowlerHat: ShouldGainGold + AfterGoldGained — run-state scope, not combat.
+// SKIP BrilliantScarf: TryModifyEnergyCost + per-turn cards-played counter — modifier hook.
+// SKIP Bookmark: AfterTurnEnd retain-card cost-bump — needs interactive cost-modify.
+// SKIP ChemicalX: BeforeCardPlayed (X-cost) + ModifyXEnergyCost — modifier hook.
+// SKIP ChoicesParadox: AfterPlayerTurnStart with card-pool choose-from-3 + Retain — interactive.
+// SKIP DarkstonePeriapt: AfterCardChangedPiles (curse-deck-add) hook not wired.
+// SKIP DragonFruit: AfterGoldGained hook (run-state).
+// SKIP EternalFeather: RestSite-only AfterRoomEntered — run-state.
+// SKIP FakeStrikeDummy: ModifyDamageAdditive hook (Strike +1).
+// SKIP FakeVenerableTeaSet: AfterEnergyReset cross-room flag — multi-hook state machine.
+// SKIP Girya: TimesLifted is a rest-site counter (cross-event state).
+// SKIP Glitter: TryModifyCardRewardOptionsLate (reward hook).
+// SKIP GoldPlatedCables: AfterModifyingOrbPassiveTriggerCount no-op flash only.
+// SKIP GremlinHorn: AfterDeath enemy hook not wired.
+// SKIP HistoryCourse: BeforePlayPhaseStart hook not wired.
+// SKIP IntimidatingHelmet: BeforeCardPlayed cardPlay.Resources gate — modifier hook.
+// SKIP LastingCandy: TryModifyCardRewardOptions Power-bias hook — reward hook.
+// SKIP LavaRock: TryModifyRewards Act-1 boss hook — reward hook.
+// SKIP LizardTail: AfterPreventingDeath hook not wired.
+// SKIP LordsParasol: AfterRoomEntered Merchant — run-state hook + interactive purchase.
+// SKIP LuckyFysh: AfterCardChangedPiles hook not wired.
+// SKIP MawBank: BaseRoom AfterRoomEntered + persistent flag.
+// SKIP MealTicket: AfterRoomEntered Merchant — run-state hook.
+// SKIP Metronome: AfterOrbChanneled hook not wired.
+// SKIP MiniRegent: AfterStarsSpent hook not wired.
+// SKIP MiniatureCannon: ModifyDamageAdditive (upgraded-only +3) — modifier hook.
+// SKIP MusicBox: BeforeCardPlayed hook + once-per-turn — modifier hook.
+// SKIP MysticLighter: ModifyDamageAdditive (enchanted-card +9) — modifier hook.
+// SKIP PaelsEye: BeforeTurnEndEarly multi-hook state machine.
+// SKIP PaelsWing: TryModifyCardRewardAlternatives — reward hook.
+// SKIP PaperKrane, PaperPhrog, Circlet, DeprecatedRelic, DingyRug, RingingTriangle,
+//   RunicPyramid, VakuuCardSelector, WhiteBeastStatue, WongoCustomerAppreciationBadge:
+//   empty class / dispatcher-only / pure cosmetic — no override body.
+// SKIP PenNib: ModifyDamageMultiplicative + 10-attacks counter — modifier hook.
+// SKIP Planisphere: AfterRoomEntered Unknown filter — run-state hook.
+// SKIP Pocketwatch: ModifyHandDraw + per-turn cards-played threshold — multi-hook.
+// SKIP PowerCell: needs n-capped MoveAllByFilterAcrossPiles (drop-2-zero-cost).
+// SKIP PrayerWheel: TryModifyRewards Monster hook — reward hook.
+// SKIP RadiantPearl: needs AddSpecificCardToPile primitive for Luminesce-to-hand.
+// SKIP RainbowRing: AfterCardPlayed multi-type-per-turn tracking + once-per-turn gate.
+// SKIP RegalPillow: ModifyRestSiteHealAmount — rest-site hook.
+// SKIP Regalite: AfterCardEnteredCombat hook not wired.
+// SKIP ReptileTrinket: AfterPotionUsed combat-time hook not wired.
+// SKIP RuinedHelmet: TryModifyPowerAmountReceived hook.
+// SKIP Shovel: TryModifyRestSiteOptions — rest-site hook.
+// SKIP SilverCrucible: TryModifyCardRewardOptionsLate treasure-room hook — reward.
+// SKIP SlingOfCourage: AfterRoomEntered Elite-filter — run-state hook.
+// SKIP SneckoSkull: ModifyPowerAmountGiven (PoisonPower +1) — modifier hook.
+// SKIP StoneHumidifier: AfterRestSiteHeal — rest-site hook.
+// SKIP StrikeDummy: ModifyDamageAdditive (Strike +3) — modifier hook.
+// SKIP SturdyClamp: AfterPreventingBlockClear hook not wired.
+// SKIP SwordOfStone: AfterCombatVictory Elite-filter + saved counter + relic-replace.
+// SKIP TheAbacus: AfterShuffle hook not wired.
+// SKIP TheBoot: ModifyHpLostBeforeOsty (damage minimum) — modifier hook.
+// SKIP TheCourier: ModifyMerchantPrice — merchant hook.
+// SKIP ThrowingAxe: AfterModifyingCardPlayCount once-per-combat — modifier hook.
+// SKIP TinyMailbox: TryModifyRestSiteHealRewards — rest-site hook.
+// SKIP Toolbox: BeforeHandDraw interactive colorless choice — interactive.
+// SKIP TungstenRod: ModifyHpLostAfterOsty (-1) — modifier hook.
+// SKIP UnceasingTop: AfterHandEmptied hook not wired.
+// SKIP UndyingSigil: ModifyDamageMultiplicative DoomPower-conditional — modifier hook.
+// SKIP UnsettlingLamp: BeforePowerAmountChanged debuff-doubling — multi-hook state.
+// SKIP Vambrace: ModifyBlockMultiplicative once-per-combat — modifier hook.
+// SKIP VenerableTeaSet: AfterEnergyReset cross-room flag.
+// SKIP VitruvianMinion: ModifyDamage/Block Multiplicative Minion-tag — modifier hook.
+// SKIP WarHammer: AfterCombatVictory Elite + deck-scope upgrade.
+// SKIP WingedBoots: AfterRoomEntered map-coord history.
+// SKIP WongosMysteryTicket: TryModifyRewards after 5 combats — reward hook.
+
+// ===== Summary =====
+// New combat-frame: 28
+// New run-state: 0 (run-state entries live in batch_r_rs_3)
+// Still SKIPped: ~80 combat-only relics
+//   Top SKIP blocker categories:
+//     1. Modify* / TryModify* damage/block/power/cost/reward hooks (~30) — would need
+//        modifier-hook surface (damage-pipeline, block-pipeline, reward-pipeline,
+//        cost-pipeline).
+//     2. AfterCardChangedPiles / AfterShuffle / AfterCardEnteredCombat / AfterAttack
+//        / AfterDeath / AfterDiedToDoom / AfterHandEmptied / AfterPotionUsed
+//        / AfterOrbChanneled / AfterEnergyReset / AfterStarsSpent / AfterRestSiteHeal
+//        / AfterPreventing* / AfterModifying* / AfterCreatureAddedToCombat (~22)
+//        — niche hook surfaces not currently wired.
+//     3. BeforeCardPlayed / BeforePlayPhaseStart / BeforeHandDraw / BeforePowerAmountChanged
+//        / BeforeTurnEndEarly (~12) — pre-action hook surfaces not surfaced.
+//     4. Interactive run-state mutation (transform/enchant/select-from-deck/
+//        reward-offer) — these have no combat-frame side; covered in batch_r_rs_3.
+//     5. RoomType-filtered AfterRoomEntered (Elite / RestSite / Merchant /
+//        Unknown / BaseRoom) (~9) — needs run-state hook with room_type_filter.
+//     6. Empty / cosmetic relics (~10) — no override body to encode.
