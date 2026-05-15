@@ -186,6 +186,13 @@ fn is_random_target(card_id: &str) -> bool {
             | "RipAndTear"
             | "SwordBoomerang"
             | "Snap"
+            // Lightning orb evokes target a random alive enemy; cards
+            // that channel Lightning thread combat RNG through the
+            // evoke target pick.
+            | "Rainbow"
+            | "Zap"
+            | "Tempest"
+            | "Voltaic"
     )
 }
 
