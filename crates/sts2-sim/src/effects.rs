@@ -6002,7 +6002,11 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
             Effect::ApplyPower { power_id: "CrushUnderPower".to_string(), amount: AmountSpec::Canonical("StrengthLoss".to_string()), target: Target::AllEnemies },
         ]),
         "CurseOfTheBell" => Some(vec![]),
-        "DaggerThrow" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        "DaggerThrow" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::DrawCards { amount: AmountSpec::Fixed(1) },
+            Effect::DiscardCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } },
+        ]),
         "DanseMacabre" => Some(vec![Effect::ApplyPower { power_id: "DanseMacabrePower".to_string(), amount: AmountSpec::Canonical("DanseMacabrePower".to_string()), target: Target::SelfPlayer }]),
         "DarkEmbrace" => Some(vec![Effect::ApplyPower { power_id: "DarkEmbracePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "Dazed" => Some(vec![]),
@@ -6101,7 +6105,10 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
             },
         ]),
         "GrandFinale" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }]),
-        "Graveblast" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        "Graveblast" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::MoveCard { from: Pile::Discard, to: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } },
+        ]),
         "Greed" => Some(vec![]),
         "Guilty" => Some(vec![]),
         "GunkUp" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
@@ -6211,7 +6218,10 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
             Effect::ApplyPower { power_id: "DrawCardsNextTurnPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfPlayer },
         ]),
         "PrepTime" => Some(vec![Effect::ApplyPower { power_id: "PrepTimePower".to_string(), amount: AmountSpec::Canonical("PrepTimePower".to_string()), target: Target::SelfPlayer }]),
-        "Prepared" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "Prepared" => Some(vec![
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+            Effect::DiscardCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } },
+        ]),
         "Production" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
         "Prophesize" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "Protector" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("CalculatedDamage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
@@ -6239,7 +6249,20 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "RollingBoulder" => Some(vec![Effect::ApplyPower { power_id: "RollingBoulderPower".to_string(), amount: AmountSpec::Canonical("RollingBoulderPower".to_string()), target: Target::SelfPlayer }]),
         "Royalties" => Some(vec![Effect::ApplyPower { power_id: "RoyaltiesPower".to_string(), amount: AmountSpec::Canonical("Gold".to_string()), target: Target::SelfPlayer }]),
         "Rupture" => Some(vec![Effect::ApplyPower { power_id: "RupturePower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
-        "Scrape" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        "Scrape" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
+            // Discard every drawn card whose effective cost is > 0
+            // (Scrape: "discard cards drawn that aren't 0-cost or
+            // star-cost"). FirstMatching with i32::MAX collects all.
+            Effect::DiscardCards {
+                from: Pile::Hand,
+                selector: Selector::FirstMatching {
+                    n: i32::MAX,
+                    filter: CardFilter::WithEnergyCost { op: Comparison::Gt, value: 0 },
+                },
+            },
+        ]),
         "SculptingStrike" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Seance" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "SecondWind" => Some(vec![Effect::Repeat {
@@ -6367,7 +6390,10 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Unleash" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("CalculatedDamage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Unmovable" => Some(vec![Effect::ApplyPower { power_id: "UnmovablePower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "Untouchable" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
-        "UpMySleeve" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "UpMySleeve" => Some(vec![Effect::Repeat {
+            count: AmountSpec::Canonical("Cards".to_string()),
+            body: vec![Effect::AddCardToPile { card_id: "Shiv".to_string(), upgrade: 0, pile: Pile::Hand }],
+        }]),
         "Veilpiercer" => Some(vec![
             Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
             Effect::ApplyPower { power_id: "VeilpiercerPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
