@@ -7480,8 +7480,15 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             }
             // `free_this_turn` cost override is deferred — the runtime
             // doesn't yet thread it onto generated CardInstances.
+            //
+            // Use a fresh CombatCardGeneration RNG matching C#:
+            // `RunState.Rng.CombatCardGeneration` on NullRunState
+            // returns a stream seeded from empty-string → 0 → named
+            // sub-seed "combat_card_generation". Each call is fresh
+            // (NullRunState constructs a new RunRngSet each access).
+            let mut rng = crate::rng_set::RunRngSet::new("").combat_card_generation;
             let picks =
-                crate::card::sample_card_ids(&mut cs.rng, &candidates, count, *distinct);
+                crate::card::sample_card_ids(&mut rng, &candidates, count, *distinct);
             for card_id in picks {
                 if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
                     let inst = crate::combat::CardInstance::from_card(
