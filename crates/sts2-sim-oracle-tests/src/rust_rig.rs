@@ -80,7 +80,7 @@ impl RustRig {
                 continue;
             }
             for eff in body {
-                self.apply_after_obtained_effect(&eff);
+                self.apply_after_obtained_effect(&eff, &relic_rust);
             }
         }
     }
@@ -88,11 +88,30 @@ impl RustRig {
     /// Mirror a subset of run-state Effect variants onto the combat
     /// creature's HP/MaxHp. Other effects (gold, potion slots, run-state
     /// pile mutations) are out-of-band for the combat dump; ignored.
-    fn apply_after_obtained_effect(&mut self, eff: &sts2_sim::effects::Effect) {
+    /// Resolves Fixed + Canonical(<key|kind>) against the granted
+    /// relic's canonical_vars (looked up by id passed to the caller).
+    fn apply_after_obtained_effect(
+        &mut self,
+        eff: &sts2_sim::effects::Effect,
+        relic_id: &str,
+    ) {
         use sts2_sim::effects::{AmountSpec, Effect};
+        let resolve_canon = |key: &str| -> i32 {
+            let Some(rd) = sts2_sim::relic::by_id(relic_id) else { return 0 };
+            for v in &rd.canonical_vars {
+                if v.kind == key
+                    || v.key.as_deref() == Some(key)
+                    || v.generic.as_deref() == Some(key)
+                {
+                    return v.base_value.unwrap_or(0.0) as i32;
+                }
+            }
+            0
+        };
         let resolve = |a: &AmountSpec| -> i32 {
             match a {
                 AmountSpec::Fixed(n) => *n,
+                AmountSpec::Canonical(k) => resolve_canon(k),
                 _ => 0,
             }
         };

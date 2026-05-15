@@ -2849,7 +2849,9 @@ pub fn run_state_effects(
 
         "DistinguishedCape" => Some(vec![(
         RunStateHook::AfterObtained,
-        vec![Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(7) }],
+        // C# DistinguishedCape canonical_var HpLoss=9. Was previously
+        // hard-coded to 7 (off by 2); switched to Canonical lookup.
+        vec![Effect::LoseRunStateMaxHp { amount: AmountSpec::Canonical("HpLoss".to_string()) }],
         )]),
 
         "PotionBelt" => Some(vec![(
