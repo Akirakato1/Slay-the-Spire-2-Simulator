@@ -496,6 +496,18 @@ pub enum Effect {
         upgrade: i32,
         pile: Pile,
     },
+    /// Conjure `count` fresh copies of `card_id` into `pile`, each with
+    /// the named enchantment pre-attached. Mirrors the C# pattern
+    /// `Shiv.CreateInHand(N) + foreach CardCmd.Enchant<X>(shiv, 1)` —
+    /// BladeOfInk (Inky), HiddenStrings (Inky), etc.
+    SpawnEnchantedCardsToPile {
+        card_id: String,
+        upgrade: i32,
+        pile: Pile,
+        count: AmountSpec,
+        enchantment_id: String,
+        enchantment_amount: i32,
+    },
     /// Exhaust `amount` random cards from hand (uses combat RNG).
     ExhaustRandomInHand { amount: AmountSpec },
     /// Change max HP on `target` by `amount`. Clamps current HP if max
@@ -5958,7 +5970,14 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Beckon" => Some(vec![]),
         "BelieveInYou" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
         "BiasedCognition" => Some(vec![Effect::ApplyPower { power_id: "BiasedCognitionPower".to_string(), amount: AmountSpec::Canonical("BiasedCognitionPower".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "FocusPower".to_string(), amount: AmountSpec::Canonical("FocusPower".to_string()), target: Target::SelfPlayer }]),
-        "BladeOfInk" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "BladeOfInk" => Some(vec![Effect::SpawnEnchantedCardsToPile {
+            card_id: "Shiv".to_string(),
+            upgrade: 0,
+            pile: Pile::Hand,
+            count: AmountSpec::Canonical("Cards".to_string()),
+            enchantment_id: "Inky".to_string(),
+            enchantment_amount: 1,
+        }]),
         "Bludgeon" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "BootSequence" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
         "BorrowedTime" => Some(vec![
@@ -6173,7 +6192,15 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "MasterOfStrategy" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "MasterPlanner" => Some(vec![Effect::ApplyPower { power_id: "MasterPlannerPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "Mayhem" => Some(vec![Effect::ApplyPower { power_id: "MayhemPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
-        "Metamorphosis" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "Metamorphosis" => Some(vec![Effect::AddRandomCardFromPool {
+            pool: CardPoolRef::CharacterAttack,
+            filter: CardFilter::OfType("Attack".to_string()),
+            n: AmountSpec::Canonical("Cards".to_string()),
+            pile: Pile::Draw,
+            upgrade: 0,
+            free_this_turn: true,
+            distinct: false,
+        }]),
         "MeteorShower" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::AllEnemies }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::AllEnemies }]),
         "MeteorStrike" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "MindRot" => Some(vec![]),
@@ -6230,7 +6257,13 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Pyre" => Some(vec![Effect::ApplyPower { power_id: "PyrePower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
         "Reap" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "ReaperForm" => Some(vec![Effect::ApplyPower { power_id: "ReaperFormPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
-        "Reave" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        "Reave" => Some(vec![
+            Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
+            Effect::Repeat {
+                count: AmountSpec::Canonical("Cards".to_string()),
+                body: vec![Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw }],
+            },
+        ]),
         "Rebound" => Some(vec![
             Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
             Effect::ApplyPower { power_id: "ReboundPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer },
@@ -7514,6 +7547,8 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Severance" => Some(vec![
         Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
         Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Draw },
+        Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Soul".to_string(), upgrade: 0, pile: Pile::Hand },
         ]),
 
         _ => None,
@@ -7596,6 +7631,37 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             pile,
         } => {
             cs.add_card_to_pile(ctx.player_idx, card_id, *upgrade, pile.as_pile_type());
+        }
+        Effect::SpawnEnchantedCardsToPile {
+            card_id,
+            upgrade,
+            pile,
+            count,
+            enchantment_id,
+            enchantment_amount,
+        } => {
+            let n = count.resolve(ctx, cs).max(0);
+            let pt = pile.as_pile_type();
+            for _ in 0..n {
+                if !cs.add_card_to_pile(ctx.player_idx, card_id, *upgrade, pt) {
+                    continue;
+                }
+                if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                    let last = match pt {
+                        PileType::Hand => ps.hand.cards.last_mut(),
+                        PileType::Discard => ps.discard.cards.last_mut(),
+                        PileType::Draw => ps.draw.cards.last_mut(),
+                        PileType::Exhaust => ps.exhaust.cards.last_mut(),
+                        _ => None,
+                    };
+                    if let Some(card) = last {
+                        card.enchantment = Some(EnchantmentInstance {
+                            id: enchantment_id.clone(),
+                            amount: *enchantment_amount,
+                        });
+                    }
+                }
+            }
         }
         Effect::ExhaustRandomInHand { amount } => {
             let n = amount.resolve(ctx, cs);
