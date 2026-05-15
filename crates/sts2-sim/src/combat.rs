@@ -3533,32 +3533,40 @@ impl CombatState {
         // exhaust have the explicit Exhaust keyword (Debris, AdaptiveStrike,
         // Cinder, MoltenFist, TrueGrit-upgraded, etc.). Ethereal cards
         // routed via end-of-turn flush (handled in end_turn).
-        let dest = if card_data.keywords.iter().any(|k| k == "Exhaust") {
-            PileType::Exhaust
+        // Power cards have no result pile per C# CardModel.
+        // GetResultPileType: `if (Type == Power) return PileType.None`.
+        // Their effect persists as a Power on the player; the card
+        // itself is consumed (not in any pile). Skip routing entirely.
+        let dest_opt: Option<PileType> = if card_data.card_type == crate::card::CardType::Power {
+            None
+        } else if card_data.keywords.iter().any(|k| k == "Exhaust") {
+            Some(PileType::Exhaust)
         } else {
-            PileType::Discard
+            Some(PileType::Discard)
         };
         let ps = self.allies[player_idx].player.as_mut().unwrap();
-        match dest {
-            PileType::Discard => ps.discard.cards.push(played_card),
-            PileType::Exhaust => ps.exhaust.cards.push(played_card),
+        match dest_opt {
+            Some(PileType::Discard) => ps.discard.cards.push(played_card),
+            Some(PileType::Exhaust) => ps.exhaust.cards.push(played_card),
+            None => { /* Power: consumed */ }
             _ => ps.discard.cards.push(played_card),
         }
-        // History emission for the routing: CardExhausted or CardDiscarded.
+        // History emission for the routing.
         let round = self.round_number;
-        match dest {
-            PileType::Discard => self.combat_log.push(CombatEvent::CardDiscarded {
+        match dest_opt {
+            Some(PileType::Discard) => self.combat_log.push(CombatEvent::CardDiscarded {
                 round,
                 player_idx,
                 card_id: card_id.clone(),
             }),
-            PileType::Exhaust => self.combat_log.push(CombatEvent::CardExhausted {
+            Some(PileType::Exhaust) => self.combat_log.push(CombatEvent::CardExhausted {
                 round,
                 player_idx,
                 card_id: card_id.clone(),
             }),
             _ => {}
         }
+        let dest = dest_opt.unwrap_or(PileType::Discard);
 
         // AfterCardPlayed relic-hook firing point. Fires after OnPlay
         // resolves AND the card has routed. Data-driven via relic_effects.

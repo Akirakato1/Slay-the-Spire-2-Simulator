@@ -1219,6 +1219,11 @@ internal static class GodotBypass
         // don't dive into more Godot.
         PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Commands.Cmd");
+        // Log.* methods write through Godot.GD.Print (native call).
+        // No-op every static log helper to keep the headless host
+        // alive when game code logs informationally.
+        PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Logging.Log");
     }
 
     /// Patch every public static method on `typeName` to a no-op
