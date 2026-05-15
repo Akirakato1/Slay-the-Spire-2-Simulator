@@ -842,6 +842,39 @@ pub enum Effect {
     /// (Rare card factory), BloodSoakedRose (curse), various event
     /// rewards. `upgrade` is the upgrade level the card is added at.
     AddCardToRunStateDeck { card_id: String, upgrade: i32 },
+    /// Upgrade every card in the run-state deck matching `filter`.
+    /// Deterministic — no RNG. NeowsTalisman (upgrades starter Strike +
+    /// Defend cards) uses Or(HasId("Strike"), HasId("Defend")).
+    UpgradeDeckCards { filter: CardFilter },
+    /// Upgrade `n` random cards in the deck matching `filter`, using
+    /// the `up_front` run-state RNG stream for the pick. SandCastle
+    /// (6 random upgradable), WarPaint (2 random Skills), Whetstone
+    /// (2 random Attacks).
+    UpgradeRandomDeckCards { n: AmountSpec, filter: CardFilter },
+    /// Enchant every deck card matching `filter` with `enchantment_id`.
+    /// NutritiousSoup (every Basic Strike with TezcatarasEmber),
+    /// PaelsClaw (entire deck with Goopy).
+    EnchantDeckCards {
+        filter: CardFilter,
+        enchantment_id: String,
+        enchantment_amount: i32,
+    },
+    /// Enchant `n` random deck cards matching `filter` with
+    /// `enchantment_id`. RoyalStamp (1 random RoyallyApproved-eligible).
+    EnchantRandomDeckCards {
+        n: AmountSpec,
+        filter: CardFilter,
+        enchantment_id: String,
+        enchantment_amount: i32,
+    },
+    /// Transform `n` random deck cards matching `filter` into random
+    /// cards from `pool`. Uses the `transformations` PlayerRng.
+    /// PandorasBox (every Basic Strike/Defend → random character card).
+    TransformRandomDeckCards {
+        n: AmountSpec,
+        filter: CardFilter,
+        pool: CardPoolRef,
+    },
     /// Increase the player's max-potion-belt slot count. PotionBelt
     /// (+2), PhialHolster (+1).
     GainMaxPotionSlots { delta: AmountSpec },
@@ -2687,6 +2720,95 @@ pub fn run_state_effects(
         vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(15) }]),
         ]),
 
+        "NeowsTalisman" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::UpgradeDeckCards {
+        filter: CardFilter::And(
+        Box::new(CardFilter::OfRarity("Basic".to_string())),
+        Box::new(CardFilter::Or(
+        Box::new(CardFilter::TaggedAs("Strike".to_string())),
+        Box::new(CardFilter::TaggedAs("Defend".to_string())),
+        )),
+        ),
+        }],
+        )]),
+
+        "NutritiousSoup" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantDeckCards {
+        filter: CardFilter::And(
+        Box::new(CardFilter::OfRarity("Basic".to_string())),
+        Box::new(CardFilter::TaggedAs("Strike".to_string())),
+        ),
+        enchantment_id: "TezcatarasEmber".to_string(),
+        enchantment_amount: 1,
+        }],
+        )]),
+
+        "PaelsClaw" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantDeckCards {
+        filter: CardFilter::Any,
+        enchantment_id: "Goopy".to_string(),
+        enchantment_amount: 1,
+        }],
+        )]),
+
+        "PandorasBox" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::TransformRandomDeckCards {
+        n: AmountSpec::Fixed(99),
+        filter: CardFilter::And(
+        Box::new(CardFilter::OfRarity("Basic".to_string())),
+        Box::new(CardFilter::Or(
+        Box::new(CardFilter::TaggedAs("Strike".to_string())),
+        Box::new(CardFilter::TaggedAs("Defend".to_string())),
+        )),
+        ),
+        pool: CardPoolRef::CharacterAny,
+        }],
+        )]),
+
+        "RoyalStamp" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        enchantment_id: "RoyallyApproved".to_string(),
+        enchantment_amount: 1,
+        }],
+        )]),
+
+        "SandCastle" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(6),
+        filter: CardFilter::Upgradable,
+        }],
+        )]),
+
+        "WarPaint" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(2),
+        filter: CardFilter::And(
+        Box::new(CardFilter::OfType("Skill".to_string())),
+        Box::new(CardFilter::Upgradable),
+        ),
+        }],
+        )]),
+
+        "Whetstone" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(2),
+        filter: CardFilter::And(
+        Box::new(CardFilter::OfType("Attack".to_string())),
+        Box::new(CardFilter::Upgradable),
+        ),
+        }],
+        )]),
+
 
         _ => None,
     }
@@ -2775,6 +2897,156 @@ fn execute_run_state_effect(
             // BingBong / BookOfFiveRings / DarkstonePeriapt / LuckyFysh.
             fire_run_state_card_added_to_deck(rs, player_idx, card_id, *upgrade);
         }
+        Effect::UpgradeDeckCards { filter } => {
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                for card in ps.deck.iter_mut() {
+                    if card_ref_matches_filter(card, filter) {
+                        let cur = card.current_upgrade_level.unwrap_or(0);
+                        card.current_upgrade_level = Some(cur + 1);
+                    }
+                }
+            }
+        }
+        Effect::UpgradeRandomDeckCards { n, filter } => {
+            let count = run_state_resolve_amount(rs, player_idx, n).max(0) as usize;
+            if count == 0 {
+                return;
+            }
+            // Collect eligible indices, then pick `count` distinct ones
+            // via the up_front RNG.
+            let eligible: Vec<usize> = rs
+                .player_state_mut(player_idx)
+                .map(|ps| {
+                    ps.deck
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, c)| card_ref_matches_filter(c, filter))
+                        .map(|(i, _)| i)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if eligible.is_empty() {
+                return;
+            }
+            let picks =
+                pick_distinct_indices(&eligible, count, &mut rs.rng_set_mut().up_front);
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                for idx in picks {
+                    if let Some(card) = ps.deck.get_mut(idx) {
+                        let cur = card.current_upgrade_level.unwrap_or(0);
+                        card.current_upgrade_level = Some(cur + 1);
+                    }
+                }
+            }
+        }
+        Effect::EnchantDeckCards {
+            filter,
+            enchantment_id,
+            enchantment_amount,
+        } => {
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                for card in ps.deck.iter_mut() {
+                    if card_ref_matches_filter(card, filter) {
+                        card.enchantment = Some(crate::run_log::EnchantmentRef {
+                            id: enchantment_id.clone(),
+                            amount: *enchantment_amount,
+                        });
+                    }
+                }
+            }
+        }
+        Effect::EnchantRandomDeckCards {
+            n,
+            filter,
+            enchantment_id,
+            enchantment_amount,
+        } => {
+            let count = run_state_resolve_amount(rs, player_idx, n).max(0) as usize;
+            if count == 0 {
+                return;
+            }
+            let eligible: Vec<usize> = rs
+                .player_state_mut(player_idx)
+                .map(|ps| {
+                    ps.deck
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, c)| card_ref_matches_filter(c, filter))
+                        .map(|(i, _)| i)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if eligible.is_empty() {
+                return;
+            }
+            let picks =
+                pick_distinct_indices(&eligible, count, &mut rs.rng_set_mut().up_front);
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                for idx in picks {
+                    if let Some(card) = ps.deck.get_mut(idx) {
+                        card.enchantment = Some(crate::run_log::EnchantmentRef {
+                            id: enchantment_id.clone(),
+                            amount: *enchantment_amount,
+                        });
+                    }
+                }
+            }
+        }
+        Effect::TransformRandomDeckCards { n, filter, pool: _ } => {
+            // Pool resolution at run-state needs the player's character
+            // card pool. Look up CharacterData.card_pool (e.g.,
+            // "Ironclad", "Silent") and match against CardData.pool.
+            let count = run_state_resolve_amount(rs, player_idx, n).max(0) as usize;
+            if count == 0 {
+                return;
+            }
+            let char_id = rs
+                .player_state_mut(player_idx)
+                .map(|ps| ps.character_id.clone())
+                .unwrap_or_default();
+            let pool_name = crate::character::by_id(&char_id)
+                .and_then(|cd| cd.card_pool.clone())
+                .unwrap_or_default();
+            let eligible: Vec<usize> = rs
+                .player_state_mut(player_idx)
+                .map(|ps| {
+                    ps.deck
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, c)| card_ref_matches_filter(c, filter))
+                        .map(|(i, _)| i)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if eligible.is_empty() {
+                return;
+            }
+            let picks =
+                pick_distinct_indices(&eligible, count, &mut rs.rng_set_mut().up_front);
+            let pool: Vec<&'static str> = crate::card::ALL_CARDS
+                .iter()
+                .filter(|c| c.pool == pool_name)
+                .map(|c| c.id.as_str())
+                .collect();
+            if pool.is_empty() {
+                return;
+            }
+            for idx in picks {
+                let pick_idx = rs
+                    .rng_set_mut()
+                    .up_front
+                    .next_int_range(0, pool.len() as i32)
+                    as usize;
+                let new_id = pool[pick_idx].to_string();
+                if let Some(ps) = rs.player_state_mut(player_idx) {
+                    if let Some(card) = ps.deck.get_mut(idx) {
+                        card.id = new_id;
+                        card.current_upgrade_level = None;
+                        card.enchantment = None;
+                    }
+                }
+            }
+        }
         Effect::GainMaxPotionSlots { delta } => {
             let d = run_state_resolve_amount(rs, player_idx, delta);
             if let Some(ps) = rs.player_state_mut(player_idx) {
@@ -2825,6 +3097,78 @@ fn fire_run_state_card_added_to_deck(
             execute_run_state_effects(rs, player_idx, &body);
         }
     }
+}
+
+/// Match a run-state CardRef against a CardFilter. Looks up static
+/// CardData via `card::by_id` for type/keyword/tag info. Run-state
+/// equivalent of `card_metadata_matches_filter` but works on CardRef.
+fn card_ref_matches_filter(card: &crate::run_log::CardRef, filter: &CardFilter) -> bool {
+    match filter {
+        CardFilter::Any => true,
+        CardFilter::Upgradable => crate::card::by_id(&card.id)
+            .map(|d| {
+                let cur = card.current_upgrade_level.unwrap_or(0);
+                cur < d.max_upgrade_level
+            })
+            .unwrap_or(false),
+        CardFilter::HasId(id) => &card.id == id,
+        CardFilter::OfType(name) => crate::card::by_id(&card.id)
+            .map(|d| match name.as_str() {
+                "Attack" => d.card_type == crate::card::CardType::Attack,
+                "Skill" => d.card_type == crate::card::CardType::Skill,
+                "Power" => d.card_type == crate::card::CardType::Power,
+                "Status" => d.card_type == crate::card::CardType::Status,
+                "Curse" => d.card_type == crate::card::CardType::Curse,
+                _ => false,
+            })
+            .unwrap_or(false),
+        CardFilter::HasKeyword(k) => crate::card::by_id(&card.id)
+            .map(|d| d.keywords.iter().any(|kw| kw == k))
+            .unwrap_or(false),
+        CardFilter::TaggedAs(t) => crate::card::by_id(&card.id)
+            .map(|d| d.tags.iter().any(|tag| tag == t))
+            .unwrap_or(false),
+        CardFilter::OfRarity(r) => crate::card::by_id(&card.id)
+            .map(|d| format!("{:?}", d.rarity).eq_ignore_ascii_case(r))
+            .unwrap_or(false),
+        CardFilter::And(a, b) => {
+            card_ref_matches_filter(card, a) && card_ref_matches_filter(card, b)
+        }
+        CardFilter::Or(a, b) => {
+            card_ref_matches_filter(card, a) || card_ref_matches_filter(card, b)
+        }
+        CardFilter::Not(inner) => !card_ref_matches_filter(card, inner),
+        CardFilter::WithEnergyCost { op, value } => crate::card::by_id(&card.id)
+            .map(|d| match op {
+                Comparison::Eq => d.energy_cost == *value,
+                Comparison::Ne => d.energy_cost != *value,
+                Comparison::Lt => d.energy_cost < *value,
+                Comparison::Le => d.energy_cost <= *value,
+                Comparison::Gt => d.energy_cost > *value,
+                Comparison::Ge => d.energy_cost >= *value,
+            })
+            .unwrap_or(false),
+        CardFilter::NotXCost => crate::card::by_id(&card.id)
+            .map(|d| !d.has_energy_cost_x)
+            .unwrap_or(false),
+    }
+}
+
+/// Pick up to `count` distinct values from `pool` using `rng`. Mirrors
+/// the C# pattern of "draw without replacement". Returns picks in the
+/// order they were drawn.
+fn pick_distinct_indices(
+    pool: &[usize],
+    count: usize,
+    rng: &mut crate::rng::Rng,
+) -> Vec<usize> {
+    let mut available: Vec<usize> = pool.to_vec();
+    let mut picks = Vec::with_capacity(count.min(pool.len()));
+    while picks.len() < count && !available.is_empty() {
+        let pick_idx = rng.next_int_range(0, available.len() as i32) as usize;
+        picks.push(available.swap_remove(pick_idx));
+    }
+    picks
 }
 
 fn run_state_resolve_amount(
@@ -7253,6 +7597,16 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         // these variants make event bodies encode-able as data.
         Effect::SetEventFinished { .. } | Effect::MoveToEventPage { .. } => {
             // STUB.
+        }
+        // Run-state deck-mutation primitives — no-op in combat. These
+        // are dispatched by `execute_run_state_effect` when fired from
+        // a RunStateHook body.
+        Effect::UpgradeDeckCards { .. }
+        | Effect::UpgradeRandomDeckCards { .. }
+        | Effect::EnchantDeckCards { .. }
+        | Effect::EnchantRandomDeckCards { .. }
+        | Effect::TransformRandomDeckCards { .. } => {
+            // Run-state-scope only.
         }
     }
 }

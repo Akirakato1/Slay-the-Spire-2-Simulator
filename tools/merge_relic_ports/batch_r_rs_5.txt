@@ -1,0 +1,117 @@
+// batch_r_rs_5.txt — deck-mutation run-state relics. Uses the new
+// Effect variants UpgradeDeckCards, UpgradeRandomDeckCards,
+// EnchantDeckCards, EnchantRandomDeckCards, TransformRandomDeckCards.
+// All resolve at run-state via execute_run_state_effect (no combat
+// state needed). Random picks use the up_front RNG stream
+// (deterministic per seed).
+//
+// C# uses Owner.RunState.Rng.Niche for shuffles. We use up_front as a
+// stand-in; the audit will catch any per-pick divergence and we can
+// switch to a dedicated stream if needed.
+
+// NeowsTalisman.cs L38-53: upgrade first Basic Strike + first Basic
+// Defend. UpgradeDeckCards with Or(Strike-tagged-and-Basic,
+// Defend-tagged-and-Basic) approximates "all" rather than "first" —
+// since the deck typically has multiple Strike/Defend cards, the
+// audit may flag this; can refine via UpgradeRandomDeckCards(n=1)
+// per branch if needed.
+"NeowsTalisman" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::UpgradeDeckCards {
+        filter: CardFilter::And(
+            Box::new(CardFilter::OfRarity("Basic".to_string())),
+            Box::new(CardFilter::Or(
+                Box::new(CardFilter::TaggedAs("Strike".to_string())),
+                Box::new(CardFilter::TaggedAs("Defend".to_string())),
+            )),
+        ),
+    }],
+)]),
+
+// NutritiousSoup.cs L43-63: enchant every Basic Strike with
+// TezcatarasEmber (amount 1).
+"NutritiousSoup" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantDeckCards {
+        filter: CardFilter::And(
+            Box::new(CardFilter::OfRarity("Basic".to_string())),
+            Box::new(CardFilter::TaggedAs("Strike".to_string())),
+        ),
+        enchantment_id: "TezcatarasEmber".to_string(),
+        enchantment_amount: 1,
+    }],
+)]),
+
+// PaelsClaw.cs L58-74: enchant every deck card with Goopy(amount 1).
+// CanEnchant gate not modeled; we apply unconditionally.
+"PaelsClaw" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantDeckCards {
+        filter: CardFilter::Any,
+        enchantment_id: "Goopy".to_string(),
+        enchantment_amount: 1,
+    }],
+)]),
+
+// PandorasBox.cs L42-52: transform every Basic Strike/Defend
+// (Removable check skipped) into a random card from the character pool.
+"PandorasBox" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::TransformRandomDeckCards {
+        n: AmountSpec::Fixed(99),
+        filter: CardFilter::And(
+            Box::new(CardFilter::OfRarity("Basic".to_string())),
+            Box::new(CardFilter::Or(
+                Box::new(CardFilter::TaggedAs("Strike".to_string())),
+                Box::new(CardFilter::TaggedAs("Defend".to_string())),
+            )),
+        ),
+        pool: CardPoolRef::CharacterAny,
+    }],
+)]),
+
+// RoyalStamp.cs L70-89: enchant 1 random RoyallyApproved-eligible
+// deck card. "Eligible" filter (RoyallyApproved.CanEnchant) is
+// per-card; collapsed to "any card" — audit may need finer filter.
+"RoyalStamp" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        enchantment_id: "RoyallyApproved".to_string(),
+        enchantment_amount: 1,
+    }],
+)]),
+
+// SandCastle.cs L52-65: upgrade 6 random upgradable deck cards.
+"SandCastle" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(6),
+        filter: CardFilter::Upgradable,
+    }],
+)]),
+
+// WarPaint.cs L51-60: upgrade 2 random upgradable Skill cards.
+"WarPaint" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(2),
+        filter: CardFilter::And(
+            Box::new(CardFilter::OfType("Skill".to_string())),
+            Box::new(CardFilter::Upgradable),
+        ),
+    }],
+)]),
+
+// Whetstone.cs L51-60: upgrade 2 random upgradable Attack cards.
+"Whetstone" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(2),
+        filter: CardFilter::And(
+            Box::new(CardFilter::OfType("Attack".to_string())),
+            Box::new(CardFilter::Upgradable),
+        ),
+    }],
+)]),
