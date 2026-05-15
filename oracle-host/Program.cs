@@ -1410,6 +1410,18 @@ internal static class GodotBypass
             "MegaCrit.Sts2.Core.Saves.SaveManager", "get_Progress",
             BindingFlags.Public | BindingFlags.Instance,
             typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.GetProgressPrefix));
+        // SaveManager.PrefsSave reads `_prefsSaveManager.Prefs`,
+        // both null on our uninitialized SM. Patch the getter to
+        // return an uninitialized PrefsSave; FastMode defaults to
+        // FastModeType.Normal which is what cards expect.
+        var prefsType = asm.GetType("MegaCrit.Sts2.Core.Saves.PrefsSave",
+            throwOnError: true)!;
+        SaveManagerPrefix.UninitializedPrefsSave =
+            System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(prefsType);
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Saves.SaveManager", "get_PrefsSave",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.GetPrefsSavePrefix));
         HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Saves.ProgressState", "GetStatsForCharacter",
             BindingFlags.Public | BindingFlags.Instance,
@@ -1628,22 +1640,33 @@ internal static class GodotBypass
             }
             // Task<CardModel> variant (FromChooseACardScreen,
             // FromHandForUpgrade).
-            var nullCardPrefix = nameof(SaveManagerPrefix.NullCardTaskPrefix);
-            string[] singleCardMethods = {
-                "FromChooseACardScreen",
-                "FromHandForUpgrade",
-            };
-            foreach (var name in singleCardMethods)
+            // FromChooseACardScreen NREs at RunManager.Instance.
+            // PlayerChoiceSynchronizer.ReserveChoiceId BEFORE the
+            // Selector check. Substitute a deterministic "take first
+            // card" prefix that mirrors the rust PlayerInteractive
+            // auto-pick — matches Discovery/Glimmer/Wish/Refract/etc.
+            foreach (var m in cardSelectType.GetMethods(
+                BindingFlags.Public | BindingFlags.Static
+                    | BindingFlags.DeclaredOnly))
             {
-                foreach (var m in cardSelectType.GetMethods(
-                    BindingFlags.Public | BindingFlags.Static
-                        | BindingFlags.DeclaredOnly))
+                if (m.Name == "FromChooseACardScreen")
                 {
-                    if (m.Name == name)
-                    {
-                        HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
-                            m, typeof(SaveManagerPrefix), nullCardPrefix);
-                    }
+                    HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                        m, typeof(SaveManagerPrefix),
+                        nameof(SaveManagerPrefix.FromChooseACardScreenPrefix));
+                }
+            }
+            // FromHandForUpgrade: relic-grant flow returns null; card-play
+            // not used today, keep the existing gated null prefix.
+            var nullCardPrefix = nameof(SaveManagerPrefix.NullCardTaskPrefix);
+            foreach (var m in cardSelectType.GetMethods(
+                BindingFlags.Public | BindingFlags.Static
+                    | BindingFlags.DeclaredOnly))
+            {
+                if (m.Name == "FromHandForUpgrade")
+                {
+                    HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                        m, typeof(SaveManagerPrefix), nullCardPrefix);
                 }
             }
         }
@@ -1756,6 +1779,12 @@ internal static class GodotBypass
 internal static class SaveManagerPrefix
 {
     public static object? UninitializedProgressState;
+    public static object? UninitializedPrefsSave;
+    public static bool GetPrefsSavePrefix(ref object? __result)
+    {
+        __result = UninitializedPrefsSave;
+        return false;
+    }
 
     // Return the uninitialized SaveManager. Callers do `.MarkXxxAsSeen`
     // and similar — those methods are individually patched to no-op.
@@ -1923,6 +1952,33 @@ internal static class SaveManagerPrefix
         __result = taskFromResult.Invoke(null, new object[] { selected })!;
         return false;
     }
+    /// Prefix for CardSelectCmd.FromChooseACardScreen. Returns the
+    /// first card from `cards` as a completed Task<CardModel?>, mirroring
+    /// the rust PlayerInteractive auto-pick. Bypasses the
+    /// RunManager.Instance.PlayerChoiceSynchronizer.ReserveChoiceId NRE
+    /// that fires before the Selector check.
+    public static bool FromChooseACardScreenPrefix(
+        object context, object cards, object player, bool canSkip,
+        ref object __result)
+    {
+        if (_fromChooseACardTaskFromResult == null && CardModelType != null)
+        {
+            _fromChooseACardTaskFromResult = typeof(Task)
+                .GetMethods(BindingFlags.Public | BindingFlags.Static)
+                .First(m => m.Name == "FromResult" && m.IsGenericMethod)
+                .MakeGenericMethod(CardModelType);
+        }
+        object? pick = null;
+        if (cards is System.Collections.IList list && list.Count > 0)
+        {
+            pick = list[0];
+        }
+        __result = _fromChooseACardTaskFromResult!
+            .Invoke(null, new object?[] { pick })!;
+        return false;
+    }
+    private static MethodInfo? _fromChooseACardTaskFromResult;
+
     public static bool NullCardTaskPrefix(ref object __result)
     {
         if (!RelicGrantInProgress) return true;
