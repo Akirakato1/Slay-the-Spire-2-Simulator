@@ -1612,7 +1612,635 @@ pub fn monster_move_effects(
                 amount: AmountSpec::Fixed(1),
                 target: Target::ChosenEnemy,
             },
+        ]),        // ===== Manual monster-move ports (batch_m_*) =====
+
+
+        ("Myte", "Toxic") => Some(vec![
+        Effect::AddCardToPile { card_id: "Toxic".to_string(), upgrade: 0, pile: Pile::Hand },
+        Effect::AddCardToPile { card_id: "Toxic".to_string(), upgrade: 0, pile: Pile::Hand },
         ]),
+
+        ("Myte", "Bite") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(13), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Myte", "Suck") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("Nibbit", "Butt") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(12), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Nibbit", "Slice") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainBlock { amount: AmountSpec::Fixed(5), target: Target::SelfActor },
+        ]),
+
+        ("Nibbit", "Hiss") => Some(vec![Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor }]),
+
+        ("OwlMagistrate", "Scrutiny") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(16), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("OwlMagistrate", "PeckAssault") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 6 }]),
+
+        ("OwlMagistrate", "JudicialFlight") => Some(vec![
+        Effect::ApplyPower { power_id: "SoarPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfActor },
+        ]),
+
+        ("OwlMagistrate", "Verdict") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(33), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy },
+        Effect::RemovePower { power_id: "SoarPower".to_string(), target: Target::SelfActor },
+        ]),
+
+        ("WaterfallGiant", "Pressurize") => Some(vec![]),
+
+        ("WaterfallGiant", "Stomp") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(15), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy },
+        ]),
+
+        ("WaterfallGiant", "Ram") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(10), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("WaterfallGiant", "Siphon") => Some(vec![Effect::Heal { amount: AmountSpec::Fixed(15), target: Target::SelfActor }]),
+
+        ("WaterfallGiant", "PressureUp") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(13), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TwoTailedRat", "Scratch") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TwoTailedRat", "DiseaseBite") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 1 },
+        // C# also afflicts a card with Disease — deferred (matches Rust impl).
+        ]),
+
+        ("TwoTailedRat", "Screech") => Some(vec![
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy },
+        ]),
+
+        ("TwoTailedRat", "CallForBackup") => Some(vec![]),
+
+        ("TheObscura", "Illusion") => Some(vec![]),
+
+        ("TheObscura", "PiercingGaze") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(10), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TheObscura", "HardeningStrike") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainBlock { amount: AmountSpec::Fixed(6), target: Target::SelfActor },
+        ]),
+
+        ("LivingFog", "AdvancedGas") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "SmoggyPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy },
+        ]),
+
+        ("LivingFog", "Bloat") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(5), target: Target::ChosenEnemy, hits: 1 },
+        // Summon LivingFog minion deferred (matches Rust impl).
+        ]),
+
+        ("LivingFog", "SuperGas") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Fabricator", "Fabricate") => Some(vec![]),
+
+        ("Fabricator", "FabricatingStrike") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(18), target: Target::ChosenEnemy, hits: 1 },
+        ]),
+
+        ("Fabricator", "Disintegrate") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(11), target: Target::ChosenEnemy, hits: 1 },
+        ]),
+
+        ("Doormaker", "DramaticOpen") => Some(vec![]),
+
+        ("Doormaker", "Hunger") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(30), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Doormaker", "Scrutiny") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(24), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Doormaker", "Grasp") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(10), target: Target::ChosenEnemy, hits: 2 },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(3), target: Target::SelfActor },
+        ]),
+
+        ("LagavulinMatriarch", "Sleep") => Some(vec![]),
+
+        ("LagavulinMatriarch", "Slash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(19), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("LagavulinMatriarch", "Slash2") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(12), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainBlock { amount: AmountSpec::Fixed(12), target: Target::SelfActor },
+        ]),
+
+        ("LagavulinMatriarch", "Disembowel") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(9), target: Target::ChosenEnemy, hits: 2 },
+        ]),
+
+        ("LagavulinMatriarch", "SoulSiphon") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(-2), target: Target::ChosenEnemy },
+        Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Fixed(-2), target: Target::ChosenEnemy },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("HauntedShip", "Haunt") => Some(vec![
+        Effect::AddCardToPile { card_id: "Dazed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Dazed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Dazed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Dazed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Dazed".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("HauntedShip", "RammingSpeed") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(10), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy },
+        ]),
+
+        ("HauntedShip", "Swipe") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(13), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("HauntedShip", "Stomp") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 3 }]),
+
+        ("Queen", "PuppetStrings") => Some(vec![
+        Effect::ApplyPower { power_id: "ChainsOfBindingPower".to_string(), amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy },
+        ]),
+
+        ("Queen", "YoureMine") => Some(vec![
+        Effect::ApplyPower { power_id: "FrailPower".to_string(), amount: AmountSpec::Fixed(99), target: Target::ChosenEnemy },
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Fixed(99), target: Target::ChosenEnemy },
+        Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Fixed(99), target: Target::ChosenEnemy },
+        ]),
+
+        ("Queen", "OffWithYourHead") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 5 }]),
+
+        ("Queen", "Execution") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(15), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Queen", "Enrage") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("Crusher", "Thrash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(12), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Crusher", "EnlargingStrike") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Crusher", "BugSting") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 2 },
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy },
+        Effect::ApplyPower { power_id: "FrailPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy },
+        ]),
+
+        ("Crusher", "Adapt") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("Crusher", "GuardedStrike") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(12), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainBlock { amount: AmountSpec::Fixed(18), target: Target::SelfActor },
+        ]),
+
+        ("Rocket", "TargetingReticle") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Rocket", "PrecisionBeam") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(18), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Rocket", "ChargeUp") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("Rocket", "Laser") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(31), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Rocket", "Recharge") => Some(vec![]),
+
+        ("Ovicopter", "LayEggs") => Some(vec![]),
+
+        ("Ovicopter", "Smash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(16), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Ovicopter", "Tenderizer") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(7), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy },
+        ]),
+
+        ("Ovicopter", "NutritionalPaste") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(3), target: Target::SelfActor },
+        ]),
+
+        ("MagiKnight", "PowerShield") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainBlock { amount: AmountSpec::Fixed(5), target: Target::SelfActor },
+        ]),
+
+        ("MagiKnight", "Dampen") => Some(vec![
+        Effect::ApplyPower { power_id: "DampenPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy },
+        ]),
+
+        ("MagiKnight", "Spear") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(10), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("MagiKnight", "Prep") => Some(vec![Effect::GainBlock { amount: AmountSpec::Fixed(5), target: Target::SelfActor }]),
+
+        ("MagiKnight", "MagicBomb") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(35), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("SpectralKnight", "Hex") => Some(vec![
+        Effect::ApplyPower { power_id: "HexPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy },
+        ]),
+
+        ("SpectralKnight", "SoulSlash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(15), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("SpectralKnight", "SoulFlame") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 3 }]),
+
+        ("Tunneler", "Bite") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(13), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Tunneler", "Burrow") => Some(vec![
+        Effect::ApplyPower { power_id: "BurrowedPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfActor },
+        Effect::GainBlock { amount: AmountSpec::Fixed(12), target: Target::SelfActor },
+        ]),
+
+        ("Tunneler", "Below") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(23), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TheInsatiable", "Liquify") => Some(vec![
+        Effect::AddCardToPile { card_id: "FranticEscape".to_string(), upgrade: 0, pile: Pile::Draw },
+        Effect::AddCardToPile { card_id: "FranticEscape".to_string(), upgrade: 0, pile: Pile::Draw },
+        Effect::AddCardToPile { card_id: "FranticEscape".to_string(), upgrade: 0, pile: Pile::Draw },
+        Effect::AddCardToPile { card_id: "FranticEscape".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "FranticEscape".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "FranticEscape".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("TheInsatiable", "Thrash1") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 2 }]),
+
+        ("TheInsatiable", "Thrash2") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 2 }]),
+
+        ("TheInsatiable", "Bite") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(28), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TheInsatiable", "Salivate") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("SlumberingBeetle", "Snore") => Some(vec![]),
+
+        ("SlumberingBeetle", "Rollout") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(16), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("TorchHeadAmalgam", "Tackle1") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(18), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TorchHeadAmalgam", "Tackle2") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(18), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TorchHeadAmalgam", "Beam") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 3 }]),
+
+        ("TorchHeadAmalgam", "Tackle3") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(14), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TorchHeadAmalgam", "Tackle4") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(14), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("SoulFysh", "Beckon") => Some(vec![
+        Effect::AddCardToPile { card_id: "Beckon".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Beckon".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("SoulFysh", "DeGas") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(16), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("SoulFysh", "Gaze") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(7), target: Target::ChosenEnemy, hits: 1 },
+        Effect::AddCardToPile { card_id: "Beckon".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("SoulFysh", "Fade") => Some(vec![
+        Effect::ApplyPower { power_id: "IntangiblePower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("SoulFysh", "Scream") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(11), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy },
+        ]),
+
+        ("PhrogParasite", "Infect") => Some(vec![
+        Effect::AddCardToPile { card_id: "Infection".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Infection".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Infection".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("PhrogParasite", "Lash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 4 }]),
+
+        ("InfestedPrism", "Jab") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(22), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("InfestedPrism", "Radiate") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(16), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainBlock { amount: AmountSpec::Fixed(16), target: Target::SelfActor },
+        ]),
+
+        ("InfestedPrism", "Whirlwind") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(9), target: Target::ChosenEnemy, hits: 3 }]),
+
+        ("InfestedPrism", "Pulsate") => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Fixed(20), target: Target::SelfActor },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(4), target: Target::SelfActor },
+        ]),
+
+        ("PhantasmalGardener", "Bite") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(5), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("PhantasmalGardener", "Lash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(7), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("PhantasmalGardener", "Flail") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy, hits: 3 }]),
+
+        ("PhantasmalGardener", "Enlarge") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("TerrorEel", "Crash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(16), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TerrorEel", "Thrash") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 3 },
+        Effect::ApplyPower { power_id: "VigorPower".to_string(), amount: AmountSpec::Fixed(6), target: Target::SelfActor },
+        ]),
+
+        ("LouseProgenitor", "CurlAndGrow") => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Fixed(14), target: Target::SelfActor },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(5), target: Target::SelfActor },
+        ]),
+
+        ("LouseProgenitor", "Pounce") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(14), target: Target::ChosenEnemy, hits: 1 },
+        ]),
+
+        ("LouseProgenitor", "Web") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(9), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "FrailPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy },
+        ]),
+
+        ("SkulkingColony", "Smash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(12), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("SkulkingColony", "Zoom") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(14), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainBlock { amount: AmountSpec::Fixed(10), target: Target::SelfActor },
+        ]),
+
+        ("SkulkingColony", "Inertia") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(9), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("SkulkingColony", "PiercingStabs") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(7), target: Target::ChosenEnemy, hits: 2 },
+        ]),
+
+        ("BygoneEffigy", "InitialSleep") => Some(vec![]),
+
+        ("BygoneEffigy", "Wake") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(10), target: Target::SelfActor },
+        ]),
+
+        ("BygoneEffigy", "Slash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(13), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("SlimedBerserker", "VomitIchor") => Some(vec![
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("SlimedBerserker", "FuriousPummeling") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 4 }]),
+
+        ("SlimedBerserker", "LeechingHug") => Some(vec![
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(3), target: Target::SelfActor },
+        ]),
+
+        ("SlimedBerserker", "Smother") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(30), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("GlobeHead", "ShockingSlap") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(13), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "FrailPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy },
+        ]),
+
+        ("GlobeHead", "ThunderStrike") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 3 }]),
+
+        ("GlobeHead", "GalvanicBurst") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(16), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("SpinyToad", "Spikes") => Some(vec![
+        Effect::ApplyPower { power_id: "ThornsPower".to_string(), amount: AmountSpec::Fixed(5), target: Target::SelfActor },
+        ]),
+
+        ("SpinyToad", "Explosion") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(23), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "ThornsPower".to_string(), amount: AmountSpec::Fixed(-5), target: Target::SelfActor },
+        ]),
+
+        ("SpinyToad", "Lash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(17), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Vantom", "InkBlot") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(7), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Vantom", "InkyLance") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 2 }]),
+
+        ("Vantom", "Dismember") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(27), target: Target::ChosenEnemy, hits: 1 },
+        Effect::AddCardToPile { card_id: "Wound".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Wound".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Wound".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("Vantom", "Prepare") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("SoulNexus", "SoulBurn") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(29), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("SoulNexus", "Maelstrom") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 4 }]),
+
+        ("SoulNexus", "DrainLife") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(18), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy },
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy },
+        ]),
+
+        ("DevotedSculptor", "ForbiddenIncantation") => Some(vec![
+        Effect::ApplyPower { power_id: "RitualPower".to_string(), amount: AmountSpec::Fixed(9), target: Target::SelfActor },
+        ]),
+
+        ("DevotedSculptor", "Savage") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(12), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Exoskeleton", "Skitter") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy, hits: 3 }]),
+
+        ("Exoskeleton", "Mandibles") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Exoskeleton", "Enrage") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("Toadpole", "SpikeSpit") => Some(vec![
+        // C# also strips ThornsPower(-2) before the damage hits — order
+        // matters for the Thorns retaliation path. Order preserved.
+        Effect::ApplyPower { power_id: "ThornsPower".to_string(), amount: AmountSpec::Fixed(-2), target: Target::SelfActor },
+        Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 3 },
+        ]),
+
+        ("Toadpole", "Whirl") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(7), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Toadpole", "Spiken") => Some(vec![
+        Effect::ApplyPower { power_id: "ThornsPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("ThievingHopper", "Thievery") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(17), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("ThievingHopper", "Flutter") => Some(vec![
+        Effect::ApplyPower { power_id: "FlutterPower".to_string(), amount: AmountSpec::Fixed(5), target: Target::SelfActor },
+        ]),
+
+        ("ThievingHopper", "HatTrick") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(21), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("ThievingHopper", "Nab") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(14), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("ThievingHopper", "Escape") => Some(vec![]),
+
+        ("CalcifiedCultist", "Incantation") => Some(vec![
+        Effect::ApplyPower { power_id: "RitualPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("CalcifiedCultist", "DarkStrike") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(9), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("SludgeSpinner", "OilSpray") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy },
+        ]),
+
+        ("SludgeSpinner", "Slam") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(11), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("SludgeSpinner", "Rage") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(3), target: Target::SelfActor },
+        ]),
+
+        ("FuzzyWurmCrawler", "FirstAcidGoop") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("FuzzyWurmCrawler", "Inhale") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(7), target: Target::SelfActor },
+        ]),
+
+        ("FuzzyWurmCrawler", "AcidGoop") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("BowlbugRock", "Headbutt") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(15), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("MechaKnight", "Charge") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(25), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("MechaKnight", "Flamethrower") => Some(vec![
+        Effect::AddCardToPile { card_id: "Burn".to_string(), upgrade: 0, pile: Pile::Hand },
+        Effect::AddCardToPile { card_id: "Burn".to_string(), upgrade: 0, pile: Pile::Hand },
+        Effect::AddCardToPile { card_id: "Burn".to_string(), upgrade: 0, pile: Pile::Hand },
+        Effect::AddCardToPile { card_id: "Burn".to_string(), upgrade: 0, pile: Pile::Hand },
+        ]),
+
+        ("MechaKnight", "Windup") => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Fixed(15), target: Target::SelfActor },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(5), target: Target::SelfActor },
+        ]),
+
+        ("MechaKnight", "HeavyCleave") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(35), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Entomancer", "Bees") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 7 }]),
+
+        ("Entomancer", "Spear") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(18), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("LivingShield", "ShieldSlam") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(6), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("LivingShield", "Smash") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(16), target: Target::ChosenEnemy, hits: 1 },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(3), target: Target::SelfActor },
+        ]),
+
+        ("ShrinkerBeetle", "Shrinker") => Some(vec![
+        // Negative amount = "infinite" (ShrinkPower.IsInfinite in C#).
+        Effect::ApplyPower { power_id: "ShrinkPower".to_string(), amount: AmountSpec::Fixed(-1), target: Target::ChosenEnemy },
+        ]),
+
+        ("ShrinkerBeetle", "Chomp") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(7), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("ShrinkerBeetle", "Stomp") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(13), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Byrdonis", "Peck") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 3 }]),
+
+        ("Byrdonis", "Swoop") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(17), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Chomper", "Clamp") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 2 }]),
+
+        ("Chomper", "Screech") => Some(vec![
+        Effect::AddCardToPile { card_id: "Dazed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Dazed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Dazed".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("TurretOperator", "Unload1") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 5 }]),
+
+        ("TurretOperator", "Unload2") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 5 }]),
+
+        ("TurretOperator", "Reload") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfActor },
+        ]),
+
+        ("TwigSlimeM", "Clump") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(11), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("TwigSlimeM", "Sticky") => Some(vec![
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("LeafSlimeM", "Clump") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("LeafSlimeM", "Sticky") => Some(vec![
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("TwigSlimeS", "Butt") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("LeafSlimeS", "Butt") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("LeafSlimeS", "Goop") => Some(vec![
+        Effect::AddCardToPile { card_id: "Slimed".to_string(), upgrade: 0, pile: Pile::Discard },
+        ]),
+
+        ("Seapunk", "SeaKick") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(11), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("Seapunk", "SpinningKick") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy, hits: 4 }]),
+
+        ("Seapunk", "BubbleBurp") => Some(vec![
+        Effect::GainBlock { amount: AmountSpec::Fixed(7), target: Target::SelfActor },
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfActor },
+        ]),
+
+        ("CorpseSlug", "WhipSlap") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 2 }]),
+
+        ("CorpseSlug", "Glomp") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(8), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("CorpseSlug", "Goop") => Some(vec![
+        Effect::ApplyPower { power_id: "FrailPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::ChosenEnemy },
+        ]),
+
+        ("ScrollOfBiting", "Chomp") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(14), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("ScrollOfBiting", "Chew") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(5), target: Target::ChosenEnemy, hits: 2 }]),
+
+        ("ScrollOfBiting", "MoreTeeth") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(2), target: Target::SelfActor },
+        ]),
+
+        ("BowlbugSilk", "Trash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(4), target: Target::ChosenEnemy, hits: 2 }]),
+
+        ("BowlbugSilk", "ToxicSpit") => Some(vec![
+        Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::ChosenEnemy },
+        ]),
+
+        ("BowlbugNectar", "Thrash") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("BowlbugNectar", "Buff") => Some(vec![
+        Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Fixed(15), target: Target::SelfActor },
+        ]),
+
+        ("BowlbugNectar", "Thrash2") => Some(vec![Effect::DealDamage { amount: AmountSpec::Fixed(3), target: Target::ChosenEnemy, hits: 1 }]),
+
+        ("BowlbugEgg", "Bite") => Some(vec![
+        Effect::DealDamage { amount: AmountSpec::Fixed(7), target: Target::ChosenEnemy, hits: 1 },
+        Effect::GainBlock { amount: AmountSpec::Fixed(7), target: Target::SelfActor },
+        ]),
+
+
         _ => None,
     }
 }
