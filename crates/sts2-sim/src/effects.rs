@@ -1528,6 +1528,98 @@ where
 }
 
 // ========================================================================
+// Monster move VM — data-driven monster-intent payloads.
+// ========================================================================
+
+/// Registry of per-monster move payloads. Keyed by `(monster_id,
+/// intent_name)`; the body is a `Vec<Effect>` interpreted with
+/// `EffectContext::for_monster_move` (actor = the moving monster).
+///
+/// Monster state machines (intent picking, FollowUpState transitions)
+/// stay as Rust code in `combat.rs::pick_*_intent` / `monster_dispatch`
+/// — they're choreography, not pure effect composition. Move PAYLOADS
+/// route through this registry once migrated.
+///
+/// Proof-of-concept: Axebot's four intents wired here. Remaining
+/// monsters (~30 model_ids) follow the same pattern but each requires
+/// hand-encoding their payload; the migration is mechanical and
+/// optional (existing match-arm dispatchers are functional).
+pub fn monster_move_effects(
+    monster_id: &str,
+    intent_name: &str,
+) -> Option<Vec<Effect>> {
+    match (monster_id, intent_name) {
+        // Axebot.cs (constants from combat.rs Axebot section):
+        //   BootUp: GainBlock(10) + Apply<StrengthPower>(self, 1).
+        //   OneTwo: Damage(5) x 2 to chosen player target.
+        //   Sharpen: Apply<StrengthPower>(self, 4).
+        //   HammerUppercut: Damage(8) + Apply<WeakPower>(player, 1) +
+        //                   Apply<FrailPower>(player, 1).
+        ("Axebot", "BootUp") => Some(vec![
+            Effect::GainBlock {
+                amount: AmountSpec::Fixed(10),
+                target: Target::SelfActor,
+            },
+            Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::Fixed(1),
+                target: Target::SelfActor,
+            },
+        ]),
+        ("Axebot", "OneTwo") => Some(vec![Effect::DealDamage {
+            amount: AmountSpec::Fixed(5),
+            target: Target::ChosenEnemy,
+            hits: 2,
+        }]),
+        ("Axebot", "Sharpen") => Some(vec![Effect::ApplyPower {
+            power_id: "StrengthPower".to_string(),
+            amount: AmountSpec::Fixed(4),
+            target: Target::SelfActor,
+        }]),
+        ("Axebot", "HammerUppercut") => Some(vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Fixed(8),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            },
+            Effect::ApplyPower {
+                power_id: "WeakPower".to_string(),
+                amount: AmountSpec::Fixed(1),
+                target: Target::ChosenEnemy,
+            },
+            Effect::ApplyPower {
+                power_id: "FrailPower".to_string(),
+                amount: AmountSpec::Fixed(1),
+                target: Target::ChosenEnemy,
+            },
+        ]),
+        _ => None,
+    }
+}
+
+/// Execute a monster's move payload through the Effect VM. The acting
+/// monster is `actor_idx`, the target player is `target_player_idx`.
+/// `EffectContext::for_monster_move` sets actor for `Target::SelfActor`
+/// and binds target for `Target::ChosenEnemy` (single-player → player_idx 0).
+pub fn dispatch_monster_move_via_vm(
+    cs: &mut CombatState,
+    monster_id: &str,
+    intent_name: &str,
+    actor_idx: usize,
+    target_player_idx: usize,
+) -> bool {
+    let Some(effects) = monster_move_effects(monster_id, intent_name) else {
+        return false;
+    };
+    let ctx = EffectContext::for_monster_move(
+        actor_idx,
+        Some((CombatSide::Player, target_player_idx)),
+    );
+    execute_effects(cs, &effects, &ctx);
+    true
+}
+
+// ========================================================================
 // Run-state effect VM — out-of-combat relic hooks (AfterObtained etc.).
 // ========================================================================
 
