@@ -1,0 +1,57 @@
+// batch_r_rs_2.txt - AfterObtained relics unblocked by the new
+// AddCardToRunStateDeck / LoseRunStateMaxHp / GainMaxPotionSlots
+// run-state primitives. Verified against C# source.
+
+// BloodSoakedRose.cs: AddCurseToDeck<Enthralled>.
+"BloodSoakedRose" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::AddCardToRunStateDeck { card_id: "Enthralled".to_string(), upgrade: 0 }],
+)]),
+
+// CallingBell.cs: AddCurseToDeck<CurseOfTheBell> + 3-relic reward offer.
+// Curse-add encoded; the reward offer needs an interactive-reward primitive
+// not yet wired (it's an out-of-band UI flow).
+"CallingBell" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::AddCardToRunStateDeck { card_id: "CurseOfTheBell".to_string(), upgrade: 0 }],
+)]),
+
+// CursedPearl.cs: GainGold(333) + AddCurseToDeck<Greed>.
+// Supersedes the gold-only encoding in run_state_effects.
+"CursedPearl" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![
+        Effect::GainRunStateGold { amount: AmountSpec::Fixed(333) },
+        Effect::AddCardToRunStateDeck { card_id: "Greed".to_string(), upgrade: 0 },
+    ],
+)]),
+
+// LeafyPoultice.cs: LoseMaxHp(12) then remove a Basic Strike card from deck.
+// Encode the LoseMaxHp side; Strike removal needs a deck-remove primitive
+// not yet wired (interactive-select-from-deck).
+"LeafyPoultice" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(12) }],
+)]),
+
+// DistinguishedCape.cs: LoseMaxHp(HpLoss) + add N cards to deck via
+// CardFactory pool. Encode the LoseMaxHp side; CardFactory rare-add needs
+// the deck-mutation interactive-reward path.
+// CanonicalVars: HpLossVar(7). Cards var is for the bonus-cards side that's SKIPped.
+"DistinguishedCape" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(7) }],
+)]),
+
+// PotionBelt.cs: AfterObtained -> +2 max potion slots.
+// CanonicalVars: new DynamicVar("Slots", 2m).
+"PotionBelt" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::GainMaxPotionSlots { delta: AmountSpec::Fixed(2) }],
+)]),
+
+// PhialHolster.cs: AfterObtained -> +1 max potion slot.
+"PhialHolster" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::GainMaxPotionSlots { delta: AmountSpec::Fixed(1) }],
+)]),

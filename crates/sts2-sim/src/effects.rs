@@ -731,6 +731,16 @@ pub enum Effect {
     /// combat-time `GainGold` which writes to pending_gold and folds
     /// into combat rewards. STUB.
     GainRunStateGold { amount: AmountSpec },
+    /// Lose max HP outside combat. DistinguishedCape, LeafyPoultice
+    /// (`CreatureCmd.LoseMaxHp(N)`).
+    LoseRunStateMaxHp { amount: AmountSpec },
+    /// Add a specific card to the player's run-state deck. ArcaneScroll
+    /// (Rare card factory), BloodSoakedRose (curse), various event
+    /// rewards. `upgrade` is the upgrade level the card is added at.
+    AddCardToRunStateDeck { card_id: String, upgrade: i32 },
+    /// Increase the player's max-potion-belt slot count. PotionBelt
+    /// (+2), PhialHolster (+1).
+    GainMaxPotionSlots { delta: AmountSpec },
 
     // ---------- Event flow — STUB ----------
     /// Close the current event with a final description block.
@@ -1725,6 +1735,44 @@ pub fn run_state_effects(
         vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(999) }],
         )]),
 
+        "BloodSoakedRose" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::AddCardToRunStateDeck { card_id: "Enthralled".to_string(), upgrade: 0 }],
+        )]),
+
+        "CallingBell" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::AddCardToRunStateDeck { card_id: "CurseOfTheBell".to_string(), upgrade: 0 }],
+        )]),
+
+        "CursedPearl" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![
+        Effect::GainRunStateGold { amount: AmountSpec::Fixed(333) },
+        Effect::AddCardToRunStateDeck { card_id: "Greed".to_string(), upgrade: 0 },
+        ],
+        )]),
+
+        "LeafyPoultice" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(12) }],
+        )]),
+
+        "DistinguishedCape" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(7) }],
+        )]),
+
+        "PotionBelt" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::GainMaxPotionSlots { delta: AmountSpec::Fixed(2) }],
+        )]),
+
+        "PhialHolster" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::GainMaxPotionSlots { delta: AmountSpec::Fixed(1) }],
+        )]),
+
 
         _ => None,
     }
@@ -1789,6 +1837,31 @@ fn execute_run_state_effect(
                     id: potion_id.clone(),
                     slot_index: slot,
                 });
+            }
+        }
+        Effect::LoseRunStateMaxHp { amount } => {
+            let amt = run_state_resolve_amount(rs, player_idx, amount).max(0);
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                // Match C# CreatureCmd.LoseMaxHp: lowers max_hp and clamps
+                // current_hp so it stays <= new max.
+                ps.max_hp = (ps.max_hp - amt).max(1);
+                ps.hp = ps.hp.min(ps.max_hp);
+            }
+        }
+        Effect::AddCardToRunStateDeck { card_id, upgrade } => {
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.deck.push(crate::run_log::CardRef {
+                    id: card_id.clone(),
+                    floor_added_to_deck: None,
+                    current_upgrade_level: if *upgrade > 0 { Some(*upgrade) } else { None },
+                    ..Default::default()
+                });
+            }
+        }
+        Effect::GainMaxPotionSlots { delta } => {
+            let d = run_state_resolve_amount(rs, player_idx, delta);
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.max_potion_slot_count = (ps.max_potion_slot_count + d).max(0);
             }
         }
         _ => {
@@ -4784,8 +4857,12 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::GainPotionToBelt { .. }
         | Effect::LoseRunStateHp { .. }
         | Effect::GainRunStateMaxHp { .. }
-        | Effect::GainRunStateGold { .. } => {
-            // STUB: see Pile::Deck rationale.
+        | Effect::GainRunStateGold { .. }
+        | Effect::LoseRunStateMaxHp { .. }
+        | Effect::AddCardToRunStateDeck { .. }
+        | Effect::GainMaxPotionSlots { .. } => {
+            // STUB: see Pile::Deck rationale. Mutates RunState; combat
+            // VM has no handle. Routes through run_state_effects path.
         }
         // Event-flow primitives — STUB. Events run outside combat;
         // these variants make event bodies encode-able as data.
