@@ -1435,6 +1435,16 @@ internal static class GodotBypass
         // dispatch's interactive paths (Loc strings).
         PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Localization.LocManager");
+        // LocString.GetFormattedText() touches LocManager.Instance
+        // which NREs in our headless setup. Replace with empty string.
+        // Triggered transitively by relic CanonicalVars getters that
+        // contain StringVar entries (PaelsClaw/PaelsGrowth/RoyalStamp
+        // /NeowsBones/SeaGlass) — those relics' ToMutable() walks
+        // CanonicalVars eagerly, hits the LocString, and dies.
+        HarmonyPatchPrefix(asm, harmony, patchMethod, hmCtor,
+            "MegaCrit.Sts2.Core.Localization.LocString", "GetFormattedText",
+            BindingFlags.Public | BindingFlags.Instance,
+            typeof(SaveManagerPrefix), nameof(SaveManagerPrefix.EmptyStringPrefix));
         // Patch CardSelectCmd.From* methods to return empty selections.
         // Many Ancient relics' AfterObtained calls these (Astrolabe,
         // Pomander, Claws, NewLeaf, Beautiful/TriBoomerang/RoyalStamp,
@@ -1630,6 +1640,11 @@ internal static class SaveManagerPrefix
     public static bool FalsePrefix(ref bool __result)
     {
         __result = false;
+        return false;
+    }
+    public static bool EmptyStringPrefix(ref string __result)
+    {
+        __result = string.Empty;
         return false;
     }
     /// Toggleable IsInProgress prefix — default `true` so combat

@@ -111,9 +111,13 @@ fn collect_diffs(
 
 /// Filter diffs that come from the relics list itself (we know they
 /// differ on first add — oracle prepends starting BurningBlood plus the
-/// granted relic; rust uses a snapshot of the same).
+/// granted relic; rust uses a snapshot of the same). Also drops
+/// creature .name diffs (LocString.GetFormattedText patch returns ""
+/// in our headless harness while rust serializes null).
 fn is_relic_list_diff(path: &str) -> bool {
-    path.starts_with("$.allies[0].relics") || path.contains(".master_deck")
+    path.starts_with("$.allies[0].relics")
+        || path.contains(".master_deck")
+        || path.ends_with(".name")
 }
 
 #[derive(Clone, Debug)]
