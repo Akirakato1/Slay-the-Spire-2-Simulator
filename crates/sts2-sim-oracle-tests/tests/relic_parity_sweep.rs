@@ -273,7 +273,11 @@ fn sweep_all_relics_on_ironclad() {
             json!({ "handle": h }),
         );
 
-        // Rust mirror: grant + fire.
+        // Rust mirror: grant + fire. Always grant on rust regardless
+        // of oracle errors — even when oracle's AfterObtained throws,
+        // AddRelicInternal has typically already added the relic to
+        // player.Relics. The dump comparison surfaces whatever combat-
+        // side mutation differs.
         let mut rust_cs = fresh_rust();
         rust_cs.grant_relic(&modelid);
         rust_cs.fire_before_combat_start();

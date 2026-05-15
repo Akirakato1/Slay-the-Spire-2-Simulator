@@ -2819,6 +2819,15 @@ pub fn run_state_effects(
         vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(150) }],
         )]),
 
+        // PrecariousShears: AfterObtained removes 2 cards from deck
+        // (player-pick → empty in headless) + CreatureCmd.Damage(16)
+        // unpowered. We can't model the deck removal (player picks
+        // nothing in test mode), so just the HP loss.
+        "PrecariousShears" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::LoseRunStateHp { amount: AmountSpec::Canonical("Damage".to_string()) }],
+        )]),
+
         "SignetRing" => Some(vec![(
         RunStateHook::AfterObtained,
         vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(999) }],

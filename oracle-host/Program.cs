@@ -1452,6 +1452,7 @@ internal static class GodotBypass
                 "FromDeckForUpgrade",
                 "FromDeckForTransformation",
                 "FromDeckForEnchantment",
+                "FromDeckForRemoval",
                 "FromDeckGeneric",
                 "FromHand",
                 "FromHandForDiscard",
