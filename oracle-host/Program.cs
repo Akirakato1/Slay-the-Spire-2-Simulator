@@ -1346,6 +1346,40 @@ internal static class GodotBypass
         // dispatch's interactive paths (Loc strings).
         PatchAllStaticMethodsToNoOp(asm, harmony, patchMethod, hmCtor,
             "MegaCrit.Sts2.Core.Localization.LocManager");
+        // NullRunState.CreateCard normally throws. Replace with
+        // ToMutable+Owner so RelicCmd.Obtain bodies that call
+        // RunState.CreateCard<X>(player) followed by CardPileCmd.Add to
+        // the master deck (JewelryBox/NeowsTorment/Storybook/DustyTome
+        // /TanxsWhistle/etc.) can complete. Patches BOTH overloads
+        // (generic and CardModel-arg) so callers of either succeed.
+        var nullRunType = asm.GetType("MegaCrit.Sts2.Core.Runs.NullRunState",
+            throwOnError: false);
+        if (nullRunType != null)
+        {
+            var cardModelType = asm.GetType("MegaCrit.Sts2.Core.Models.CardModel",
+                throwOnError: true)!;
+            var playerType = asm.GetType("MegaCrit.Sts2.Core.Entities.Players.Player",
+                throwOnError: true)!;
+            var nullRunCreateCardCanonical = nullRunType.GetMethod("CreateCard",
+                BindingFlags.Public | BindingFlags.Instance,
+                new[] { cardModelType, playerType });
+            if (nullRunCreateCardCanonical != null)
+            {
+                HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor,
+                    nullRunCreateCardCanonical,
+                    typeof(SaveManagerPrefix),
+                    nameof(SaveManagerPrefix.NullRunCreateCardPrefix));
+            }
+            // Generic CreateCard<T>(Player) — Harmony 2 in this MonoMod
+            // build can't patch generic method DEFINITIONS (throws
+            // NotSupportedException in MMReflectionImporter on the open
+            // generic parameter). Callers that hit the generic overload
+            // (JewelryBox/Storybook/NeowsTorment/etc. via
+            // `RunState.CreateCard<X>(player)`) will still throw
+            // "Cannot create cards in a null run"; those relics remain
+            // ORACLE_ERROR until a real RunState is wired (or until each
+            // concrete T is enumerated and patched as a closed generic).
+        }
     }
 
     /// Patch every public static method on `typeName` to a no-op
@@ -1393,15 +1427,21 @@ internal static class GodotBypass
             .GetMethod(methodName, flags)
             ?? throw new InvalidOperationException(
                 $"target {typeName}.{methodName} not found");
+        HarmonyPatchPrefixDirect(harmony, patchMethod, hmCtor, target, prefixHost, prefixName);
+    }
+
+    /// Same as `HarmonyPatchPrefix` but the caller supplies the resolved
+    /// MethodBase target directly (used for generic method definitions and
+    /// non-trivial overload lookups).
+    private static void HarmonyPatchPrefixDirect(
+        object harmony, MethodInfo patchMethod, ConstructorInfo hmCtor,
+        System.Reflection.MethodBase target, Type prefixHost, string prefixName)
+    {
         var prefix = prefixHost.GetMethod(prefixName,
             BindingFlags.Public | BindingFlags.Static)
             ?? throw new InvalidOperationException(
                 $"prefix {prefixHost.Name}.{prefixName} not found");
         var hm = hmCtor.Invoke(new object[] { prefix });
-        // Build the args array matching the Patch overload's parameter
-        // count exactly. First arg = target MethodBase, second = prefix
-        // HarmonyMethod, remaining = null (postfix/transpiler/finalizer/
-        // ilmanipulator depending on Harmony version).
         var paramCount = patchMethod.GetParameters().Length;
         var args = new object?[paramCount];
         args[0] = target;
@@ -1449,6 +1489,64 @@ internal static class SaveManagerPrefix
     public static bool CompletedTaskPrefix(ref Task __result)
     {
         __result = Task.CompletedTask;
+        return false;
+    }
+    // NullRunState.CreateCard(CardModel canonical, Player owner) normally
+    // throws "Cannot create cards in a null run." Replace with the same
+    // body as the real RunState.CreateCard: clone the canonical to mutable
+    // and return it. We skip the AddCard/AfterCreated tracking that the
+    // real RunState does (run-state card-collection bookkeeping), because
+    // the parity test only needs the card to exist as a CardModel that
+    // CardPileCmd.Add can route into the master deck.
+    public static bool NullRunCreateCardPrefix(
+        ref object __result, object canonicalCard, object owner)
+    {
+        var toMut = canonicalCard.GetType().GetMethod("ToMutable",
+            BindingFlags.Public | BindingFlags.Instance,
+            Type.EmptyTypes);
+        var mutable = toMut!.Invoke(canonicalCard, null)!;
+        // Set Owner on the new card so downstream CardPile.Contains
+        // checks don't NRE.
+        var ownerProp = mutable.GetType().GetProperty("Owner",
+            BindingFlags.Public | BindingFlags.Instance);
+        ownerProp?.SetValue(mutable, owner);
+        __result = mutable;
+        return false;
+    }
+}
+
+/// Harmony prefix for the generic `NullRunState.CreateCard<T>(Player)`.
+/// Reads T from `__originalMethod.GetGenericArguments()[0]`, calls
+/// `ModelDb.Card<T>()` to get the canonical, ToMutable's it, assigns
+/// Owner, and substitutes the result. Mirrors the real
+/// `RunState.CreateCard<T>` body without the run-state bookkeeping.
+internal static class NullRunGenericCreateCardBridge
+{
+    private static MethodInfo? _modelDbCardGen;
+
+    public static bool Prefix(
+        System.Reflection.MethodBase __originalMethod,
+        object owner,
+        ref object __result)
+    {
+        var t = __originalMethod.GetGenericArguments()[0];
+        if (_modelDbCardGen == null)
+        {
+            var modelDb = t.Assembly.GetType(
+                "MegaCrit.Sts2.Core.Models.ModelDb", throwOnError: true)!;
+            _modelDbCardGen = modelDb.GetMethods(
+                BindingFlags.Public | BindingFlags.Static)
+                .First(m => m.Name == "Card" && m.IsGenericMethodDefinition
+                    && m.GetParameters().Length == 0);
+        }
+        var canonical = _modelDbCardGen.MakeGenericMethod(t).Invoke(null, null)!;
+        var toMut = canonical.GetType().GetMethod("ToMutable",
+            BindingFlags.Public | BindingFlags.Instance, Type.EmptyTypes);
+        var mutable = toMut!.Invoke(canonical, null)!;
+        var ownerProp = mutable.GetType().GetProperty("Owner",
+            BindingFlags.Public | BindingFlags.Instance);
+        ownerProp?.SetValue(mutable, owner);
+        __result = mutable;
         return false;
     }
 }

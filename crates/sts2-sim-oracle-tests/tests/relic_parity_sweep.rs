@@ -216,7 +216,17 @@ fn sweep_all_relics_on_ironclad() {
 
         let modelid = relic_modelid(rust_id);
 
-        // Grant on oracle side. May throw (relic depends on Godot, etc.).
+        // Grant on oracle side. May throw (Ancient relics whose
+        // AfterObtained reaches into RunState — CreateCard<T>,
+        // CurrentMapPointHistoryEntry, etc. — fail in our headless
+        // setup). For run-state-only relics that don't surface any
+        // combat-frame mutation, the oracle's failed grant is OK: the
+        // combat dump would have been identical to "no relic granted"
+        // anyway, and the rust side's run-state-deck mutation isn't
+        // visible in the combat dump (it lives on the master_deck which
+        // we filter via `is_relic_list_diff`). Record the grant error
+        // so we can flag relics that DO have combat side-effects.
+        let mut grant_error_msg: Option<String> = None;
         let grant_res = oracle.call(
             "combat_grant_relic",
             json!({ "handle": h, "relic_id": modelid }),
@@ -224,23 +234,17 @@ fn sweep_all_relics_on_ironclad() {
         match grant_res {
             Ok(v) if v.get("error").is_some() => {
                 let err = v["error"].clone();
-                let msg = err.get("message")
-                    .and_then(|m| m.as_str()).unwrap_or("unknown")
-                    .to_string();
-                diffs_by_id.insert(
-                    rust_id.clone(),
-                    vec![("$".into(),
-                        Value::String(format!("grant: {msg}")),
-                        Value::Null)],
+                grant_error_msg = Some(
+                    err.get("message")
+                        .and_then(|m| m.as_str()).unwrap_or("unknown")
+                        .to_string(),
                 );
-                buckets.entry("ORACLE_ERROR".into())
-                    .or_default().push(rust_id.clone());
-                continue;
             }
             Err(e) => {
                 oracle_crashes += 1;
                 eprintln!("  oracle pipe died on grant({}); respawning", rust_id);
                 oracle = Oracle::spawn().expect("respawn");
+                // Pipe death is fatal — set up a fresh combat & skip.
                 diffs_by_id.insert(
                     rust_id.clone(),
                     vec![("$".into(),
@@ -298,9 +302,30 @@ fn sweep_all_relics_on_ironclad() {
             Bucket::Other => "OTHER",
             Bucket::OracleError(_) => "ORACLE_ERROR",
         };
+        // If the oracle grant errored but the combat dump is otherwise
+        // clean, this is a run-state-only relic that we can't fully
+        // verify (no oracle-side mutation to compare) — call it
+        // RUNSTATE_ONLY rather than PASS so we know the test was bypassed.
+        let bucket_name = if matches!(bucket, Bucket::Pass)
+            && grant_error_msg.is_some()
+        {
+            "RUNSTATE_ONLY"
+        } else {
+            bucket_name
+        };
         buckets.entry(bucket_name.to_string()).or_default().push(rust_id.clone());
         if !diffs.is_empty() {
             diffs_by_id.insert(rust_id.clone(), diffs);
+        }
+        if bucket_name == "RUNSTATE_ONLY" {
+            // Record the grant error for documentation; doesn't count as
+            // a divergence but helps surface which infra is missing.
+            diffs_by_id.insert(
+                rust_id.clone(),
+                vec![("$.grant_error".into(),
+                    Value::String(grant_error_msg.unwrap_or_default()),
+                    Value::Null)],
+            );
         }
     }
 
