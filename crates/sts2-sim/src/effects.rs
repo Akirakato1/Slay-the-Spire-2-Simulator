@@ -1402,6 +1402,51 @@ pub fn power_effects(power_id: &str) -> Vec<PowerHook> {
                 },
             ],
         }],
+        // PoisonPower: at start of owner's turn, deal Amount damage
+        // (Unblockable | Unpowered -> bypasses block + modifiers), then
+        // decrement stack by 1. Mirrors PoisonPower.cs:81-100. We use
+        // LoseHp + ApplyPower(-1) to match the hardcoded behavior.
+        //
+        // C# TriggerCount considers AccelerantPower on opponents; in
+        // typical play (no Accelerant) TriggerCount == 1 so our single
+        // tick + decrement matches. Accelerant-induced multi-tick is
+        // not yet modeled.
+        "PoisonPower" => vec![PowerHook::AfterSideTurnStart {
+            filter: HookSideFilter::OwnerSide,
+            body: vec![
+                Effect::LoseHp {
+                    amount: AmountSpec::OwnerPowerAmount("PoisonPower".to_string()),
+                    target: Target::SelfActor,
+                },
+                Effect::ApplyPower {
+                    power_id: "PoisonPower".to_string(),
+                    amount: AmountSpec::Fixed(-1),
+                    target: Target::SelfActor,
+                },
+            ],
+        }],
+        // DemonFormPower: at start of owner's turn, apply
+        // StrengthPower(Amount) to owner. Permanent ramp.
+        "DemonFormPower" => vec![PowerHook::AfterSideTurnStart {
+            filter: HookSideFilter::OwnerSide,
+            body: vec![Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::OwnerPowerAmount("DemonFormPower".to_string()),
+                target: Target::SelfActor,
+            }],
+        }],
+        // TODO Strength/Dex/Weak/Vulnerable/Frail/Intangible:
+        // These are damage/block VALUE-FLOW modifier hooks
+        // (ModifyDamageAdditive / ModifyDamageMultiplicative / etc.),
+        // not event hooks. Migrating them requires the damage pipeline
+        // to walk power_effects entries by hook KIND — a separate
+        // layer parallel to AfterTurnEnd / AfterSideTurnStart. Left
+        // on the existing hardcoded pipeline in combat.rs until the
+        // hook-dispatcher #70 lands.
+        //
+        // Same applies to Barricade/Burrowed (ShouldClearBlock gate),
+        // Ritual (counter ramp with WasJustAppliedByEnemy flag), and
+        // the AfterDamageGiven/AfterDamageReceived family.
         _ => vec![],
     }
 }

@@ -896,45 +896,16 @@ impl CombatState {
     }
 
     /// Apply each creature's start-of-turn power effects when that
-    /// creature's side begins its turn. Currently models:
-    ///   - PoisonPower: deal `Amount` damage (Unblockable | Unpowered →
-    ///     block-bypassing), then decrement the stack by 1.
-    ///   - DemonFormPower: apply StrengthPower(Amount) to owner.
+    /// creature's side begins its turn.
     ///
-    /// Snapshots ticks before applying so a death during one tick doesn't
-    /// disrupt iteration. Poison uses `lose_hp` (bypasses block) per the
-    /// `ValueProp.Unblockable` flag the C# passes.
-    pub fn tick_start_of_turn_powers(&mut self, side: CombatSide) {
-        let mut poison_ticks: Vec<(usize, i32)> = Vec::new();
-        let mut demon_form_grants: Vec<(usize, i32)> = Vec::new();
-        let list = match side {
-            CombatSide::Player => &self.allies,
-            CombatSide::Enemy => &self.enemies,
-            CombatSide::None => return,
-        };
-        for (idx, creature) in list.iter().enumerate() {
-            if creature.current_hp == 0 {
-                continue;
-            }
-            for p in &creature.powers {
-                match p.id.as_str() {
-                    "PoisonPower" if p.amount > 0 => {
-                        poison_ticks.push((idx, p.amount));
-                    }
-                    "DemonFormPower" if p.amount != 0 => {
-                        demon_form_grants.push((idx, p.amount));
-                    }
-                    _ => {}
-                }
-            }
-        }
-        for (idx, amount) in poison_ticks {
-            self.lose_hp(side, idx, amount);
-            self.decrement_power(side, idx, "PoisonPower", 1);
-        }
-        for (idx, amount) in demon_form_grants {
-            self.apply_power(side, idx, "StrengthPower", amount);
-        }
+    /// PoisonPower / DemonFormPower migrated to the Power VM —
+    /// see `power_effects` in effects.rs. This shell remains for any
+    /// future hardcoded start-of-turn power that the data-driven layer
+    /// doesn't yet support (currently none).
+    pub fn tick_start_of_turn_powers(&mut self, _side: CombatSide) {
+        // No-op: Poison + DemonForm now dispatch through
+        // crate::effects::fire_power_hooks_after_side_turn_start
+        // which begin_turn already calls.
     }
 
     /// Pure end-of-turn bookkeeping for the side just finishing:
