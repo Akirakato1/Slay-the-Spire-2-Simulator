@@ -875,6 +875,17 @@ pub enum Effect {
         filter: CardFilter,
         pool: CardPoolRef,
     },
+    /// Remove `n` random deck cards matching `filter`. Interactive in
+    /// C# (player picks); sim picks via `up_front` RNG. EmptyCage,
+    /// PaelsTooth, BiiigHug, PreciseScissors.
+    RemoveRandomDeckCards { n: AmountSpec, filter: CardFilter },
+    /// Replace 1 deck card matching `from_filter` with a fresh copy of
+    /// `to_card_id` (deterministic — Claws → Maul, etc.). C# uses
+    /// CardCmd.Transform for these one-off swaps.
+    ReplaceRandomDeckCard {
+        from_filter: CardFilter,
+        to_card_id: String,
+    },
     /// Increase the player's max-potion-belt slot count. PotionBelt
     /// (+2), PhialHolster (+1).
     GainMaxPotionSlots { delta: AmountSpec },
@@ -2819,6 +2830,150 @@ pub fn run_state_effects(
         vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(1) }],
         )]),
 
+        "Astrolabe" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::TransformRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        pool: CardPoolRef::CharacterAny,
+        }],
+        )]),
+
+        "BeautifulBracelet" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        enchantment_id: "Swift".to_string(),
+        enchantment_amount: 3,
+        }],
+        )]),
+
+        "BiiigHug" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::RemoveRandomDeckCards {
+        n: AmountSpec::Fixed(4),
+        filter: CardFilter::Any,
+        }],
+        )]),
+
+        "Claws" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::ReplaceRandomDeckCard {
+        from_filter: CardFilter::Any,
+        to_card_id: "Maul".to_string(),
+        }],
+        )]),
+
+        "ElectricShrymp" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        enchantment_id: "Imbued".to_string(),
+        enchantment_amount: 1,
+        }],
+        )]),
+
+        "EmptyCage" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::RemoveRandomDeckCards {
+        n: AmountSpec::Fixed(2),
+        filter: CardFilter::Any,
+        }],
+        )]),
+
+        "GnarledHammer" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        enchantment_id: "Sharp".to_string(),
+        enchantment_amount: 1,
+        }],
+        )]),
+
+        "Kifuda" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        enchantment_id: "Adroit".to_string(),
+        enchantment_amount: 1,
+        }],
+        )]),
+
+        "NewLeaf" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::TransformRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        pool: CardPoolRef::CharacterAny,
+        }],
+        )]),
+
+        "PaelsGrowth" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        enchantment_id: "Clone".to_string(),
+        enchantment_amount: 1,
+        }],
+        )]),
+
+        "PaelsTooth" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::RemoveRandomDeckCards {
+        n: AmountSpec::Fixed(5),
+        filter: CardFilter::Any,
+        }],
+        )]),
+
+        "Pomander" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Upgradable,
+        }],
+        )]),
+
+        "PreciseScissors" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::RemoveRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        }],
+        )]),
+
+        "PunchDagger" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        enchantment_id: "Momentum".to_string(),
+        enchantment_amount: 1,
+        }],
+        )]),
+
+        "TriBoomerang" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        enchantment_id: "Instinct".to_string(),
+        enchantment_amount: 1,
+        }],
+        )]),
+
+        "YummyCookie" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(4),
+        filter: CardFilter::Upgradable,
+        }],
+        )]),
+
 
         _ => None,
     }
@@ -3005,6 +3160,68 @@ fn execute_run_state_effect(
                             amount: *enchantment_amount,
                         });
                     }
+                }
+            }
+        }
+        Effect::RemoveRandomDeckCards { n, filter } => {
+            let count = run_state_resolve_amount(rs, player_idx, n).max(0) as usize;
+            if count == 0 {
+                return;
+            }
+            let eligible: Vec<usize> = rs
+                .player_state_mut(player_idx)
+                .map(|ps| {
+                    ps.deck
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, c)| card_ref_matches_filter(c, filter))
+                        .map(|(i, _)| i)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if eligible.is_empty() {
+                return;
+            }
+            let mut picks =
+                pick_distinct_indices(&eligible, count, &mut rs.rng_set_mut().up_front);
+            // Remove highest-index-first so earlier indices stay valid.
+            picks.sort_unstable_by(|a, b| b.cmp(a));
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                for idx in picks {
+                    if idx < ps.deck.len() {
+                        ps.deck.remove(idx);
+                    }
+                }
+            }
+        }
+        Effect::ReplaceRandomDeckCard {
+            from_filter,
+            to_card_id,
+        } => {
+            let eligible: Vec<usize> = rs
+                .player_state_mut(player_idx)
+                .map(|ps| {
+                    ps.deck
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, c)| card_ref_matches_filter(c, from_filter))
+                        .map(|(i, _)| i)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if eligible.is_empty() {
+                return;
+            }
+            let pick_idx = rs
+                .rng_set_mut()
+                .up_front
+                .next_int_range(0, eligible.len() as i32) as usize;
+            let deck_idx = eligible[pick_idx];
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                if let Some(card) = ps.deck.get_mut(deck_idx) {
+                    card.id = to_card_id.clone();
+                    card.current_upgrade_level = None;
+                    card.enchantment = None;
                 }
             }
         }
@@ -7695,7 +7912,9 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::UpgradeRandomDeckCards { .. }
         | Effect::EnchantDeckCards { .. }
         | Effect::EnchantRandomDeckCards { .. }
-        | Effect::TransformRandomDeckCards { .. } => {
+        | Effect::TransformRandomDeckCards { .. }
+        | Effect::RemoveRandomDeckCards { .. }
+        | Effect::ReplaceRandomDeckCard { .. } => {
             // Run-state-scope only.
         }
     }

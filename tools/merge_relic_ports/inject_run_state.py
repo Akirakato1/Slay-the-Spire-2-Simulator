@@ -84,7 +84,7 @@ def parse_arms2(text):
 
 
 def main():
-    batch_files = ['batch_r_rs_1.txt', 'batch_r_rs_2.txt', 'batch_r_rs_3.txt', 'batch_r_rs_4.txt', 'batch_r_rs_5.txt', 'batch_r_rs_6.txt']
+    batch_files = ['batch_r_rs_1.txt', 'batch_r_rs_2.txt', 'batch_r_rs_3.txt', 'batch_r_rs_4.txt', 'batch_r_rs_5.txt', 'batch_r_rs_6.txt', 'batch_r_rs_7.txt']
     arms = []
     for fname in batch_files:
         p = os.path.join(here, fname)

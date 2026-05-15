@@ -1,0 +1,171 @@
+// batch_r_rs_7.txt — interactive deck-pick relics. C# uses
+// CardSelectCmd.FromDeckFor{Transformation,Enchantment,Upgrade,Removal}
+// which prompts the player. Sim has no player UI, so we substitute the
+// random variants of each primitive (UpgradeRandomDeckCards,
+// EnchantRandomDeckCards, RemoveRandomDeckCards, etc.) using the
+// up_front RNG. Net behavior: same NUMBER of cards affected, but the
+// specific cards differ from a player's manual pick.
+
+// Astrolabe.cs L51-63: transform 3 chosen deck cards.
+"Astrolabe" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::TransformRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        pool: CardPoolRef::CharacterAny,
+    }],
+)]),
+
+// BeautifulBracelet.cs L57-77: enchant 3 chosen with Swift(3).
+"BeautifulBracelet" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        enchantment_id: "Swift".to_string(),
+        enchantment_amount: 3,
+    }],
+)]),
+
+// BiiigHug: remove 4 chosen. AfterShuffle Soot-add side is combat-frame
+// and SKIPped here.
+"BiiigHug" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::RemoveRandomDeckCards {
+        n: AmountSpec::Fixed(4),
+        filter: CardFilter::Any,
+    }],
+)]),
+
+// Claws.cs L53-75: transform 1 chosen into Maul (replace). The original
+// is replaced (not removed + Maul added) — preserves upgrade level on
+// upgrade-eligible target. Our ReplaceRandomDeckCard sets new id but
+// drops upgrade/enchantment; close enough.
+"Claws" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::ReplaceRandomDeckCard {
+        from_filter: CardFilter::Any,
+        to_card_id: "Maul".to_string(),
+    }],
+)]),
+
+// ElectricShrymp: enchant 1 with Imbued(1).
+"ElectricShrymp" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        enchantment_id: "Imbued".to_string(),
+        enchantment_amount: 1,
+    }],
+)]),
+
+// EmptyCage: remove 2.
+"EmptyCage" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::RemoveRandomDeckCards {
+        n: AmountSpec::Fixed(2),
+        filter: CardFilter::Any,
+    }],
+)]),
+
+// GnarledHammer: enchant 3 with Sharp(1).
+"GnarledHammer" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        enchantment_id: "Sharp".to_string(),
+        enchantment_amount: 1,
+    }],
+)]),
+
+// Kifuda: enchant 3 with Adroit(1).
+"Kifuda" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        enchantment_id: "Adroit".to_string(),
+        enchantment_amount: 1,
+    }],
+)]),
+
+// NewLeaf: transform 1 chosen.
+"NewLeaf" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::TransformRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        pool: CardPoolRef::CharacterAny,
+    }],
+)]),
+
+// PaelsGrowth: enchant 1 with Clone(1).
+"PaelsGrowth" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        enchantment_id: "Clone".to_string(),
+        enchantment_amount: 1,
+    }],
+)]),
+
+// PaelsTooth: remove 5.
+"PaelsTooth" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::RemoveRandomDeckCards {
+        n: AmountSpec::Fixed(5),
+        filter: CardFilter::Any,
+    }],
+)]),
+
+// Pomander.cs L40-49: upgrade 1 chosen upgradable card.
+"Pomander" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Upgradable,
+    }],
+)]),
+
+// PreciseScissors: remove 1.
+"PreciseScissors" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::RemoveRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+    }],
+)]),
+
+// PunchDagger: enchant 1 with Momentum(1).
+"PunchDagger" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(1),
+        filter: CardFilter::Any,
+        enchantment_id: "Momentum".to_string(),
+        enchantment_amount: 1,
+    }],
+)]),
+
+// TriBoomerang: enchant 3 with Instinct(1).
+"TriBoomerang" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::EnchantRandomDeckCards {
+        n: AmountSpec::Fixed(3),
+        filter: CardFilter::Any,
+        enchantment_id: "Instinct".to_string(),
+        enchantment_amount: 1,
+    }],
+)]),
+
+// YummyCookie: upgrade 4 chosen upgradable cards.
+"YummyCookie" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::UpgradeRandomDeckCards {
+        n: AmountSpec::Fixed(4),
+        filter: CardFilter::Upgradable,
+    }],
+)]),
