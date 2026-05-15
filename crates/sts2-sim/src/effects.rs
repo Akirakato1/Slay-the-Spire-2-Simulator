@@ -2860,6 +2860,49 @@ pub enum RelicHook {
     /// C# `AfterBlockCleared(creature)`. Owner's block dropped to 0.
     /// CaptainsWheel / HornCleat.
     AfterBlockCleared,
+    /// C# `AfterCardChangedPiles(card, from, to)`. Any card movement.
+    /// BingBong / BookOfFiveRings / DarkstonePeriapt / LuckyFysh /
+    /// TheAbacus / Regalite.
+    AfterCardChangedPiles,
+    /// C# `AfterShuffle(player)`. Fires when the draw pile is
+    /// reshuffled from discard. BiiigHug (combat side).
+    AfterShuffle,
+    /// C# `AfterEnergyReset(player)`. Fires at begin_turn(Player)
+    /// after energy refill. ArtOfWar / FakeVenerableTeaSet /
+    /// BoundPhylactery / MiniRegent.
+    AfterEnergyReset,
+    /// C# `AfterStarsSpent(player, amount)`. GalacticDust.
+    AfterStarsSpent,
+    /// C# `AfterOrbChanneled(player, orb)`. Metronome / GoldPlatedCables.
+    /// `orb_filter` optionally narrows to a specific orb id.
+    AfterOrbChanneled { orb_filter: Option<String> },
+    /// C# `AfterDeath(creature)`. Fires when ANY creature dies, on the
+    /// relic owner side (player relic listens for own player or any
+    /// enemy death). GremlinHorn (gold on enemy kill).
+    AfterDeath,
+    /// C# `AfterDiedToDoom(creature)`. BookRepairKnife.
+    AfterDiedToDoom,
+    /// C# `AfterHandEmptied()`. Fires when hand goes to 0 cards (end of
+    /// turn after flush, or mid-turn after exhaust/discard). UnceasingTop.
+    AfterHandEmptied,
+    /// C# `BeforeCardPlayed(card)`. Fires before a card's OnPlay runs
+    /// (after energy cost is paid). IntimidatingHelmet / MusicBox.
+    BeforeCardPlayed { filter: Option<CardFilter> },
+    /// C# `BeforePlayPhaseStart()`. Fires at begin_turn(Player) just
+    /// before the per-turn draw. HistoryCourse / ToastyMittens
+    /// (alternate timing).
+    BeforePlayPhaseStart,
+    /// C# `BeforeHandDraw()`. Fires before each draw_cards call.
+    /// BlessedAntler / JeweledMask / NinjaScroll / WhisperingEarring
+    /// auto-play side.
+    BeforeHandDraw,
+    /// C# `BeforePowerAmountChanged(...)`. Fires before apply_power
+    /// mutates the stack. ArtifactPower listens here.
+    BeforePowerAmountChanged,
+    /// C# `BeforeTurnEndEarly(side)`. Fires before BeforeTurnEnd, in
+    /// the earlier-of-two end-of-turn phases. FakeOrichalcum side
+    /// shows this idiom.
+    BeforeTurnEndEarly { owner_side_only: bool },
 }
 
 /// Discriminant for matching `RelicHook` entries against a firing point.
@@ -2882,6 +2925,19 @@ pub enum RelicHookKind {
     AfterCardExhausted,
     AfterCardDiscarded,
     AfterBlockCleared,
+    AfterCardChangedPiles,
+    AfterShuffle,
+    AfterEnergyReset,
+    AfterStarsSpent,
+    AfterOrbChanneled,
+    AfterDeath,
+    AfterDiedToDoom,
+    AfterHandEmptied,
+    BeforeCardPlayed,
+    BeforePlayPhaseStart,
+    BeforeHandDraw,
+    BeforePowerAmountChanged,
+    BeforeTurnEndEarly,
 }
 
 impl RelicHook {
@@ -2903,6 +2959,19 @@ impl RelicHook {
             RelicHook::AfterCardExhausted => RelicHookKind::AfterCardExhausted,
             RelicHook::AfterCardDiscarded => RelicHookKind::AfterCardDiscarded,
             RelicHook::AfterBlockCleared => RelicHookKind::AfterBlockCleared,
+            RelicHook::AfterCardChangedPiles => RelicHookKind::AfterCardChangedPiles,
+            RelicHook::AfterShuffle => RelicHookKind::AfterShuffle,
+            RelicHook::AfterEnergyReset => RelicHookKind::AfterEnergyReset,
+            RelicHook::AfterStarsSpent => RelicHookKind::AfterStarsSpent,
+            RelicHook::AfterOrbChanneled { .. } => RelicHookKind::AfterOrbChanneled,
+            RelicHook::AfterDeath => RelicHookKind::AfterDeath,
+            RelicHook::AfterDiedToDoom => RelicHookKind::AfterDiedToDoom,
+            RelicHook::AfterHandEmptied => RelicHookKind::AfterHandEmptied,
+            RelicHook::BeforeCardPlayed { .. } => RelicHookKind::BeforeCardPlayed,
+            RelicHook::BeforePlayPhaseStart => RelicHookKind::BeforePlayPhaseStart,
+            RelicHook::BeforeHandDraw => RelicHookKind::BeforeHandDraw,
+            RelicHook::BeforePowerAmountChanged => RelicHookKind::BeforePowerAmountChanged,
+            RelicHook::BeforeTurnEndEarly { .. } => RelicHookKind::BeforeTurnEndEarly,
         }
     }
 
@@ -2925,7 +2994,22 @@ impl RelicHook {
             | RelicHook::AfterDamageReceived
             | RelicHook::AfterCardExhausted
             | RelicHook::AfterCardDiscarded
-            | RelicHook::AfterBlockCleared => true,
+            | RelicHook::AfterBlockCleared
+            | RelicHook::AfterCardChangedPiles
+            | RelicHook::AfterShuffle
+            | RelicHook::AfterEnergyReset
+            | RelicHook::AfterStarsSpent
+            | RelicHook::AfterOrbChanneled { .. }
+            | RelicHook::AfterDeath
+            | RelicHook::AfterDiedToDoom
+            | RelicHook::AfterHandEmptied
+            | RelicHook::BeforeCardPlayed { .. }
+            | RelicHook::BeforePlayPhaseStart
+            | RelicHook::BeforeHandDraw
+            | RelicHook::BeforePowerAmountChanged => true,
+            RelicHook::BeforeTurnEndEarly { owner_side_only } => {
+                !owner_side_only || current_side == owner_side
+            }
             RelicHook::AfterSideTurnStart { owner_side_only, first_turn_only }
             | RelicHook::BeforeSideTurnStart { owner_side_only, first_turn_only } => {
                 (!owner_side_only || current_side == owner_side)

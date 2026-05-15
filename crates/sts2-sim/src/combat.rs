@@ -587,6 +587,21 @@ impl CombatState {
             );
         }
         let _ = block_cleared_enemy;
+        // AfterEnergyReset relic hook — fires once after energy refill
+        // on the Player side. ArtOfWar / MiniRegent / etc. read here.
+        if side == CombatSide::Player {
+            crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::AfterEnergyReset,
+                CombatSide::Player,
+            );
+            // BeforePlayPhaseStart fires just before per-turn draw.
+            crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::BeforePlayPhaseStart,
+                CombatSide::Player,
+            );
+        }
         // AfterSideTurnStart hook pass.
         // Hook firing order proper will land in #70; for now powers
         // (Poison / DemonForm) fire first, then relic AfterSideTurnStart
@@ -927,6 +942,17 @@ impl CombatState {
     ///     powers gate on `side == CombatSide.Enemy` regardless of
     ///     owner, so they all tick together on the enemy-turn boundary.
     pub fn end_turn(&mut self) {
+        // BeforeTurnEndEarly relic hooks — fires before any other
+        // end-turn processing. Used for "discard now / save block now"
+        // relics that need to see hand-state PRE-flush.
+        {
+            let ending_side = self.current_side;
+            crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::BeforeTurnEndEarly,
+                ending_side,
+            );
+        }
         // BeforeTurnEnd relic hooks — fire BEFORE the end-of-turn flush
         // / AfterTurnEnd power ticks. Bookmark / Orichalcum / DiamondDiadem.
         {
@@ -1088,6 +1114,21 @@ impl CombatState {
         // turn only. Data-driven via relic_effects table.
         if ended_side == CombatSide::Player {
             self.fire_after_player_turn_end_hooks();
+            // AfterHandEmptied fires if the end-of-turn flush left hand
+            // empty (UnceasingTop's signal). Check post-flush.
+            let hand_empty = self
+                .allies
+                .first()
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.hand.cards.is_empty())
+                .unwrap_or(false);
+            if hand_empty {
+                crate::effects::fire_relic_hooks(
+                    self,
+                    crate::effects::RelicHookKind::AfterHandEmptied,
+                    CombatSide::Player,
+                );
+            }
         }
         if self.log_enabled {
             let round = self.round_number;
@@ -1291,6 +1332,13 @@ impl CombatState {
                 CombatSide::None => continue,
             };
             self.lose_hp(side, idx, cur);
+            // AfterDiedToDoom hook — fires once per doom kill on the
+            // player side (PutridLump etc. listen here).
+            crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::AfterDiedToDoom,
+                CombatSide::Player,
+            );
         }
     }
 
@@ -1527,7 +1575,15 @@ impl CombatState {
     /// are empty. Uses `rng.shuffle()` (== C# `Rng.Shuffle` Fisher-Yates),
     /// matching `RunState.Rng.Shuffle` semantics. Returns the number drawn.
     pub fn draw_cards(&mut self, player_idx: usize, n: i32, rng: &mut Rng) -> i32 {
+        // BeforeHandDraw relic hook fires before the draw kicks off
+        // (BlessedAntler / JeweledMask / NinjaScroll / WhisperingEarring).
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::BeforeHandDraw,
+            CombatSide::Player,
+        );
         let mut drawn_ids: Vec<String> = Vec::new();
+        let mut did_reshuffle = false;
         {
             let Some(creature) = self.allies.get_mut(player_idx) else {
                 return 0;
@@ -1542,6 +1598,7 @@ impl CombatState {
                     }
                     ps.draw.cards.append(&mut ps.discard.cards);
                     rng.shuffle(&mut ps.draw.cards);
+                    did_reshuffle = true;
                 }
                 if let Some(card) = ps.draw.cards.pop() {
                     drawn_ids.push(card.id.clone());
@@ -1550,8 +1607,6 @@ impl CombatState {
             }
         }
         let drawn = drawn_ids.len() as i32;
-        // Emit CardDrawn events unconditionally — history-scan
-        // AmountSpecs need them even when verbose logging is disabled.
         let round = self.round_number;
         for card_id in drawn_ids {
             self.combat_log.push(CombatEvent::CardDrawn {
@@ -1559,6 +1614,14 @@ impl CombatState {
                 player_idx,
                 card_id,
             });
+        }
+        if did_reshuffle {
+            // AfterShuffle relic hook (BiiigHug etc.).
+            crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::AfterShuffle,
+                CombatSide::Player,
+            );
         }
         drawn
     }
@@ -1945,14 +2008,16 @@ impl CombatState {
     /// Currently a no-op stub. Audit fix #5.
     pub fn fire_before_power_amount_changed(
         &mut self,
-        _side: CombatSide,
+        side: CombatSide,
         _target_idx: usize,
         _power_id: &str,
         _amount: i32,
     ) {
-        // No registered listeners yet. Future: ArtifactPower's
-        // TryModifyPowerAmountReceived which can return 0 to block
-        // a debuff (consuming an Artifact charge).
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::BeforePowerAmountChanged,
+            side,
+        );
     }
 
     /// Mirror of C# `Hook.AfterPowerAmountChanged`. Fires after
@@ -2207,6 +2272,15 @@ impl CombatState {
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
         self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
         self.fire_thorns_hook(dealer, target, props);
+        // AfterDeath relic hook — fires on transition to 0 HP.
+        // GremlinHorn (gold on enemy kill) reads here.
+        if outcome.fatal {
+            crate::effects::fire_relic_hooks(
+                self,
+                crate::effects::RelicHookKind::AfterDeath,
+                CombatSide::Player,
+            );
+        }
         outcome
     }
 
@@ -2240,6 +2314,15 @@ impl CombatState {
             player_idx,
             orb_id: orb_id.to_string(),
         });
+        // AfterOrbChanneled relic hook — Metronome / GoldPlatedCables.
+        // Filter by orb_id matching is handled in fire_relic_hooks via
+        // the entry's orb_filter (resolved against the most-recent
+        // OrbChanneled event in combat_log).
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterOrbChanneled,
+            CombatSide::Player,
+        );
     }
 
     /// Evoke the front orb (pop + run its evoke effect). Mirrors C#
@@ -2946,6 +3029,14 @@ impl CombatState {
             ethereal,
         });
 
+        // BeforeCardPlayed relic hook — fires after energy cost is paid
+        // but before OnPlay runs. IntimidatingHelmet / MusicBox.
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::BeforeCardPlayed,
+            CombatSide::Player,
+        );
+
         // 5. Dispatch OnPlay. The handler may mutate cs freely. The
         //    played card's enchantment (if any) is forwarded for damage
         //    modifier participation.
@@ -3007,6 +3098,13 @@ impl CombatState {
             card_data.card_type,
             &card_data.keywords,
             &card_data.tags,
+        );
+        // AfterCardChangedPiles fires after each routing (Hand -> ...).
+        // Generic across all card movements.
+        crate::effects::fire_relic_hooks(
+            self,
+            crate::effects::RelicHookKind::AfterCardChangedPiles,
+            CombatSide::Player,
         );
         // AfterCardExhausted / AfterCardDiscarded relic hooks — fire
         // after the routing event so the relic body sees the post-route
