@@ -172,6 +172,13 @@ fn is_random_card_gen(card_id: &str) -> bool {
             | "Charge"
             | "Cleanse"
             | "Reboot"
+            // Auto-play primitives: RNG-pick from draw, run OnPlay, route.
+            // Both sides do the auto-play, but the picked cards differ.
+            | "Catastrophe"
+            | "Havoc"
+            | "Uproar"
+            | "DistilledChaos"
+            | "Mayhem"
     )
 }
 

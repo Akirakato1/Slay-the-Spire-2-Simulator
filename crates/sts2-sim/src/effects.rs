@@ -735,10 +735,12 @@ pub enum Effect {
     /// Top up the potion belt to full from the per-combat
     /// potion-generation RNG stream. EntropicBrew. STUB.
     FillPotionSlots,
-    /// Auto-play (without paying energy / using a hand slot) the top
-    /// `n` cards of the draw pile. DistilledChaos, Mayhem-family.
-    /// STUB — needs auto-play recursion into play_card.
-    AutoplayFromDraw { n: i32 },
+    /// Auto-play (without paying energy / using a hand slot) `n` cards
+    /// from the draw pile. C# CardCmd.AutoPlay. If `force_exhaust` is
+    /// true, the auto-played card is routed to exhaust regardless of
+    /// its keywords — Havoc mirrors this. DistilledChaos / Catastrophe
+    /// use force_exhaust=false. Defaults: see helper constructors.
+    AutoplayFromDraw { n: i32, force_exhaust: bool },
     /// Pick cards via the given selector from `from` and move to `to`.
     /// Generalizes Anointed (pile-pick → hand) and similar.
     MoveCard {
@@ -4165,7 +4167,7 @@ pub fn potion_effects(potion_id: &str) -> Option<Vec<Effect>> {
 
         "DexterityPotion" => Some(vec![Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }]),
 
-        "DistilledChaos" => Some(vec![Effect::AutoplayFromDraw { n: 3 }]),
+        "DistilledChaos" => Some(vec![Effect::AutoplayFromDraw { n: 3, force_exhaust: false }]),
 
         "DropletOfPrecognition" => Some(vec![Effect::MoveCard { from: Pile::Draw, to: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
 
@@ -6108,7 +6110,9 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "CallOfTheVoid" => Some(vec![Effect::ApplyPower { power_id: "CallOfTheVoidPower".to_string(), amount: AmountSpec::Canonical("Cards".to_string()), target: Target::SelfPlayer }]),
         "Caltrops" => Some(vec![Effect::ApplyPower { power_id: "ThornsPower".to_string(), amount: AmountSpec::Canonical("ThornsPower".to_string()), target: Target::SelfPlayer }]),
         "Capacitor" => Some(vec![Effect::ApplyPower { power_id: "CapacitorPower".to_string(), amount: AmountSpec::Canonical("Repeat".to_string()), target: Target::SelfPlayer }]),
-        "Catastrophe" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "Catastrophe" => Some(vec![Effect::AutoplayFromDrawAmount {
+        n: AmountSpec::Canonical("Cards".to_string()),
+        }]),
         "ChildOfTheStars" => Some(vec![Effect::ApplyPower { power_id: "ChildOfTheStarsPower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
         "Clash" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Clumsy" => Some(vec![]),
@@ -7018,7 +7022,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "GatherLight" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }]),
         "Glow" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }, Effect::ApplyPower { power_id: "DrawCardsNextTurnPower".to_string(), amount: AmountSpec::Canonical("Cards".to_string()), target: Target::SelfPlayer }]),
         "GuidingStar" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
-        "Havoc" => Some(vec![Effect::AutoplayFromDraw { n: 1 }]),
+        "Havoc" => Some(vec![Effect::AutoplayFromDraw { n: 1, force_exhaust: true }]),
         "HiddenCache" => Some(vec![Effect::GainStars { amount: AmountSpec::Canonical("Stars".to_string()) }, Effect::ApplyPower { power_id: "StarNextTurnPower".to_string(), amount: AmountSpec::Canonical("StarNextTurnPower".to_string()), target: Target::SelfPlayer }]),
         "Hotfix" => Some(vec![Effect::ApplyPower { power_id: "HotfixPower".to_string(), amount: AmountSpec::Canonical("FocusPower".to_string()), target: Target::SelfPlayer }]),
         "Hyperbeam" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::AllEnemies, hits: 1 }, Effect::ApplyPower { power_id: "FocusPower".to_string(), amount: AmountSpec::Mul { left: Box::new(AmountSpec::Canonical("FocusPower".to_string())), right: Box::new(AmountSpec::Fixed(-1)) }, target: Target::SelfPlayer }]),
@@ -8201,10 +8205,17 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 }
             }
         }
-        Effect::AutoplayCardsFromPile { .. } => {
-            // STUB: auto-play recursion into play_card lands with the
-            // pending-action queue. KnifeTrap / Uproar / DistilledChaos
-            // / Mayhem all share this gap.
+        Effect::AutoplayCardsFromPile { pile, filter, n } => {
+            // C# CardCmd.AutoPlay loop: RNG-pick a card from `pile`
+            // matching `filter`, run its OnPlay effects with no energy
+            // gate, route to exhaust/discard. KnifeTrap / Uproar /
+            // BeatDown / DistilledChaos / Mayhem variants all use this.
+            let count = n.resolve(ctx, cs).max(0);
+            for _ in 0..count {
+                let picked = pick_card_from_pile(cs, ctx.player_idx, *pile, Some(filter));
+                let Some(card) = picked else { break };
+                auto_play_card(cs, ctx.player_idx, card, false);
+            }
         }
         Effect::SetPowerStateField {
             power_id,
@@ -8443,9 +8454,13 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             }
             cs.draw_cards_self_rng(ctx.player_idx, n);
         }
-        Effect::AutoplayFromDrawAmount { n: _ } => {
-            // STUB: full auto-play recursion into play_card still
-            // pending — same status as the legacy AutoplayFromDraw.
+        Effect::AutoplayFromDrawAmount { n } => {
+            let count = n.resolve(ctx, cs).max(0);
+            for _ in 0..count {
+                let picked = pick_card_from_pile(cs, ctx.player_idx, Pile::Draw, None);
+                let Some(card) = picked else { break };
+                auto_play_card(cs, ctx.player_idx, card, false);
+            }
         }
         Effect::MoveAllByFilterAcrossPiles { to_pile, filter } => {
             // SummonForth: walk every combat pile EXCEPT to_pile,
@@ -8607,10 +8622,16 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         Effect::GenerateRandomPotion | Effect::FillPotionSlots => {
             // STUB: potion belt isn't in CombatState.
         }
-        Effect::AutoplayFromDraw { .. } => {
-            // STUB: requires re-entry into play_card from inside OnPlay.
-            // DistilledChaos / Mayhem-family cards encode as data but
-            // don't fire until the auto-play recursion lands.
+        Effect::AutoplayFromDraw { n, force_exhaust } => {
+            // C# Catastrophe / Havoc / Mayhem / DistilledChaos:
+            // RNG-pick a card from draw, run its OnPlay effects via
+            // auto_play_card, route to exhaust/discard. `force_exhaust`
+            // mirrors CardCmd.AutoPlay's forceExhaust flag (Havoc).
+            for _ in 0..*n {
+                let picked = pick_card_from_pile(cs, ctx.player_idx, Pile::Draw, None);
+                let Some(card) = picked else { break };
+                auto_play_card(cs, ctx.player_idx, card, *force_exhaust);
+            }
         }
         Effect::MoveCard { from, to, selector } => {
             let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
@@ -9298,6 +9319,97 @@ fn select_card_indices(
             }
             cs.rng = rng;
             picked
+        }
+    }
+}
+
+/// RNG-pick one card from the named pile (optionally constrained by
+/// `filter`), removing and returning it. Used by AutoplayFromDraw and
+/// AutoplayCardsFromPile to mirror C# `StableShuffle(rng).FirstOrDefault()`.
+fn pick_card_from_pile(
+    cs: &mut CombatState,
+    player_idx: usize,
+    pile: Pile,
+    filter: Option<&CardFilter>,
+) -> Option<crate::combat::CardInstance> {
+    let matching: Vec<usize> = {
+        let ps = player_state_mut(cs, player_idx)?;
+        let p = pile_mut(ps, pile)?;
+        p.cards
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| filter.map(|f| matches_filter(c, f)).unwrap_or(true))
+            .map(|(i, _)| i)
+            .collect()
+    };
+    if matching.is_empty() {
+        return None;
+    }
+    let pick = cs.rng.next_int_range(0, matching.len() as i32) as usize;
+    let idx = matching[pick];
+    let ps = player_state_mut(cs, player_idx)?;
+    let p = pile_mut(ps, pile)?;
+    Some(p.cards.remove(idx))
+}
+
+/// Execute one card's OnPlay effects auto-play style: temporarily push
+/// onto play_pile, dispatch effects via `dispatch_on_play`, then route
+/// to exhaust (Exhaust keyword) or discard. Skips energy gating, target
+/// validation, and the BeforeCardPlayed/AfterCardPlayed hook chain —
+/// mirrors C# CardCmd.AutoPlay which bypasses the normal play flow.
+fn auto_play_card(
+    cs: &mut CombatState,
+    player_idx: usize,
+    card: crate::combat::CardInstance,
+    force_exhaust: bool,
+) {
+    let Some(data) = crate::card::by_id(&card.id) else {
+        // Unknown card: drop into discard so accounting still works.
+        if let Some(ps) = player_state_mut(cs, player_idx) {
+            ps.discard.cards.push(card);
+        }
+        return;
+    };
+    let card_id = card.id.clone();
+    let upgrade_level = card.upgrade_level;
+    let enchantment = card.enchantment.clone();
+    // Default target: first alive enemy for AnyEnemy/RandomEnemy/etc.
+    let target = match data.target_type {
+        crate::card::TargetType::AnyEnemy
+        | crate::card::TargetType::RandomEnemy => {
+            cs.enemies
+                .iter()
+                .position(|e| e.current_hp > 0)
+                .map(|i| (CombatSide::Enemy, i))
+        }
+        crate::card::TargetType::AnyAlly => Some((CombatSide::Player, player_idx)),
+        _ => None,
+    };
+    // Move to play_pile during dispatch.
+    if let Some(ps) = player_state_mut(cs, player_idx) {
+        ps.play_pile.push(card);
+    }
+    // Resolve and execute effects. `dispatch_on_play` falls back to the
+    // legacy match-arms if `card_effects` returns None.
+    let _handled = crate::combat::dispatch_on_play(
+        cs,
+        &card_id,
+        upgrade_level,
+        enchantment.as_ref(),
+        player_idx,
+        target,
+        0,
+    );
+    // Route the played card per its keywords. Exhaust keyword OR
+    // force_exhaust (Havoc) → exhaust; otherwise → discard.
+    let exhausts = force_exhaust || data.keywords.iter().any(|k| k == "Exhaust");
+    if let Some(ps) = player_state_mut(cs, player_idx) {
+        if let Some(card) = ps.play_pile.pop() {
+            if exhausts {
+                ps.exhaust.cards.push(card);
+            } else {
+                ps.discard.cards.push(card);
+            }
         }
     }
 }
@@ -10558,7 +10670,7 @@ mod tests {
             Effect::CompleteQuest,
             Effect::GenerateRandomPotion,
             Effect::FillPotionSlots,
-            Effect::AutoplayFromDraw { n: 3 },
+            Effect::AutoplayFromDraw { n: 3, force_exhaust: false },
             Effect::ApplyKeywordToCards {
                 keyword: "Exhaust".to_string(),
                 from: Pile::Hand,

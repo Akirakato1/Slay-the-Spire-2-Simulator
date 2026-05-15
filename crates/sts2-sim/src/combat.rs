@@ -3779,7 +3779,7 @@ fn validate_target(
 /// block, draw cards, apply powers). We pass `&mut CombatState` for the
 /// dispatch and let each handler call the high-level primitives
 /// (`deal_damage`, `gain_block`, `apply_power`, `draw_cards`, ...).
-fn dispatch_on_play(
+pub(crate) fn dispatch_on_play(
     cs: &mut CombatState,
     card_id: &str,
     upgrade_level: i32,
