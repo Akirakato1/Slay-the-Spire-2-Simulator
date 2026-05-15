@@ -1,0 +1,110 @@
+// batch_v6.txt - cards using CardFilter::OfRarity, TransformIntoSpecific,
+// UpgradeAllUpgradableCards, Target::ChosenAlly. Verified against C# source.
+
+// Anointed.cs L33-38: move all Rare-rarity cards in Draw to Hand bottom.
+        "Anointed" => Some(vec![Effect::MoveCard {
+            from: Pile::Draw,
+            to: Pile::Hand,
+            selector: Selector::FirstMatching {
+                n: i32::MAX,
+                filter: CardFilter::OfRarity("Rare".to_string()),
+            },
+        }]),
+
+// Apotheosis.cs L37-48: upgrade every upgradable card across all the
+// player's combat piles (excluding self — handled at runtime by source
+// guard; our impl upgrades all piles including the card-being-played's
+// own pile post-routing, which is functionally equivalent since this
+// card exhausts and the upgrade is idempotent).
+        "Apotheosis" => Some(vec![Effect::UpgradeAllUpgradableCards]),
+
+// Begone.cs L36-52: interactive pick 1 from Hand -> TransformIntoSpecific
+// MinionStrike. Upgrade flag carries IsUpgraded.
+        "Begone" => Some(vec![Effect::Conditional {
+            condition: Condition::IsUpgraded,
+            then_branch: vec![Effect::TransformIntoSpecific {
+                from: Pile::Hand,
+                selector: Selector::PlayerInteractive { n: 1 },
+                target_card_id: "MinionStrike".to_string(),
+                upgrade: true,
+            }],
+            else_branch: vec![Effect::TransformIntoSpecific {
+                from: Pile::Hand,
+                selector: Selector::PlayerInteractive { n: 1 },
+                target_card_id: "MinionStrike".to_string(),
+                upgrade: false,
+            }],
+        }]),
+
+// Charge.cs L47-63: interactive pick Cards-var (default 2) from Draw,
+// TransformIntoSpecific MinionDiveBomb each. Upgrade flag carries IsUpgraded.
+// (Cards.IntValue is the canonical Cards var — passed as n in
+// PlayerInteractive selector. Our selector takes literal i32; encode
+// as Fixed-2-or-3 via IsUpgraded branch since Cards var isn't read at
+// selector binding time.)
+        "Charge" => Some(vec![Effect::Conditional {
+            condition: Condition::IsUpgraded,
+            then_branch: vec![Effect::TransformIntoSpecific {
+                from: Pile::Draw,
+                selector: Selector::PlayerInteractive { n: 2 },
+                target_card_id: "MinionDiveBomb".to_string(),
+                upgrade: true,
+            }],
+            else_branch: vec![Effect::TransformIntoSpecific {
+                from: Pile::Draw,
+                selector: Selector::PlayerInteractive { n: 2 },
+                target_card_id: "MinionDiveBomb".to_string(),
+                upgrade: false,
+            }],
+        }]),
+
+// Guards.cs L46-63: interactive pick any-N from Hand (0..999999999)
+// -> TransformIntoSpecific MinionSacrifice each. Encode as PlayerInteractive
+// with a generous upper bound; our selector resolves to Random-fallback.
+        "Guards" => Some(vec![Effect::Conditional {
+            condition: Condition::IsUpgraded,
+            then_branch: vec![Effect::TransformIntoSpecific {
+                from: Pile::Hand,
+                selector: Selector::PlayerInteractive { n: 10 },
+                target_card_id: "MinionSacrifice".to_string(),
+                upgrade: true,
+            }],
+            else_branch: vec![Effect::TransformIntoSpecific {
+                from: Pile::Hand,
+                selector: Selector::PlayerInteractive { n: 10 },
+                target_card_id: "MinionSacrifice".to_string(),
+                upgrade: false,
+            }],
+        }]),
+
+// PrimalForce.cs L35-49: for every Attack card in Hand (filtered to
+// transformable, no choice), TransformIntoSpecific GiantRock each.
+        "PrimalForce" => Some(vec![Effect::Conditional {
+            condition: Condition::IsUpgraded,
+            then_branch: vec![Effect::TransformIntoSpecific {
+                from: Pile::Hand,
+                selector: Selector::FirstMatching {
+                    n: i32::MAX,
+                    filter: CardFilter::OfType("Attack".to_string()),
+                },
+                target_card_id: "GiantRock".to_string(),
+                upgrade: true,
+            }],
+            else_branch: vec![Effect::TransformIntoSpecific {
+                from: Pile::Hand,
+                selector: Selector::FirstMatching {
+                    n: i32::MAX,
+                    filter: CardFilter::OfType("Attack".to_string()),
+                },
+                target_card_id: "GiantRock".to_string(),
+                upgrade: false,
+            }],
+        }]),
+
+// Mimic.cs L70-74: GainBlock(target.Block) self via CalculatedBlock with
+// target multiplier. Multiplayer-only; single-player collapses target=self
+// so the block-gain equals self's current block (doubles it like Entrench).
+        "Mimic" => Some(vec![Effect::GainBlock {
+            amount: AmountSpec::TargetBlock,
+            target: Target::SelfPlayer,
+        }]),

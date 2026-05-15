@@ -225,26 +225,35 @@ pub fn pool_card_ids(
                 continue;
             }
         }
-        let extra_ok = match filter {
-            CardFilter::Any => true,
-            CardFilter::Upgradable => card.max_upgrade_level > 0,
-            CardFilter::OfType(name) => match name.as_str() {
-                "Attack" => card.card_type == CardType::Attack,
-                "Skill" => card.card_type == CardType::Skill,
-                "Power" => card.card_type == CardType::Power,
-                "Status" => card.card_type == CardType::Status,
-                "Curse" => card.card_type == CardType::Curse,
-                _ => false,
-            },
-            CardFilter::HasKeyword(kw) => card.keywords.iter().any(|k| k == kw),
-            CardFilter::TaggedAs(tag) => card.tags.iter().any(|t| t == tag),
-        };
+        let extra_ok = card_matches_filter(card, filter);
         if !extra_ok {
             continue;
         }
         out.push(card.id.clone());
     }
     out
+}
+
+fn card_matches_filter(card: &CardData, filter: &crate::effects::CardFilter) -> bool {
+    use crate::effects::CardFilter;
+    match filter {
+        CardFilter::Any => true,
+        CardFilter::Upgradable => card.max_upgrade_level > 0,
+        CardFilter::OfType(name) => match name.as_str() {
+            "Attack" => card.card_type == CardType::Attack,
+            "Skill" => card.card_type == CardType::Skill,
+            "Power" => card.card_type == CardType::Power,
+            "Status" => card.card_type == CardType::Status,
+            "Curse" => card.card_type == CardType::Curse,
+            _ => false,
+        },
+        CardFilter::HasKeyword(kw) => card.keywords.iter().any(|k| k == kw),
+        CardFilter::TaggedAs(tag) => card.tags.iter().any(|t| t == tag),
+        CardFilter::OfRarity(r) => format!("{:?}", card.rarity).eq_ignore_ascii_case(r),
+        CardFilter::And(a, b) => card_matches_filter(card, a) && card_matches_filter(card, b),
+        CardFilter::Not(inner) => !card_matches_filter(card, inner),
+        CardFilter::HasId(id) => &card.id == id,
+    }
 }
 
 /// Sample `n` card ids from `candidates` using the supplied combat RNG.

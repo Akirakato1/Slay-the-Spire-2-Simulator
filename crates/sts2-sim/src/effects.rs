@@ -396,6 +396,16 @@ pub enum CardFilter {
     OfType(String),       // "Attack" | "Skill" | "Power" | "Status" | "Curse"
     HasKeyword(String),   // "Exhaust" | "Ethereal" | ...
     TaggedAs(String),     // "Strike" | "Shiv" | ...
+    /// C# `card.Rarity == CardRarity.X`. "Common" / "Uncommon" / "Rare" /
+    /// "Ancient" / "Event" / "Token" / "Status" / "Curse" / "Quest".
+    /// Anointed pulls Rare-only from draw.
+    OfRarity(String),
+    /// Logical AND of two filters.
+    And(Box<CardFilter>, Box<CardFilter>),
+    /// Logical NOT.
+    Not(Box<CardFilter>),
+    /// Exact card id (single-card filter; useful for "find SovereignBlade").
+    HasId(String),
 }
 
 /// Closed primitive vocabulary.
@@ -610,6 +620,18 @@ pub enum Effect {
         from: Pile,
         selector: Selector,
     },
+    /// Transform selected cards into instances of a specific card_id
+    /// (optionally upgraded). Begone (-> MinionStrike), Charge, Guards
+    /// (-> MinionSacrifice). Mirrors C# `CardCmd.Transform(picked, new)`.
+    TransformIntoSpecific {
+        from: Pile,
+        selector: Selector,
+        target_card_id: String,
+        upgrade: bool,
+    },
+    /// Upgrade every upgradable card across ALL the player's piles.
+    /// Apotheosis. Mirrors C# `foreach card in AllCards if IsUpgradable`.
+    UpgradeAllUpgradableCards,
     /// Set the energy cost of selected cards for a duration.
     /// Discovery-style. STUB — per-card per-scope cost override not
     /// yet plumbed into CardInstance.
@@ -1272,6 +1294,12 @@ fn card_filter_matches_id(filter: &CardFilter, card_id: &str) -> bool {
         },
         CardFilter::HasKeyword(kw) => card.keywords.iter().any(|k| k == kw),
         CardFilter::TaggedAs(tag) => card.tags.iter().any(|t| t == tag),
+        CardFilter::OfRarity(r) => format!("{:?}", card.rarity).eq_ignore_ascii_case(r),
+        CardFilter::And(a, b) => {
+            card_filter_matches_id(a, card_id) && card_filter_matches_id(b, card_id)
+        }
+        CardFilter::Not(inner) => !card_filter_matches_id(inner, card_id),
+        CardFilter::HasId(id) => card_id == id,
     }
 }
 
@@ -1649,6 +1677,15 @@ fn card_metadata_matches_filter(
         },
         CardFilter::HasKeyword(k) => keywords.iter().any(|kw| kw == k),
         CardFilter::TaggedAs(t) => tags.iter().any(|tag| tag == t),
+        CardFilter::OfRarity(_) => false, // not derivable from metadata alone
+        CardFilter::And(a, b) => {
+            card_metadata_matches_filter(card_type, keywords, tags, a)
+                && card_metadata_matches_filter(card_type, keywords, tags, b)
+        }
+        CardFilter::Not(inner) => {
+            !card_metadata_matches_filter(card_type, keywords, tags, inner)
+        }
+        CardFilter::HasId(_) => false, // metadata-only path can't see id
     }
 }
 
@@ -3374,7 +3411,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         // SKIP Wish: Skill/Self shape with vars=set() powers=set() not recognized
         // SKIP Zap: Skill/Self shape with vars=set() powers=set() not recognized
         // ===== Manual v2 card ports (batches v2_1..v2_3) =====
-        // 151 hand-curated arms covering Acrobatics..Rattle.
+        // 158 hand-curated arms covering Acrobatics..Rattle.
         // Source: tools/merge_card_ports/batch_v2_*.txt.
         // SKIPs documented in those files.
 
@@ -3592,6 +3629,85 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         cost: AmountSpec::Fixed(1),
         scope: CostScope::ThisTurn,
         }],
+        }]),
+        "Anointed" => Some(vec![Effect::MoveCard {
+        from: Pile::Draw,
+        to: Pile::Hand,
+        selector: Selector::FirstMatching {
+        n: i32::MAX,
+        filter: CardFilter::OfRarity("Rare".to_string()),
+        },
+        }]),
+        "Apotheosis" => Some(vec![Effect::UpgradeAllUpgradableCards]),
+        "Begone" => Some(vec![Effect::Conditional {
+        condition: Condition::IsUpgraded,
+        then_branch: vec![Effect::TransformIntoSpecific {
+        from: Pile::Hand,
+        selector: Selector::PlayerInteractive { n: 1 },
+        target_card_id: "MinionStrike".to_string(),
+        upgrade: true,
+        }],
+        else_branch: vec![Effect::TransformIntoSpecific {
+        from: Pile::Hand,
+        selector: Selector::PlayerInteractive { n: 1 },
+        target_card_id: "MinionStrike".to_string(),
+        upgrade: false,
+        }],
+        }]),
+        "Charge" => Some(vec![Effect::Conditional {
+        condition: Condition::IsUpgraded,
+        then_branch: vec![Effect::TransformIntoSpecific {
+        from: Pile::Draw,
+        selector: Selector::PlayerInteractive { n: 2 },
+        target_card_id: "MinionDiveBomb".to_string(),
+        upgrade: true,
+        }],
+        else_branch: vec![Effect::TransformIntoSpecific {
+        from: Pile::Draw,
+        selector: Selector::PlayerInteractive { n: 2 },
+        target_card_id: "MinionDiveBomb".to_string(),
+        upgrade: false,
+        }],
+        }]),
+        "Guards" => Some(vec![Effect::Conditional {
+        condition: Condition::IsUpgraded,
+        then_branch: vec![Effect::TransformIntoSpecific {
+        from: Pile::Hand,
+        selector: Selector::PlayerInteractive { n: 10 },
+        target_card_id: "MinionSacrifice".to_string(),
+        upgrade: true,
+        }],
+        else_branch: vec![Effect::TransformIntoSpecific {
+        from: Pile::Hand,
+        selector: Selector::PlayerInteractive { n: 10 },
+        target_card_id: "MinionSacrifice".to_string(),
+        upgrade: false,
+        }],
+        }]),
+        "PrimalForce" => Some(vec![Effect::Conditional {
+        condition: Condition::IsUpgraded,
+        then_branch: vec![Effect::TransformIntoSpecific {
+        from: Pile::Hand,
+        selector: Selector::FirstMatching {
+        n: i32::MAX,
+        filter: CardFilter::OfType("Attack".to_string()),
+        },
+        target_card_id: "GiantRock".to_string(),
+        upgrade: true,
+        }],
+        else_branch: vec![Effect::TransformIntoSpecific {
+        from: Pile::Hand,
+        selector: Selector::FirstMatching {
+        n: i32::MAX,
+        filter: CardFilter::OfType("Attack".to_string()),
+        },
+        target_card_id: "GiantRock".to_string(),
+        upgrade: false,
+        }],
+        }]),
+        "Mimic" => Some(vec![Effect::GainBlock {
+        amount: AmountSpec::TargetBlock,
+        target: Target::SelfPlayer,
         }]),
 
         _ => None,
@@ -4009,6 +4125,47 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         Effect::TransformCards { .. } => {
             // STUB: CardFactory.CreateRandom* not yet plumbed through
             // a named RNG stream.
+        }
+        Effect::TransformIntoSpecific {
+            from,
+            selector,
+            target_card_id,
+            upgrade,
+        } => {
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            let Some(target_data) = crate::card::by_id(target_card_id) else {
+                return;
+            };
+            let new_upgrade = if *upgrade { 1 } else { 0 };
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                let Some(pile) = pile_mut(ps, *from) else {
+                    return;
+                };
+                for idx in picks {
+                    if let Some(card) = pile.cards.get_mut(idx) {
+                        *card = crate::combat::CardInstance::from_card(
+                            target_data,
+                            new_upgrade,
+                        );
+                    }
+                }
+            }
+        }
+        Effect::UpgradeAllUpgradableCards => {
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                for pile in [&mut ps.hand, &mut ps.draw, &mut ps.discard, &mut ps.exhaust] {
+                    for card in pile.cards.iter_mut() {
+                        let Some(data) = crate::card::by_id(&card.id) else {
+                            continue;
+                        };
+                        if data.max_upgrade_level > 0
+                            && card.upgrade_level < data.max_upgrade_level
+                        {
+                            card.upgrade_level += 1;
+                        }
+                    }
+                }
+            }
         }
         Effect::SetCardCost {
             from,
@@ -4476,12 +4633,20 @@ fn matches_filter(card: &crate::combat::CardInstance, filter: &CardFilter) -> bo
     };
     match filter {
         CardFilter::Any => true,
-        CardFilter::Upgradable => card.upgrade_level == 0,
+        CardFilter::Upgradable => {
+            card.upgrade_level == 0 && data.max_upgrade_level > 0
+        }
         CardFilter::OfType(t) => {
             format!("{:?}", data.card_type).eq_ignore_ascii_case(t)
         }
         CardFilter::HasKeyword(k) => data.keywords.iter().any(|kw| kw.eq_ignore_ascii_case(k)),
         CardFilter::TaggedAs(t) => data.tags.iter().any(|tag| tag.eq_ignore_ascii_case(t)),
+        CardFilter::OfRarity(r) => {
+            format!("{:?}", data.rarity).eq_ignore_ascii_case(r)
+        }
+        CardFilter::And(a, b) => matches_filter(card, a) && matches_filter(card, b),
+        CardFilter::Not(inner) => !matches_filter(card, inner),
+        CardFilter::HasId(id) => &card.id == id,
     }
 }
 
