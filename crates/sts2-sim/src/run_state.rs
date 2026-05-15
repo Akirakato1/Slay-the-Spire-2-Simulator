@@ -204,6 +204,60 @@ impl RunState {
     pub fn acts(&self) -> &[ActId] { &self.acts }
     pub fn players(&self) -> &[PlayerState] { &self.players }
     pub fn players_mut(&mut self) -> &mut [PlayerState] { &mut self.players }
+    /// Indexed mutable access to a single player's state.
+    pub fn player_state_mut(&mut self, player_idx: usize) -> Option<&mut PlayerState> {
+        self.players.get_mut(player_idx)
+    }
+
+    /// Grant a relic to the player and fire its `AfterObtained` hook
+    /// through the run-state effect VM. Mirrors C# `Relics.Add(relic) +
+    /// await relic.AfterObtained()` from `RelicCmd.AddRelic`.
+    pub fn add_relic(&mut self, player_idx: usize, relic_id: &str) {
+        if let Some(ps) = self.players.get_mut(player_idx) {
+            ps.relics.push(crate::run_log::RelicEntry {
+                id: relic_id.to_string(),
+                floor_added_to_deck: self.act_floor,
+                props: None,
+            });
+        }
+        let Some(arms) = crate::effects::run_state_effects(relic_id) else {
+            return;
+        };
+        for (hook, body) in arms {
+            if matches!(hook, crate::effects::RunStateHook::AfterObtained) {
+                crate::effects::execute_run_state_effects(self, player_idx, &body);
+            }
+        }
+    }
+
+    /// Notify run-state of room entry. Fires AfterRoomEntered hooks on
+    /// every owned relic. `room_type` is one of "Monster" / "Elite" /
+    /// "Boss" / "MerchantRoom" / "RestRoom" / "EventRoom" / "TreasureRoom".
+    pub fn enter_room(&mut self, room_type: &str) {
+        let n = self.players.len();
+        for player_idx in 0..n {
+            let relic_ids: Vec<String> = self.players[player_idx]
+                .relics
+                .iter()
+                .map(|r| r.id.clone())
+                .collect();
+            for relic_id in relic_ids {
+                let Some(arms) = crate::effects::run_state_effects(&relic_id) else {
+                    continue;
+                };
+                for (hook, body) in arms {
+                    if let crate::effects::RunStateHook::AfterRoomEntered { room_type_filter } = &hook {
+                        if let Some(want) = room_type_filter {
+                            if want != room_type {
+                                continue;
+                            }
+                        }
+                        crate::effects::execute_run_state_effects(self, player_idx, &body);
+                    }
+                }
+            }
+        }
+    }
     pub fn current_act_index(&self) -> i32 { self.current_act_index }
     pub fn act_floor(&self) -> i32 { self.act_floor }
     pub fn current_map(&self) -> Option<&StandardActMap> { self.current_map.as_ref() }
@@ -449,6 +503,76 @@ fn find_path(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn add_relic_fires_after_obtained_max_hp() {
+        let players = vec![PlayerState {
+            character_id: "CHARACTER.IRONCLAD".into(),
+            id: 1,
+            hp: 70,
+            max_hp: 70,
+            gold: 0,
+            deck: Vec::new(),
+            relics: Vec::new(),
+            potions: Vec::new(),
+            max_potion_slot_count: 3,
+        }];
+        let mut rs = RunState::new(
+            "ABC123",
+            0,
+            players,
+            vec![ActId::Overgrowth],
+            Vec::new(),
+        );
+        rs.add_relic(0, "Mango");
+        let ps = &rs.players()[0];
+        assert_eq!(ps.max_hp, 84); // 70 + 14
+        assert_eq!(ps.hp, 84);
+        assert_eq!(ps.relics.len(), 1);
+        assert_eq!(ps.relics[0].id, "Mango");
+    }
+
+    #[test]
+    fn add_relic_unknown_just_appends_to_list() {
+        let players = vec![PlayerState::empty("CHARACTER.IRONCLAD", 1)];
+        let mut rs = RunState::new(
+            "ABC123",
+            0,
+            players,
+            vec![ActId::Overgrowth],
+            Vec::new(),
+        );
+        rs.add_relic(0, "TotallyMadeUpRelic");
+        let ps = &rs.players()[0];
+        assert_eq!(ps.relics.len(), 1);
+        // No mutation since there's no run-state hook for the id.
+        assert_eq!(ps.max_hp, 0);
+        assert_eq!(ps.gold, 0);
+    }
+
+    #[test]
+    fn add_relic_gold_relic_grants_gold() {
+        let players = vec![PlayerState {
+            character_id: "CHARACTER.IRONCLAD".into(),
+            id: 1,
+            hp: 70,
+            max_hp: 70,
+            gold: 99,
+            deck: Vec::new(),
+            relics: Vec::new(),
+            potions: Vec::new(),
+            max_potion_slot_count: 3,
+        }];
+        let mut rs = RunState::new(
+            "ABC123",
+            0,
+            players,
+            vec![ActId::Overgrowth],
+            Vec::new(),
+        );
+        rs.add_relic(0, "OldCoin");
+        assert_eq!(rs.players()[0].gold, 99 + 300);
+    }
 
     #[test]
     fn act_id_strings_round_trip() {

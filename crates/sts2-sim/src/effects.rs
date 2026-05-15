@@ -1483,6 +1483,170 @@ where
 }
 
 // ========================================================================
+// Run-state effect VM — out-of-combat relic hooks (AfterObtained etc.).
+// ========================================================================
+
+/// Run-state hook kinds. Mirror the C# `RelicModel` out-of-combat hooks.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RunStateHook {
+    /// C# `AfterObtained()`. Fires once at relic pickup.
+    AfterObtained,
+    /// C# `AfterRoomEntered(room)`. `room_type_filter` = Some("Monster"
+    /// / "Elite" / "Boss" / "MerchantRoom" / "RestRoom" / ...) narrows
+    /// to a specific room type; None fires on every room.
+    AfterRoomEntered { room_type_filter: Option<String> },
+    /// C# `AfterPotionUsed()`.
+    AfterPotionUsed,
+    /// C# `AfterShopCleared()`.
+    AfterShopCleared,
+}
+
+/// Per-relic run-state hook bodies. Body is a `Vec<Effect>` interpreted
+/// by `execute_run_state_effects` — only run-state Effect variants
+/// (GainRunStateMaxHp / GainRunStateGold / LoseRunStateHp / GainRelic /
+/// GainPotionToBelt / LoseRelic) actually mutate; combat-frame effects
+/// no-op out of combat.
+pub fn run_state_effects(
+    relic_id: &str,
+) -> Option<Vec<(RunStateHook, Vec<Effect>)>> {
+    match relic_id {
+        // ===== AfterObtained: permanent +MaxHp relics =====
+        // Mango.cs L46-50: GainMaxHp(14).
+        "Mango" => Some(vec![(
+            RunStateHook::AfterObtained,
+            vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(14) }],
+        )]),
+        // Pear.cs: GainMaxHp(10).
+        "Pear" => Some(vec![(
+            RunStateHook::AfterObtained,
+            vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(10) }],
+        )]),
+        // Strawberry.cs: GainMaxHp(7).
+        "Strawberry" => Some(vec![(
+            RunStateHook::AfterObtained,
+            vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(7) }],
+        )]),
+        // FakeMango.cs: GainMaxHp(3).
+        "FakeMango" => Some(vec![(
+            RunStateHook::AfterObtained,
+            vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(3) }],
+        )]),
+
+        // ===== AfterObtained: +Gold relics =====
+        // OldCoin.cs L46-49: GainGold(300).
+        "OldCoin" => Some(vec![(
+            RunStateHook::AfterObtained,
+            vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(300) }],
+        )]),
+        // CursedPearl.cs L?-?: GainGold(333) + AddCurseToDeck<Greed>.
+        // We encode the gold gain only; the AddCurseToDeck side needs a
+        // mid-run deck-mutation primitive that doesn't yet land.
+        "CursedPearl" => Some(vec![(
+            RunStateHook::AfterObtained,
+            vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(333) }],
+        )]),
+
+        _ => None,
+    }
+}
+
+/// Execute a run-state effect list against `RunState`. Match arms
+/// dispatch only the run-state Effect variants; combat-frame variants
+/// are no-ops here.
+pub fn execute_run_state_effects(
+    rs: &mut crate::run_state::RunState,
+    player_idx: usize,
+    effects: &[Effect],
+) {
+    for eff in effects {
+        execute_run_state_effect(rs, player_idx, eff);
+    }
+}
+
+fn execute_run_state_effect(
+    rs: &mut crate::run_state::RunState,
+    player_idx: usize,
+    eff: &Effect,
+) {
+    match eff {
+        Effect::GainRunStateMaxHp { amount } => {
+            let amt = run_state_resolve_amount(rs, player_idx, amount).max(0);
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.max_hp += amt;
+                ps.hp += amt;
+            }
+        }
+        Effect::GainRunStateGold { amount } => {
+            let amt = run_state_resolve_amount(rs, player_idx, amount).max(0);
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.gold += amt;
+            }
+        }
+        Effect::LoseRunStateHp { amount } => {
+            let amt = run_state_resolve_amount(rs, player_idx, amount).max(0);
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.hp = (ps.hp - amt).max(0);
+            }
+        }
+        Effect::GainRelic { relic_id } => {
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.relics.push(crate::run_log::RelicEntry {
+                    id: relic_id.clone(),
+                    floor_added_to_deck: 0,
+                    props: None,
+                });
+            }
+        }
+        Effect::LoseRelic { relic_id } => {
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.relics.retain(|r| &r.id != relic_id);
+            }
+        }
+        Effect::GainPotionToBelt { potion_id } => {
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                let slot = ps.potions.len() as i32;
+                ps.potions.push(crate::run_log::PotionEntry {
+                    id: potion_id.clone(),
+                    slot_index: slot,
+                });
+            }
+        }
+        _ => {
+            // Combat-frame effects no-op out of combat.
+        }
+    }
+}
+
+fn run_state_resolve_amount(
+    _rs: &crate::run_state::RunState,
+    _player_idx: usize,
+    spec: &AmountSpec,
+) -> i32 {
+    match spec {
+        AmountSpec::Fixed(n) => *n,
+        AmountSpec::Add { left, right } => {
+            run_state_resolve_amount(_rs, _player_idx, left)
+                + run_state_resolve_amount(_rs, _player_idx, right)
+        }
+        AmountSpec::Sub { left, right } => {
+            run_state_resolve_amount(_rs, _player_idx, left)
+                - run_state_resolve_amount(_rs, _player_idx, right)
+        }
+        AmountSpec::Mul { left, right } => {
+            run_state_resolve_amount(_rs, _player_idx, left)
+                * run_state_resolve_amount(_rs, _player_idx, right)
+        }
+        AmountSpec::Multiplied { base, factor } => {
+            run_state_resolve_amount(_rs, _player_idx, base) * factor
+        }
+        // Other variants require CombatState / EffectContext — caller
+        // must specialize run-state relic bodies to use Fixed(N) for
+        // amount literals.
+        _ => 0,
+    }
+}
+
+// ========================================================================
 // Relic VM — per-relic data table parallel to power_effects / card_effects.
 // ========================================================================
 
