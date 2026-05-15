@@ -35,23 +35,25 @@ Phase 0 (simulator port) is well underway. Concrete state today:
 - **Potion VM** — `potion_effects(potion_id)` registry, dispatched via
   `CombatState::use_potion(...)`.
 - **Data-driven coverage (post-vocabulary-expansion)**:
-  - **505 / 577 cards** handled (87.5%): 476 via `card_effects` data
+  - **517 / 577 cards** handled (89.6%): 488 via `card_effects` data
     table + 29 still on the legacy `combat.rs::dispatch_on_play`
-    match-arm path (kept for cards with bespoke runtime needs not
-    expressible as pure data yet). 72 cards still unimplemented — full
-    list + per-card blocker in `tools/coverage_audit.txt`.
-  - **78 / 294 relics** data-driven via `relic_effects` (26.5%). 216
-    relics gap, dominated by AfterObtained run-state hooks (~80
-    relics), Modify* modifier hooks (~45), AfterRoomEntered (~34),
-    counter-state body relics needing per-instance state Reads, and
+    match-arm path. 60 cards still unimplemented — full list + per-card
+    blocker in `tools/coverage_audit.txt`.
+  - **87 / 294 relics** data-driven via `relic_effects` (29.6%). 207
+    relics gap, dominated by AfterObtained run-state hooks (~80),
+    AfterRoomEntered (~34), Modify* modifier hooks (~45 — partially
+    addressed via `IncreaseMaxEnergy` + BeforeCombatStart-as-modify
+    pattern), counter-state body relics (state slot + primitives done;
+    per-relic encoding done for Kunai/Shuriken/HappyFlower), and
     several smaller subsystems.
   - **55 / 64 potions** data-driven via `potion_effects` (85.9%). 9
-    gap: BloodPotion / Fortifier (target-MaxHp-percent),
+    gap: BloodPotion / Fortifier (target-MaxHp-percent — now resolvable
+    via FloorDiv but the integer-percent var needs care),
     FairyInABottle (AfterPreventingDeath hook), EssenceOfDarkness
     (EmptyOrbSlots amount), GamblersBrew (PickedCardCount amount),
     SneckoOil / SoldiersStew (per-card RNG mutation), FoulPotion
     (room-type branch), DeprecatedPotion (no OnUse override),
-    TouchOfInsanity (SetCardCost runtime is STUB).
+    TouchOfInsanity (SetCardCost runtime done — encodable now).
 - **63 monster types** with full intent state machines + dispatcher
 - **30+ powers** with their hooks wired (Strength/Vulnerable/Weak/Frail/Dex,
   Poison, Intangible, Barricade, Burrowed, Plating, Slumber, Asleep, Curl Up,
@@ -167,7 +169,7 @@ Re-extract any table with `cargo run -p extract-<thing>`.
 ```powershell
 # Rust workspace
 cargo check
-cargo test                       # 771 unit + integration tests
+cargo test                       # 771 unit + integration tests; 630 data-table entries
 
 # C# oracle host (only needed for the bit-exact diff tests)
 dotnet build oracle-host -c Release

@@ -1,27 +1,27 @@
 # Data-driven coverage audit
 
-**Cards**:   data-table  476/577  (82.5%) +  legacy-match-arm-only 29  =  total handled 505/577 (87.5%)
-**Relics**:  encoded   78/294  (26.5%)  -> gap 216
+**Cards**:   data-table  488/577  (84.6%) +  legacy-match-arm-only 29  =  total handled 517/577 (89.6%)
+**Relics**:  encoded   87/294  (29.6%)  -> gap 207
 **Potions**: encoded   55/64  (85.9%)  -> gap 9
 
-Total entries in data tables: 609
+Total entries in data tables: 630
 
 ## Top primitives by use count
-   491  AmountSpec::Canonical
-   230  Effect::ApplyPower
-   158  Effect::DealDamage
-    74  Effect::GainBlock
-    59  AmountSpec::Fixed
-    50  Effect::DrawCards
+   503  AmountSpec::Canonical
+   234  Effect::ApplyPower
+   163  Effect::DealDamage
+    78  Effect::GainBlock
+    67  AmountSpec::Fixed
+    52  Effect::DrawCards
     37  Effect::GainEnergy
-    23  Effect::Repeat
+    34  Effect::Conditional
+    24  Effect::Repeat
     23  RelicHook::AfterSideTurnStart
-    22  Effect::Conditional
-    21  AmountSpec::Mul
+    22  AmountSpec::Mul
     17  AmountSpec::Add
     17  Effect::AddRandomCardFromPool
     16  RelicHook::AfterCardPlayed
-    12  RelicHook::BeforeCombatStart
+    15  RelicHook::BeforeCombatStart
     11  Effect::ChannelOrb
     11  Effect::SummonOsty
      9  Effect::AddCardToPile
@@ -31,37 +31,32 @@ Total entries in data tables: 609
      8  Condition::Not
      7  Effect::DamageFromOsty
      7  Condition::IsOstyMissing
+     7  Condition::RoundEquals
      7  RelicHook::BeforeTurnEnd
+     6  AmountSpec::XEnergy
+     6  Effect::MoveCard
      6  CardPoolRef::Colorless
+     6  RelicHook::BeforeSideTurnStart
      6  RelicHook::AfterDamageReceived
-     5  AmountSpec::XEnergy
      5  Effect::Heal
-     5  Effect::MoveCard
      5  CardPoolRef::CharacterAttack
+     5  Condition::IsUpgraded
      5  RelicHook::AfterPlayerTurnStart
      4  Effect::LoseHp
+     4  AmountSpec::TargetPowerAmount
      4  Effect::ExhaustCards
-     4  RelicHook::BeforeSideTurnStart
-     4  Condition::RoundEquals
+     4  Effect::TransformIntoSpecific
      3  AmountSpec::SelfBlock
-     3  Effect::EvokeNextOrb
-     3  AmountSpec::BranchedOnUpgrade
-     3  CardPoolRef::CharacterSkill
 
 ## Unencoded cards (gap)
   - AdaptiveStrike
   - AllForOne
-  - Anointed
-  - Apotheosis
-  - Begone
   - Bolas
   - Bombardment
-  - BulletTime
   - CalculatedGamble
   - CaptureSpirit
   - Cascade
   - Chaos
-  - Charge
   - Chill
   - Claw
   - Cleanse
@@ -78,7 +73,6 @@ Total entries in data tables: 609
   - Dredge
   - DualWield
   - Eidolon
-  - Enlightenment
   - EscapePlan
   - Fisticuffs
   - FlakCannon
@@ -87,10 +81,7 @@ Total entries in data tables: 609
   - GeneticAlgorithm
   - Glimmer
   - GlimpseBeyond
-  - Guards
-  - Hang
   - Headbutt
-  - HeavenlyDrill
   - HiddenDaggers
   - HiddenGem
   - Hologram
@@ -98,17 +89,14 @@ Total entries in data tables: 609
   - Jackpot
   - Largesse
   - Maul
-  - Mimic
   - Mirage
   - Misery
   - Modded
   - Monologue
   - Nightmare
-  - NoEscape
   - Omnislice
   - PhotonCut
   - Pillage
-  - PrimalForce
   - PullFromBelow
   - Rampage
   - Rattle
@@ -130,7 +118,6 @@ Total entries in data tables: 609
   - ArchaicTooth
   - ArtOfWar
   - Astrolabe
-  - BagOfPreparation
   - BeautifulBracelet
   - BeltBuckle
   - BigMushroom
@@ -144,16 +131,13 @@ Total entries in data tables: 609
   - BookOfFiveRings
   - BookRepairKnife
   - Bookmark
-  - BoomingConch
   - BowlerHat
   - BrilliantScarf
   - Brimstone
   - BurningBlood
   - BurningSticks
   - CallingBell
-  - CaptainsWheel
   - Cauldron
-  - CharonsAshes
   - ChemicalX
   - ChoicesParadox
   - Circlet
@@ -184,7 +168,6 @@ Total entries in data tables: 609
   - FakeVenerableTeaSet
   - FestivePopper
   - Fiddle
-  - ForgottenSoul
   - FragrantMushroom
   - FresnelLens
   - FrozenEgg
@@ -203,7 +186,6 @@ Total entries in data tables: 609
   - GremlinHorn
   - HeftyTablet
   - HistoryCourse
-  - HornCleat
   - IceCream
   - IntimidatingHelmet
   - JeweledMask
@@ -259,7 +241,6 @@ Total entries in data tables: 609
   - PenNib
   - PetrifiedToad
   - PhialHolster
-  - PhilosophersStone
   - Planisphere
   - Pocketwatch
   - PollinousCore
@@ -309,12 +290,10 @@ Total entries in data tables: 609
   - TheBoot
   - TheCourier
   - ThrowingAxe
-  - Tingsha
   - TinyMailbox
   - ToastyMittens
   - Toolbox
   - TouchOfOrobas
-  - ToughBandages
   - ToxicEgg
   - ToyBox
   - TriBoomerang
