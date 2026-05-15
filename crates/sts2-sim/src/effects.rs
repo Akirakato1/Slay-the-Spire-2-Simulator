@@ -6459,7 +6459,12 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
             },
         ]),
         "SculptingStrike" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
-        "Seance" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
+        "Seance" => Some(vec![Effect::TransformIntoSpecific {
+        from: Pile::Draw,
+        selector: Selector::PlayerInteractive { n: 1 },
+        target_card_id: "Soul".to_string(),
+        upgrade: false,
+        }]),
         "SecondWind" => Some(vec![Effect::Repeat {
             // For each non-Attack card in hand: exhaust it and gain
             // BlockVar block. Count is snapshotted once before loop —
@@ -7620,16 +7625,13 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         right: Box::new(AmountSpec::BranchedOnUpgrade { base: 0, upgraded: 1 }),
         },
         }]),
-        "Cleanse" => Some(vec![Effect::ExhaustCards {
-        from: Pile::Hand,
-        selector: Selector::FirstMatching {
-        n: i32::MAX,
-        filter: CardFilter::Or(
-        Box::new(CardFilter::OfType("Status".to_string())),
-        Box::new(CardFilter::OfType("Curse".to_string())),
-        ),
+        "Cleanse" => Some(vec![
+        Effect::SummonOsty { osty_id: "Default".to_string(), max_hp: Some(AmountSpec::Canonical("Summon".to_string())) },
+        Effect::ExhaustCards {
+        from: Pile::Draw,
+        selector: Selector::PlayerInteractive { n: 1 },
         },
-        }]),
+        ]),
         "Stoke" => Some(vec![
         Effect::ExhaustCards { from: Pile::Hand, selector: Selector::All },
         Effect::AddRandomCardFromPool {
