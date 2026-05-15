@@ -1,0 +1,162 @@
+// ============================================================================
+// batch_r_rs_1.txt — AfterObtained relic run-state encodings (batch 1)
+//
+// Bulk-encoded AfterObtained hooks for ~75 relics defined in
+// sts2_decompiled/sts2/MegaCrit/sts2/Core/Models/Relics/*.cs that override
+// AfterObtained(). The six already encoded in run_state_effects
+// (Mango/Pear/Strawberry/FakeMango/OldCoin/CursedPearl) are not duplicated
+// here.
+//
+// Each Some-arm uses Effect variants from the supported run-state set:
+//   GainRunStateMaxHp / GainRunStateGold / LoseRunStateHp /
+//   GainRelic / LoseRelic / GainPotionToBelt
+// AmountSpec::Canonical resolves to 0 at run-state scope, so literal
+// Fixed(N) is used where N is the C# DynamicVar BaseValue.
+//
+// SKIPs document the precise reason — usually because the C# body relies
+// on a primitive the dispatcher doesn't yet implement (mid-run deck
+// mutation, max-potion-count, transform/upgrade, etc.).
+// ============================================================================
+
+// ===== AfterObtained: permanent +MaxHp relics =====
+
+// BigMushroom.cs L55-59: GainMaxHp(20) then `this.Grow()` (visual only).
+// CanonicalVars: new MaxHpVar(20m), new CardsVar(2). The Cards var is for
+// ModifyHandDraw (first-round draw -2); only the +MaxHp lands at pickup.
+"BigMushroom" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(20) }],
+)]),
+
+// LeesWaffle.cs L48-53: GainMaxHp(7) then Heal to full.
+// CanonicalVars: new MaxHpVar(7m). GainRunStateMaxHp also raises current
+// HP by the gained amount (see execute_run_state_effect), which mirrors
+// the "heal to full" effect for a freshly-bought waffle in practice
+// (player is typically near full HP at shops anyway). The extra Heal
+// edge case for damaged players is not perfectly modeled — flagging as
+// a low-priority dispatcher gap (would need a HealToFull primitive).
+"LeesWaffle" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(7) }],
+)]),
+
+// LoomingFruit.cs L73-77: GainMaxHp(31). CanonicalVars: new MaxHpVar(31m).
+"LoomingFruit" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(31) }],
+)]),
+
+// NutritiousOyster.cs L47-50: GainMaxHp(11). CanonicalVars: new MaxHpVar(11m).
+"NutritiousOyster" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(11) }],
+)]),
+
+// ===== AfterObtained: +Gold relics =====
+
+// GoldenPearl.cs L46-50: GainGold(150). CanonicalVars: new GoldVar(150).
+"GoldenPearl" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(150) }],
+)]),
+
+// SignetRing.cs L36-40: GainGold(999). CanonicalVars: new GoldVar(999).
+"SignetRing" => Some(vec![(
+    RunStateHook::AfterObtained,
+    vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(999) }],
+)]),
+
+// ===== SKIPs =====
+// Each SKIP lists the C# pattern that prevented a direct encoding, so
+// dispatcher gaps can be prioritized.
+
+// --- Mid-run deck mutation (AddCardToDeck / AddCurseToDeck / Transform / Upgrade / Remove) ---
+// SKIP ArcaneScroll: CardPileCmd.Add of a generated Rare card — needs mid-run AddCardToDeck primitive.
+// SKIP ArchaicTooth: CardCmd.Transform on starter card — needs Transform primitive.
+// SKIP Astrolabe: 3x CardSelectCmd.FromDeckForTransformation — interactive selection + transform.
+// SKIP BeautifulBracelet: CardSelectCmd.FromDeckForEnchantment<Swift> — interactive enchant.
+// SKIP BiiigHug: CardSelectCmd.FromDeckForRemoval + AddCurseToDeck<Soot> on shuffle — interactive remove + curse.
+// SKIP BloodSoakedRose: CardPileCmd.AddCurseToDeck<Enthralled> — needs AddCurseToDeck primitive.
+// SKIP CallingBell: AddCurseToDeck<CurseOfTheBell> + custom 3-relic reward offer.
+// SKIP Claws: CardSelectCmd transformation to Maul — interactive transform.
+// SKIP DistinguishedCape: CreatureCmd.LoseMaxHp(9) + 3x AddCardToDeck<Apparition> — needs LoseRunStateMaxHp and AddCardToDeck.
+// SKIP DollysMirror: clones one deck card via CardPileCmd.Add — needs AddCardToDeck.
+// SKIP DustyTome: AddCardToDeck (upgraded Ancient card) — needs AddCardToDeck primitive.
+// SKIP ElectricShrymp: CardSelectCmd.FromDeckForEnchantment<Imbued> — interactive enchant.
+// SKIP EmptyCage: CardSelectCmd.FromDeckForRemoval(2) — interactive remove.
+// SKIP FragrantMushroom: CreatureCmd.Damage(15) + upgrade 2 random cards — needs LoseRunStateHp and Upgrade primitive (Damage at run-state could map to LoseRunStateHp; upgrades block this).
+// SKIP GnarledHammer: CardSelectCmd.FromDeckForEnchantment<Sharp> — interactive enchant.
+// SKIP HeftyTablet: choose-1-of-3 rare card screen + add Injury — interactive card choice + AddCardToDeck.
+// SKIP JewelryBox: AddCardToDeck<Apotheosis> — needs AddCardToDeck primitive.
+// SKIP Kifuda: CardSelectCmd.FromDeckForEnchantment<Adroit> — interactive enchant.
+// SKIP LargeCapsule: 2 relics from RelicFactory + AddCardToDeck<Strike/Defend> — needs random relic rewards + AddCardToDeck.
+// SKIP LeadPaperweight: choose-1-of-2 colorless cards — interactive card choice.
+// SKIP LeafyPoultice: CreatureCmd.LoseMaxHp(12) + transform basics — needs LoseRunStateMaxHp and Transform.
+// SKIP MassiveScroll: choose-1-of-3 multiplayer-only cards — interactive card choice (and multiplayer-gated).
+// SKIP NeowsBones: random relic rewards + N curse cards to deck — needs reward synthesis + AddCurseToDeck.
+// SKIP NeowsTalisman: upgrades starter Strike + starter Defend — needs Upgrade primitive (card mutation by tag).
+// SKIP NeowsTorment: AddCardToDeck<NeowsFury> — needs AddCardToDeck primitive.
+// SKIP NewLeaf: CardSelectCmd.FromDeckForTransformation — interactive transform.
+// SKIP NutritiousSoup: enchants Basic Strikes with TezcatarasEmber — needs Enchant primitive (and tag-based filter).
+// SKIP PaelsClaw: enchants entire deck with Goopy — needs Enchant primitive.
+// SKIP PaelsGrowth: CardSelectCmd.FromDeckForEnchantment<Clone> + rest-site option — interactive enchant + rest-site hook.
+// SKIP PaelsHorn: 2x AddCardToDeck<Relax> — needs AddCardToDeck primitive.
+// SKIP PaelsTooth: CardSelectCmd.FromDeckForRemoval(5) (saved for AfterCombatEnd payout) — needs CardSelectForRemoval + persistent relic state.
+// SKIP PandorasBox: transforms every Basic Strike/Defend to a random card — needs Transform primitive.
+// SKIP Pomander: CardSelectCmd.FromDeckForUpgrade — interactive upgrade.
+// SKIP PrecariousShears: CardSelectCmd.FromDeckForRemoval(2) + 16 unblockable damage — needs CardSelectForRemoval and LoseRunStateHp (damage variant).
+// SKIP PreciseScissors: CardSelectCmd.FromDeckForRemoval(1) — interactive remove.
+// SKIP PreservedFog: CardSelectCmd.FromDeckForRemoval(3) + AddCurseToDeck<Folly> — interactive remove + AddCurseToDeck.
+// SKIP PunchDagger: CardSelectCmd.FromDeckForEnchantment<Momentum>(5) — interactive enchant.
+// SKIP RoyalStamp: random eligible card gets RoyallyApproved enchant — needs Enchant primitive.
+// SKIP SandCastle: upgrade 6 random upgradable deck cards — needs Upgrade primitive.
+// SKIP ScrollBoxes: PlayerCmd.LoseGold(all) + bundle-of-3 card choice — needs all-gold-loss and bundle-choice primitives.
+// SKIP SeaGlass: 15-card uniform-rarity selection from a swapped character's pool — interactive cross-character card pool + AddCardToDeck.
+// SKIP SereTalon: 2 random curses + 3 Wish cards added to deck — needs AddCurseToDeck and AddCardToDeck.
+// SKIP Storybook: AddCardToDeck<BrightestFlame> — needs AddCardToDeck primitive.
+// SKIP TanxsWhistle: AddCardToDeck<Whistle> — needs AddCardToDeck primitive.
+// SKIP TriBoomerang: CardSelectCmd.FromDeckForEnchantment<Instinct> — interactive enchant.
+// SKIP WarPaint: upgrade 2 random upgradable Skills — needs Upgrade primitive (filtered).
+// SKIP Whetstone: upgrade 2 random upgradable Attacks — needs Upgrade primitive (filtered).
+// SKIP YummyCookie: CardSelectCmd.FromDeckForUpgrade(4) — interactive upgrade.
+
+// --- Random rewards / reward-offer flows ---
+// SKIP Cauldron: 5x PotionReward via RewardsCmd.OfferCustom — needs potion-reward primitive.
+// SKIP GlassEye: 5 card-reward offers (rarities common×2, uncommon×2, rare) — needs reward-offer primitive.
+// SKIP LostCoffer: 1 card reward + 1 potion reward — needs reward-offer primitive.
+// SKIP Orrery: 5 card-reward offers — needs reward-offer primitive.
+// SKIP SmallCapsule: 1 RelicReward — needs reward-offer primitive.
+// SKIP ToyBox: 4 wax-relic rewards (consumed across 3 combats each) — needs reward-offer + wax-relic-consumption mechanic.
+
+// --- Max potion count (no primitive) ---
+// SKIP AlchemicalCoffer: GainMaxPotionCount(4) + procure 4 random potions — needs GainMaxPotionCount primitive.
+// SKIP PhialHolster: GainMaxPotionCount(1) + procure 2 random potions — needs GainMaxPotionCount primitive.
+// SKIP PotionBelt: GainMaxPotionCount(2) — needs GainMaxPotionCount primitive.
+
+// --- Heal / damage to current HP ---
+// SKIP FakeLeesWaffle: Heal(MaxHp * 10%) — needs Heal primitive (no direct percentage heal at run-state).
+
+// --- Combat-only or no-op AfterObtained ---
+// SKIP BeltBuckle: AfterObtained body is gated on CombatManager.Instance.IsInProgress; applies Dexterity power — combat-frame, no-ops out of combat.
+// SKIP Byrdpip: sets pet skin (cosmetic) + transforms ByrdonisEgg cards + SummonPet — needs AddPet primitive and Transform.
+// SKIP FakeSneckoEye: AfterObtained gated on IsInProgress; ApplyPower<ConfusedPower> — combat-frame, no-ops out of combat.
+// SKIP PaelsEye: AfterObtained only caches CombatManager.IsPartOfPlayerTurn — pure state read, no run-state mutation.
+// SKIP PaelsLegion: AfterObtained rolls skin + summons pet if in combat — needs AddPet primitive.
+// SKIP PumpkinCandle: AfterObtained only records the current act index for ModifyMaxEnergy gating — pure state read.
+// SKIP SneckoEye: AfterObtained gated on IsInProgress; ApplyPower<ConfusedPower> — combat-frame, no-ops out of combat.
+
+// --- Relic swap / map regen ---
+// SKIP FurCoat: marks N future Monster/Elite rooms via ModifyGeneratedMapLate — needs map-quest annotation primitive.
+// SKIP GoldenCompass: triggers RunManager.GenerateMap() and overrides the act's map type — needs map-regen primitive.
+// SKIP TouchOfOrobas: RelicCmd.Replace(starterRelic, upgradedRelic) — needs LoseRelic+GainRelic atomic swap (the primitives exist individually but the relic-id pair is dynamic per-character; could be encoded later via run-state lookup).
+
+// ===== Summary =====
+// Encoded: 6 (BigMushroom, LeesWaffle, LoomingFruit, NutritiousOyster, GoldenPearl, SignetRing)
+// SKIPped: 69
+//   Mid-run deck mutation (add/curse/transform/upgrade/enchant/remove): 48
+//   Reward-offer / random-rewards: 6
+//   Max-potion-count: 3
+//   Heal / damage: 1
+//   Combat-only AfterObtained body: 7
+//   Map regen / quest annotation / relic swap: 3
+//   (BeautifulBracelet counted under enchant; PaelsTooth under remove.)

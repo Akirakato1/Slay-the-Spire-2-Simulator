@@ -1692,6 +1692,39 @@ pub fn run_state_effects(
             RunStateHook::AfterObtained,
             vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(333) }],
         )]),
+        // ===== Manual run-state ports (batch_r_rs_*) =====
+
+
+        "BigMushroom" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(20) }],
+        )]),
+
+        "LeesWaffle" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(7) }],
+        )]),
+
+        "LoomingFruit" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(31) }],
+        )]),
+
+        "NutritiousOyster" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(11) }],
+        )]),
+
+        "GoldenPearl" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(150) }],
+        )]),
+
+        "SignetRing" => Some(vec![(
+        RunStateHook::AfterObtained,
+        vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(999) }],
+        )]),
+
 
         _ => None,
     }
