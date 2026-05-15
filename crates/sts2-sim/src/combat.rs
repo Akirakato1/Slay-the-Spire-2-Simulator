@@ -3103,11 +3103,16 @@ impl CombatState {
             &card_data.tags,
         );
         // AfterCardChangedPiles fires after each routing (Hand -> ...).
-        // Generic across all card movements.
-        crate::effects::fire_relic_hooks(
+        // Threads moved card's metadata so relics can filter on the
+        // moved card's keyword / type / tag (BingBong / BookOfFiveRings /
+        // DarkstonePeriapt / LuckyFysh).
+        crate::effects::fire_relic_hooks_after_card_changed_piles(
             self,
-            crate::effects::RelicHookKind::AfterCardChangedPiles,
-            CombatSide::Player,
+            player_idx,
+            &card_id,
+            card_data.card_type,
+            &card_data.keywords,
+            &card_data.tags,
         );
         // AfterCardExhausted / AfterCardDiscarded relic hooks — fire
         // after the routing event so the relic body sees the post-route

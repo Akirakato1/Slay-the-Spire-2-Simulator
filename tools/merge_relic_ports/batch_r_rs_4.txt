@@ -33,6 +33,29 @@
     vec![Effect::AddCardToRunStateDeck { card_id: "Injury".to_string(), upgrade: 0 }],
 )]),
 
+// ===== AfterCardAddedToDeck: reactive relics =====
+
+// SKIP BingBong: AfterCardAddedToDeck "clone the just-added card to Deck
+//   bottom" needs the moved card's id threaded through a run-state context
+//   (no run-state EffectContext yet) or a new Effect::CloneJustAddedCard
+//   primitive. Hook fires correctly, body is missing.
+// SKIP BookOfFiveRings: AfterCardAddedToDeck counter mod 5 → Heal(20) needs
+//   run-state per-relic counter (combat-frame relic_counters don't persist).
+
+// DarkstonePeriapt.cs L38-52: AfterCardChangedPiles filtered to Deck pile
+// AND card.Type == Curse → GainMaxHp(6). Encode with CardFilter::OfType("Curse").
+"DarkstonePeriapt" => Some(vec![
+    (RunStateHook::AfterCardAddedToDeck { filter: Some(CardFilter::OfType("Curse".to_string())) },
+     vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(6) }]),
+]),
+
+// LuckyFysh.cs L55-66: AfterCardChangedPiles filtered to Deck pile
+// owner-matched → GainGold(GoldVar=15) on EVERY card add.
+"LuckyFysh" => Some(vec![
+    (RunStateHook::AfterCardAddedToDeck { filter: None },
+     vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(15) }]),
+]),
+
 // NeowsBones.cs: AfterObtained → 2 relic rewards + 1 random curse.
 // The relic-reward and curse-add halves both need reward-pipeline / random
 // curse-pool RNG. Nothing deterministic in the C# body (no fixed curse id).

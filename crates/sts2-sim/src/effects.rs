@@ -2504,6 +2504,12 @@ pub enum RunStateHook {
     AfterPotionUsed,
     /// C# `AfterShopCleared()`.
     AfterShopCleared,
+    /// C# `AfterCardChangedPiles(...)` filtered to `PileType.Deck`.
+    /// Fires when a card is added to the run-state master deck.
+    /// `filter` narrows by card type / keyword (BingBong fires on any
+    /// add, BookOfFiveRings on any, DarkstonePeriapt on Curse,
+    /// LuckyFysh on any).
+    AfterCardAddedToDeck { filter: Option<CardFilter> },
 }
 
 /// Per-relic run-state hook bodies. Body is a `Vec<Effect>` interpreted
@@ -2671,6 +2677,16 @@ pub fn run_state_effects(
         vec![Effect::AddCardToRunStateDeck { card_id: "Injury".to_string(), upgrade: 0 }],
         )]),
 
+        "DarkstonePeriapt" => Some(vec![
+        (RunStateHook::AfterCardAddedToDeck { filter: Some(CardFilter::OfType("Curse".to_string())) },
+        vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(6) }]),
+        ]),
+
+        "LuckyFysh" => Some(vec![
+        (RunStateHook::AfterCardAddedToDeck { filter: None },
+        vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(15) }]),
+        ]),
+
 
         _ => None,
     }
@@ -2755,6 +2771,9 @@ fn execute_run_state_effect(
                     ..Default::default()
                 });
             }
+            // Fire AfterCardAddedToDeck run-state relic hooks.
+            // BingBong / BookOfFiveRings / DarkstonePeriapt / LuckyFysh.
+            fire_run_state_card_added_to_deck(rs, player_idx, card_id, *upgrade);
         }
         Effect::GainMaxPotionSlots { delta } => {
             let d = run_state_resolve_amount(rs, player_idx, delta);
@@ -2764,6 +2783,46 @@ fn execute_run_state_effect(
         }
         _ => {
             // Combat-frame effects no-op out of combat.
+        }
+    }
+}
+
+/// Fire AfterCardAddedToDeck run-state relic hooks. Walks the active
+/// player's relics, looks up run-state arms, and dispatches matching
+/// AfterCardAddedToDeck bodies (with optional CardFilter on the added
+/// card's type / keywords / tags).
+fn fire_run_state_card_added_to_deck(
+    rs: &mut crate::run_state::RunState,
+    player_idx: usize,
+    card_id: &str,
+    _upgrade: i32,
+) {
+    let Some(card_data) = crate::card::by_id(card_id) else {
+        return;
+    };
+    let card_type = card_data.card_type;
+    let keywords: Vec<String> = card_data.keywords.clone();
+    let tags: Vec<String> = card_data.tags.clone();
+
+    // Snapshot relic ids so the loop can mutate rs freely.
+    let relic_ids: Vec<String> = rs
+        .player_state_mut(player_idx)
+        .map(|ps| ps.relics.iter().map(|r| r.id.clone()).collect())
+        .unwrap_or_default();
+    for relic_id in relic_ids {
+        let Some(arms) = run_state_effects(&relic_id) else {
+            continue;
+        };
+        for (hook, body) in arms {
+            let RunStateHook::AfterCardAddedToDeck { filter } = &hook else {
+                continue;
+            };
+            if let Some(f) = filter {
+                if !card_metadata_matches_filter(card_type, &keywords, &tags, f) {
+                    continue;
+                }
+            }
+            execute_run_state_effects(rs, player_idx, &body);
         }
     }
 }
@@ -2859,9 +2918,10 @@ pub enum RelicHook {
     /// CaptainsWheel / HornCleat.
     AfterBlockCleared,
     /// C# `AfterCardChangedPiles(card, from, to)`. Any card movement.
+    /// `filter` narrows by moved-card metadata (keyword / type / tag).
     /// BingBong / BookOfFiveRings / DarkstonePeriapt / LuckyFysh /
     /// TheAbacus / Regalite.
-    AfterCardChangedPiles,
+    AfterCardChangedPiles { filter: Option<CardFilter> },
     /// C# `AfterShuffle(player)`. Fires when the draw pile is
     /// reshuffled from discard. BiiigHug (combat side).
     AfterShuffle,
@@ -2957,7 +3017,7 @@ impl RelicHook {
             RelicHook::AfterCardExhausted => RelicHookKind::AfterCardExhausted,
             RelicHook::AfterCardDiscarded => RelicHookKind::AfterCardDiscarded,
             RelicHook::AfterBlockCleared => RelicHookKind::AfterBlockCleared,
-            RelicHook::AfterCardChangedPiles => RelicHookKind::AfterCardChangedPiles,
+            RelicHook::AfterCardChangedPiles { .. } => RelicHookKind::AfterCardChangedPiles,
             RelicHook::AfterShuffle => RelicHookKind::AfterShuffle,
             RelicHook::AfterEnergyReset => RelicHookKind::AfterEnergyReset,
             RelicHook::AfterStarsSpent => RelicHookKind::AfterStarsSpent,
@@ -2993,7 +3053,7 @@ impl RelicHook {
             | RelicHook::AfterCardExhausted
             | RelicHook::AfterCardDiscarded
             | RelicHook::AfterBlockCleared
-            | RelicHook::AfterCardChangedPiles
+            | RelicHook::AfterCardChangedPiles { .. }
             | RelicHook::AfterShuffle
             | RelicHook::AfterEnergyReset
             | RelicHook::AfterStarsSpent
@@ -3098,6 +3158,49 @@ fn card_metadata_matches_filter(
         CardFilter::HasId(_) => false,
         CardFilter::WithEnergyCost { .. } => false,
         CardFilter::NotXCost => false,
+    }
+}
+
+/// Fire AfterCardChangedPiles arms with moved-card metadata. The
+/// filter on the hook variant narrows by moved-card keyword / type /
+/// tag — required by BingBong (Skill moves), BookOfFiveRings (Attack
+/// moves), DarkstonePeriapt (Curse moves), LuckyFysh (Power moves).
+pub fn fire_relic_hooks_after_card_changed_piles(
+    cs: &mut CombatState,
+    player_idx: usize,
+    card_id: &str,
+    card_type: crate::card::CardType,
+    keywords: &[String],
+    tags: &[String],
+) {
+    let mut pairs: Vec<(usize, String)> = Vec::new();
+    for (i, c) in cs.allies.iter().enumerate() {
+        if let Some(ps) = c.player.as_ref() {
+            for r in &ps.relics {
+                pairs.push((i, r.clone()));
+            }
+        }
+    }
+    for (pid, relic_id) in pairs {
+        if pid != player_idx {
+            continue;
+        }
+        let Some(arms) = relic_effects(&relic_id) else {
+            continue;
+        };
+        for (hook, body) in arms {
+            let RelicHook::AfterCardChangedPiles { filter } = &hook else {
+                continue;
+            };
+            if let Some(f) = filter {
+                if !card_metadata_matches_filter(card_type, keywords, tags, f) {
+                    continue;
+                }
+            }
+            let _ = card_id;
+            let ctx = EffectContext::for_relic_hook(player_idx, relic_id.as_str());
+            execute_effects(cs, &body, &ctx);
+        }
     }
 }
 
