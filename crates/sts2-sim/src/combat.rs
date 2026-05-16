@@ -22,7 +22,6 @@
 use crate::card::{by_id as card_by_id, CardData, CardType, TargetType};
 use crate::character::CharacterData;
 use crate::encounter::EncounterData;
-use crate::monster::MonsterData;
 use crate::power::{by_id as power_by_id, PowerStackType};
 use crate::rng::Rng;
 use serde::{Deserialize, Serialize};
@@ -3968,7 +3967,7 @@ impl CombatState {
         let card_id;
         let upgrade_level;
         let mut energy_cost;
-        let mut x_value;
+        let x_value;
         let card_data: &'static CardData;
         let max_target_side;
         let max_target_idx;

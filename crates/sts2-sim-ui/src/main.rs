@@ -632,9 +632,12 @@ fn start_combat(b: Builder) -> Phase {
     let fake_enc = EncounterData {
         id: "sandbox/two_dummies".to_string(),
         room_type: None,
+        is_weak: false,
         slots: Vec::new(),
         canonical_monsters: Vec::new(),
         possible_monsters: Vec::new(),
+        tags: Vec::new(),
+        acts: Vec::new(),
     };
     let mut cs = CombatState::start(&fake_enc, Vec::new(), Vec::new());
 

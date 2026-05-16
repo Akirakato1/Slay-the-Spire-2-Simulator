@@ -209,7 +209,7 @@ pub fn pool_card_ids(
     pool: &crate::effects::CardPoolRef,
     filter: &crate::effects::CardFilter,
 ) -> Vec<String> {
-    use crate::effects::{CardFilter, CardPoolRef};
+    use crate::effects::CardPoolRef;
 
     // Resolve the owning player's character to a card-pool id. The
     // player's model_id IS the character id (mirrors C#'s ModelDb keying).
