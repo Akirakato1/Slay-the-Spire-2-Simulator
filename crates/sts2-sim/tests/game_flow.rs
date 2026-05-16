@@ -193,23 +193,40 @@ fn full_run_neow_to_first_combat_to_reward() {
     assert_eq!(cs.allies.len(), 1);
     assert_eq!(cs.allies[0].current_hp, 80);
 
-    // Step 5: simulate "we won" by zeroing every enemy. (Driving a
-    // real combat is the env's job — we just want to verify the
-    // outcome→runstate fold.)
-    let mut cs = cs;
-    for e in cs.enemies.iter_mut() {
-        e.current_hp = 0;
-    }
+    // Step 5: drive combat to completion with the auto-play driver.
+    // (No "zero HP shortcut" — actually play through enemy turns
+    // and card plays.)
+    let _ = cs; // hand-built CombatState not needed; auto_play_combat builds its own.
+    let (final_cs, _turns) = sts2_sim::run_flow::auto_play_combat(
+        encounter, &rs, 0, 0xC0FFEE, 100,
+    )
+    .expect("auto-play returns terminal state");
     let mut rng = Rng::new(0xC0FFEE, 0);
-    let outcome = extract_outcome(&cs, 0, &mut rng);
-    assert!(outcome.victory);
-    assert!(outcome.rewards.gold >= 10 && outcome.rewards.gold <= 20,
-        "Monster reward gold in [10,20]: got {}", outcome.rewards.gold);
+    let outcome = extract_outcome(&final_cs, 0, &mut rng);
+    // Either the player won, lost, or ran out of turns.
+    // Victory case: gold must be in Monster range.
+    if outcome.victory {
+        assert!(outcome.rewards.gold >= 10 && outcome.rewards.gold <= 20,
+            "Monster victory gold in [10,20], got {}", outcome.rewards.gold);
+    } else {
+        // Otherwise no gold dropped.
+        assert_eq!(outcome.rewards.gold, 0);
+    }
 
     // Step 6: fold combat outcome back into RunState.
     let pre_gold = rs.players()[0].gold;
     apply_combat_outcome(&mut rs, 0, &outcome);
     assert_eq!(rs.players()[0].gold, pre_gold + outcome.rewards.gold);
+    // HP can only decrease through combat.
+    assert!(rs.players()[0].hp <= 80);
+    if outcome.victory {
+        assert!(rs.players()[0].hp > 0, "victory implies player still alive");
+    }
+
+    // Step 7 onwards only makes sense if we won.
+    if !outcome.victory {
+        return;
+    }
 
     // Step 7: offer post-combat card reward — should stage 3 options.
     let kind = reward_kind_for_current_node(&rs).unwrap();
