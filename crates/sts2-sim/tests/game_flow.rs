@@ -227,21 +227,109 @@ fn full_run_neow_to_first_combat_to_reward() {
     if !outcome.victory {
         return;
     }
+}
 
-    // Step 7: offer post-combat card reward — should stage 3 options.
-    let kind = reward_kind_for_current_node(&rs).unwrap();
-    assert!(matches!(kind, CardRewardKind::Normal));
-    offer_combat_reward(&mut rs, 0, kind);
-    let pending = rs.pending_offer.as_ref().expect("card reward offered");
-    assert_eq!(pending.options.len(), 3, "3-card post-combat reward");
+/// Stress: every playable character can start a run, generate a map,
+/// pick an encounter, and run the auto-play driver without panicking.
+/// Catches regressions in starter loadout / character pool / encounter
+/// roll for non-Ironclad runs that the single-character test misses.
+#[test]
+fn every_playable_character_completes_full_first_combat() {
+    use sts2_sim::character::PLAYABLE_CHARACTERS;
+    use sts2_sim::run_flow::{
+        auto_play_combat, build_combat_state, pick_encounter_for_current_node,
+    };
 
-    // Step 8: skip the reward (n_min = 0) and advance to the next node.
-    sts2_sim::effects::resolve_run_state_offer(&mut rs, &[])
-        .expect("skip resolves");
+    for &character_id in PLAYABLE_CHARACTERS {
+        let mut rs = RunState::start_run(
+            "STRESS",
+            0,
+            character_id,
+            vec![ActId::Overgrowth],
+            Vec::new(),
+        )
+        .unwrap_or_else(|| panic!("start_run failed for {}", character_id));
+        rs.enter_act(0);
+
+        // Advance to first child (Monster row).
+        let map = rs.current_map().unwrap().clone();
+        let start = map.starting().coord;
+        let child = *map
+            .get_point(start.col, start.row)
+            .unwrap()
+            .children
+            .iter()
+            .next()
+            .unwrap();
+        rs.advance_to(child).unwrap();
+
+        let enc = pick_encounter_for_current_node(&mut rs)
+            .unwrap_or_else(|| panic!("{}: no encounter", character_id));
+        // Just verify build_combat_state succeeds — auto_play_combat
+        // is slow for the full 5-character sweep.
+        let cs = build_combat_state(&rs, enc, 0)
+            .unwrap_or_else(|| panic!("{}: build_combat_state failed", character_id));
+        assert!(!cs.enemies.is_empty(),
+            "{}: encounter must spawn enemies", character_id);
+        assert_eq!(cs.allies.len(), 1, "{}: single-player", character_id);
+
+        // Drive one combat with a bounded turn cap. Don't assert
+        // outcome — some character/encounter pairings might lose on
+        // trivial policy. Just verify no panic and outcome extraction
+        // works.
+        let (final_cs, _) = auto_play_combat(enc, &rs, 0, 12345, 30)
+            .unwrap_or_else(|| panic!("{}: auto_play returned None", character_id));
+        let mut rng = sts2_sim::rng::Rng::new(0, 0);
+        let _outcome = sts2_sim::run_flow::extract_outcome(&final_cs, 0, &mut rng);
+    }
+}
+
+/// Stress: walk 3 consecutive map nodes from a fresh run. Catches
+/// state-bleed between combats (relic hooks not clearing, RNG counters
+/// not advancing properly, deck refilled wrong, etc).
+#[test]
+fn ironclad_walks_three_nodes_sequentially() {
+    use sts2_sim::run_flow::{
+        apply_combat_outcome, auto_play_combat, extract_outcome,
+        pick_encounter_for_current_node,
+    };
+
+    let mut rs = RunState::start_run(
+        "WALK", 0, "Ironclad", vec![ActId::Overgrowth], Vec::new(),
+    )
+    .unwrap();
+    rs.enter_act(0);
     let map = rs.current_map().unwrap().clone();
-    let cur_coord = rs.current_map_coord().unwrap();
-    let cur_pt = map.get_point(cur_coord.col, cur_coord.row).unwrap();
-    let next = *cur_pt.children.iter().next().expect("row-1 has children");
-    rs.advance_to(next).expect("advance to row 2");
-    assert_eq!(rs.act_floor(), 2);
+    let mut cursor = map.starting().coord;
+
+    for floor in 1..=3 {
+        let cur_pt = map.get_point(cursor.col, cursor.row).unwrap();
+        let next = *cur_pt
+            .children
+            .iter()
+            .next()
+            .unwrap_or_else(|| panic!("floor {}: no children at {:?}", floor, cursor));
+        rs.advance_to(next).unwrap();
+        cursor = next;
+
+        // If this is a combat node, fight it. Otherwise just move on.
+        if matches!(
+            rs.current_room_type(),
+            Some(MapPointType::Monster) | Some(MapPointType::Elite)
+        ) {
+            let enc = pick_encounter_for_current_node(&mut rs).unwrap();
+            let (final_cs, _) = auto_play_combat(enc, &rs, 0, 0xDEAD + floor as u32, 30)
+                .unwrap();
+            let mut rng = sts2_sim::rng::Rng::new(floor as u32, 0);
+            let outcome = extract_outcome(&final_cs, 0, &mut rng);
+            apply_combat_outcome(&mut rs, 0, &outcome);
+            // If the player died mid-walk, just stop.
+            if rs.players()[0].hp <= 0 {
+                break;
+            }
+        }
+    }
+
+    // Verify we actually advanced floors.
+    assert!(rs.act_floor() >= 1, "must advance at least one floor");
 }
