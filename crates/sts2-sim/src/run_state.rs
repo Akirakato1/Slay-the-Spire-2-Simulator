@@ -257,6 +257,65 @@ impl RunState {
         }
     }
 
+    /// Bootstrap a fresh single-player run for a character. Pulls
+    /// starting HP / gold / deck / relics from `CharacterData` so the
+    /// caller doesn't reassemble that data from scratch.
+    ///
+    /// For a standard solo run this is the canonical entry point.
+    /// Multi-player or replay scenarios should keep using `new()`.
+    pub fn start_run(
+        seed_string: &str,
+        ascension: i32,
+        character_id: &str,
+        acts: Vec<ActId>,
+        modifiers: Vec<String>,
+    ) -> Option<Self> {
+        let cd = crate::character::by_id(character_id)?;
+        let deck: Vec<crate::run_log::CardRef> = cd
+            .starting_deck
+            .iter()
+            .map(|id| crate::run_log::CardRef {
+                id: id.clone(),
+                floor_added_to_deck: Some(0),
+                current_upgrade_level: Some(0),
+                enchantment: None,
+            })
+            .collect();
+        let relics: Vec<crate::run_log::RelicEntry> = cd
+            .starting_relics
+            .iter()
+            .map(|id| crate::run_log::RelicEntry {
+                id: id.clone(),
+                floor_added_to_deck: 0,
+                props: None,
+            })
+            .collect();
+        let starting_hp = cd.starting_hp.unwrap_or(80);
+        let player = PlayerState {
+            character_id: character_id.to_string(),
+            id: 1,
+            hp: starting_hp,
+            max_hp: starting_hp,
+            gold: cd.starting_gold.unwrap_or(99),
+            deck,
+            relics,
+            potions: Vec::new(),
+            max_potion_slot_count: 3,
+        };
+        Some(Self::new(seed_string, ascension, vec![player], acts, modifiers))
+    }
+
+    /// MapPointType of the cursor's current node. Returns `None` if no
+    /// map is loaded or the cursor is invalid. The RL agent reads this
+    /// to dispatch on room type (Monster → start combat, Shop → open
+    /// shop, etc).
+    pub fn current_room_type(&self) -> Option<crate::map::MapPointType> {
+        let map = self.current_map.as_ref()?;
+        let coord = self.current_coord?;
+        map.get_point(coord.col, coord.row)
+            .map(|p| p.point_type)
+    }
+
     /// Set the `HasSecondBoss` flag for a given act index. Useful when
     /// driving a forward-simulation run where the second-boss decision
     /// needs to be made up front; replay paths can use

@@ -24,6 +24,7 @@ pub mod monster;
 pub mod monster_ai;
 pub mod monster_dispatch;
 pub mod path_align;
+pub mod run_flow;
 pub mod orb;
 pub mod path_pruning;
 pub mod potion;

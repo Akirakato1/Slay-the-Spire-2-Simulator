@@ -216,6 +216,44 @@ fn build_abyssal_baths_linger_page(damage: i32) -> Vec<EventChoice> {
 
 pub fn event_choices(id: &str) -> Option<EventModel> {
     match id {
+        // Neow (Ancient room first-act gift). C# fires this at the
+        // Ancient node on Act 1. Offers 4 simple buffs to pick from.
+        // The full game has many more options (gain relic, transform
+        // card, heal+curse, etc); the four below are the canonical
+        // safest set. Bigger options need deck-pick / relic-pool
+        // primitives we already have — easy to extend later.
+        "Neow" => Some(EventModel {
+            id: "Neow".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "MAX_HP_PLUS_8".to_string(),
+                    body: vec![Effect::GainRunStateMaxHp {
+                        amount: AmountSpec::Fixed(8),
+                    }],
+                },
+                EventChoice {
+                    label: "PLUS_100_GOLD".to_string(),
+                    body: vec![Effect::GainRunStateGold {
+                        amount: AmountSpec::Fixed(100),
+                    }],
+                },
+                EventChoice {
+                    label: "UPGRADE_RANDOM_CARD".to_string(),
+                    body: vec![Effect::UpgradeRandomDeckCards {
+                        n: AmountSpec::Fixed(1),
+                        filter: crate::effects::CardFilter::Upgradable,
+                    }],
+                },
+                EventChoice {
+                    label: "REMOVE_RANDOM_CARD".to_string(),
+                    body: vec![Effect::RemoveRandomDeckCards {
+                        n: AmountSpec::Fixed(1),
+                        filter: crate::effects::CardFilter::Any,
+                    }],
+                },
+            ],
+        }),
+
         // LostWisp: claim → +Decay curse + LostWisp relic. Search →
         // +45-75 gold (C# rolls Gold ∈ [60-15, 60+15] = 45-75 at
         // CalculateVars time; we encode the midpoint as the
