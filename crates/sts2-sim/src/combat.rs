@@ -3746,18 +3746,23 @@ impl CombatState {
             // VoidFormPower cost modifier: if the player owns
             // VoidFormPower and hasn't burned through its
             // `cards_played_this_turn < Amount` quota yet, the card costs 0.
-            // X-cost cards bypass this — the C# ShouldSkip would let
-            // them through too (energy_cost would already be 0 since
-            // ps.energy is whatever it is). For simplicity X-cards
-            // honor VoidForm by ALSO costing 0 (no X→pulled energy);
-            // this matches the in-game observation that VoidForm makes
-            // X-costs free with X=0. Refine if a parity test disagrees.
-            if self.voidform_free_play_active(player_idx) {
+            //
+            // X-cost cards INTENTIONALLY ignore VoidForm's zero-cost
+            // override — their semantic is "consume all current energy,
+            // X is that amount." VoidForm operates on the printed cost,
+            // and an X-card has no printed cost to overwrite. They still
+            // consume a VoidForm stack (the counter bumps post-dispatch
+            // unconditionally) but they don't benefit from the discount.
+            if self.voidform_free_play_active(player_idx)
+                && !data.has_energy_cost_x
+            {
                 energy_cost = 0;
-                if data.has_energy_cost_x {
-                    x_value = 0;
-                }
             }
+            // (No mutation of x_value here. For X-cost cards under
+            // VoidForm: energy_cost stays at ps.energy, x_value stays
+            // at ps.energy — the X-card consumes the full pool just
+            // like normal. The free VoidForm stack is "wasted" on the
+            // X-card, per the design.)
             if ps.energy < energy_cost {
                 return PlayResult::InsufficientEnergy {
                     available: ps.energy,
@@ -16190,6 +16195,63 @@ mod tests {
             PlayResult::Ok));
         assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 0,
             "Second Strike pays 1 → energy 0");
+    }
+
+    #[test]
+    fn snecko_oil_then_voidform_composes_in_order() {
+        // PV composition demo: SneckoOil writes a random cost into
+        // cost_override_until_played at potion-use time; VoidForm zeroes
+        // the resolved cost at play time. The Snecko-randomized value
+        // is invisible from the outside because VoidForm overwrites it
+        // — but the override is still stored on the card (you can see
+        // it via cost_override_until_played). The order is:
+        //
+        //   printed_cost → +upgrade → +overrides → ⊙ VoidForm-zero
+        //
+        // and SneckoOil's write lands in `overrides` *before* VoidForm
+        // multiplies it by 0.
+        let mut cs = ironclad_with_voidform(5);
+        // Drain energy to 0 so the test asserts the card plays even
+        // though VoidForm's quota — not the SneckoOil cost — is what
+        // gates payment.
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 0;
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("StrikeIronclad").unwrap(), 0));
+        // Simulate SneckoOil having stamped this Strike with cost=2.
+        ps.hand.cards[0].cost_override_until_played = Some(2);
+        // Play it. With effective_energy_cost() = 2 but VoidForm active,
+        // the resolved cost is 0 and the play succeeds at 0 energy.
+        let result = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        assert!(matches!(result, PlayResult::Ok),
+            "SneckoOil(2) ⊙ VoidForm should resolve to 0 and play \
+            successfully (got {:?})", result);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 0);
+    }
+
+    #[test]
+    fn voidform_does_not_zero_x_cost_cards() {
+        // X-cost (Whirlwind, Skewer) bypasses VoidForm's cost zeroing.
+        // The X-card consumes the full current energy pool and the X
+        // multiplier resolves to that amount. VoidForm's stack still
+        // bumps so the X-card "wastes" a free-play.
+        let mut cs = ironclad_with_voidform(2);
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 3;
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("Whirlwind").unwrap(), 0));
+        cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        // Energy fully consumed (X-cost mechanic, not VoidForm zeroing).
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 0,
+            "X-cost Whirlwind must consume full pool under VoidForm \
+            (energy should be 0, not 3)");
+        // VoidForm counter still bumped — the X-card "wasted" a stack.
+        let used = cs.allies[0].powers.iter()
+            .find(|p| p.id == "VoidFormPower")
+            .and_then(|p| p.state.get("cards_played_this_turn").copied())
+            .unwrap_or(0);
+        assert_eq!(used, 1,
+            "VoidForm stack must tick even though X-card bypassed the discount");
     }
 
     #[test]
