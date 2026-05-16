@@ -712,6 +712,15 @@ impl CombatState {
                             }
                         }
                     }
+                    // VoidFormPower per-turn reset (C# BeforeSideTurnStart):
+                    // zero out cards_played_this_turn so the free-play
+                    // quota is fresh.
+                    if let Some(p) = ally.powers
+                        .iter_mut()
+                        .find(|p| p.id == "VoidFormPower")
+                    {
+                        p.state.insert("cards_played_this_turn".to_string(), 0);
+                    }
                 }
             }
             CombatSide::Enemy => {
@@ -2714,6 +2723,48 @@ impl CombatState {
             .unwrap_or(0)
     }
 
+    /// Returns true if VoidFormPower on the player still has free-play
+    /// quota left this turn. C# VoidFormPower.TryModifyEnergyCostInCombat
+    /// returns 0 when the power is owned by us AND
+    /// `cardsPlayedThisTurn < base.Amount`. We track the counter in the
+    /// power instance's `state["cards_played_this_turn"]`; the cost-
+    /// resolve at play_card consults this, and after a successful
+    /// dispatch we increment.
+    pub fn voidform_free_play_active(&self, player_idx: usize) -> bool {
+        let Some(c) = self.allies.get(player_idx) else { return false };
+        let Some(p) = c.powers.iter().find(|p| p.id == "VoidFormPower") else {
+            return false;
+        };
+        let used = p.state.get("cards_played_this_turn").copied().unwrap_or(0);
+        used < p.amount
+    }
+
+    /// Bump VoidFormPower's `cards_played_this_turn` counter. Called
+    /// from play_card after a successful dispatch. C# guard:
+    /// `!cardPlay.IsAutoPlay && cardPlay.IsLastInSeries` — we increment
+    /// once per top-level play (auto-plays via Catastrophe / Havoc /
+    /// CloneSourceCardToPile do not count). For simplicity we always
+    /// increment; refine later if a parity test demands the auto-play
+    /// exclusion.
+    pub fn voidform_record_play(&mut self, player_idx: usize) {
+        let Some(c) = self.allies.get_mut(player_idx) else { return };
+        let Some(p) = c.powers.iter_mut().find(|p| p.id == "VoidFormPower") else {
+            return;
+        };
+        let cur = p.state.get("cards_played_this_turn").copied().unwrap_or(0);
+        p.state.insert("cards_played_this_turn".to_string(), cur + 1);
+    }
+
+    /// Reset VoidFormPower's per-turn counter at the start of the
+    /// owner's turn. C# `BeforeSideTurnStart` zeroes it.
+    pub fn voidform_reset_turn(&mut self, player_idx: usize) {
+        let Some(c) = self.allies.get_mut(player_idx) else { return };
+        let Some(p) = c.powers.iter_mut().find(|p| p.id == "VoidFormPower") else {
+            return;
+        };
+        p.state.insert("cards_played_this_turn".to_string(), 0);
+    }
+
     // ---------- Damage modifier pipeline ----------------------------------
     //
     // Mirrors C# `Hook.ModifyDamage` / `ModifyDamageInternal`:
@@ -3658,8 +3709,8 @@ impl CombatState {
         //    the subsequent state mutations don't fight the borrow checker.
         let card_id;
         let upgrade_level;
-        let energy_cost;
-        let x_value;
+        let mut energy_cost;
+        let mut x_value;
         let card_data: &'static CardData;
         let max_target_side;
         let max_target_idx;
@@ -3691,6 +3742,21 @@ impl CombatState {
             } else {
                 energy_cost = card.effective_energy_cost();
                 x_value = 0;
+            }
+            // VoidFormPower cost modifier: if the player owns
+            // VoidFormPower and hasn't burned through its
+            // `cards_played_this_turn < Amount` quota yet, the card costs 0.
+            // X-cost cards bypass this — the C# ShouldSkip would let
+            // them through too (energy_cost would already be 0 since
+            // ps.energy is whatever it is). For simplicity X-cards
+            // honor VoidForm by ALSO costing 0 (no X→pulled energy);
+            // this matches the in-game observation that VoidForm makes
+            // X-costs free with X=0. Refine if a parity test disagrees.
+            if self.voidform_free_play_active(player_idx) {
+                energy_cost = 0;
+                if data.has_energy_cost_x {
+                    x_value = 0;
+                }
             }
             if ps.energy < energy_cost {
                 return PlayResult::InsufficientEnergy {
@@ -3840,6 +3906,13 @@ impl CombatState {
                 x_value,
             );
         }
+
+        // 5a. VoidFormPower bookkeeping — bump
+        //     `cards_played_this_turn` once per top-level play. Mirrors
+        //     C# `VoidFormPower.AfterCardPlayed`. Recorded AFTER dispatch
+        //     so the played card itself benefits from the 0-cost quota
+        //     and the NEXT card pays correctly if the quota runs out.
+        self.voidform_record_play(player_idx);
 
         // 5b. Enchantment OnPlay hooks. Fired AFTER the card's own
         //     OnPlay body so additive effects (Sown's GainEnergy,
@@ -16064,6 +16137,83 @@ mod tests {
         cs.begin_turn(CombatSide::Player);
         assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, turn_energy,
             "Without IceCream, energy resets to turn_energy");
+    }
+
+    // ---- VoidFormPower: first N cards / turn are free ------------------
+
+    fn ironclad_with_voidform(amount: i32) -> CombatState {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "VoidFormPower", amount);
+        cs
+    }
+
+    #[test]
+    fn voidform_makes_first_card_free() {
+        let mut cs = ironclad_with_voidform(2);
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 0; // no energy at all
+        // Strike costs 1; with VoidForm and 0 energy, it should still play.
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("StrikeIronclad").unwrap(), 0));
+        let result = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        assert!(matches!(result, PlayResult::Ok),
+            "VoidForm should let Strike play at 0 energy (got {:?})", result);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 0,
+            "Strike under VoidForm should cost 0 → energy unchanged");
+        // VoidFormPower counter bumped to 1.
+        let used = cs.allies[0].powers.iter()
+            .find(|p| p.id == "VoidFormPower")
+            .and_then(|p| p.state.get("cards_played_this_turn").copied())
+            .unwrap_or(0);
+        assert_eq!(used, 1, "cards_played_this_turn should be 1");
+    }
+
+    #[test]
+    fn voidform_quota_runs_out_after_amount_plays() {
+        // VoidFormPower(amount=1): first card free, second costs full price.
+        let mut cs = ironclad_with_voidform(1);
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 1; // enough for ONE Strike, not two
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("StrikeIronclad").unwrap(), 0));
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("StrikeIronclad").unwrap(), 0));
+        // First Strike: free via VoidForm.
+        assert!(matches!(
+            cs.play_card(0, 0, Some((CombatSide::Enemy, 0))),
+            PlayResult::Ok));
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 1,
+            "First Strike free → energy still 1");
+        // Second Strike: VoidForm quota exhausted, normal cost.
+        assert!(matches!(
+            cs.play_card(0, 0, Some((CombatSide::Enemy, 0))),
+            PlayResult::Ok));
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 0,
+            "Second Strike pays 1 → energy 0");
+    }
+
+    #[test]
+    fn voidform_quota_resets_each_turn() {
+        let mut cs = ironclad_with_voidform(1);
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 3;
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("StrikeIronclad").unwrap(), 0));
+        // Burn the quota.
+        cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        let used = cs.allies[0].powers.iter()
+            .find(|p| p.id == "VoidFormPower")
+            .and_then(|p| p.state.get("cards_played_this_turn").copied())
+            .unwrap_or(0);
+        assert_eq!(used, 1);
+        // Cycle into the next player turn.
+        cs.begin_turn(CombatSide::Enemy);
+        cs.begin_turn(CombatSide::Player);
+        let used2 = cs.allies[0].powers.iter()
+            .find(|p| p.id == "VoidFormPower")
+            .and_then(|p| p.state.get("cards_played_this_turn").copied())
+            .unwrap_or(-1);
+        assert_eq!(used2, 0, "begin_turn(Player) should zero VoidForm counter");
     }
 
     // ---------- Potion VM (data-driven OnUse dispatch) tests --------------
