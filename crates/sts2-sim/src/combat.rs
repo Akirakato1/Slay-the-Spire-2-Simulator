@@ -100,6 +100,13 @@ pub struct PlayerState {
     /// of `AllCards`). Routed out to discard / exhaust / consumed
     /// after dispatch.
     pub play_pile: Vec<CardInstance>,
+    /// Potion ids rolled by `Effect::GenerateRandomPotion` /
+    /// `Effect::FillPotionSlots` during this combat. The strategic
+    /// layer (RunState fold via `apply_combat_outcome`) pushes these
+    /// onto the player's potion belt subject to `max_potion_slot_count`.
+    /// Empty between combats. Mirrors C# `PotionBelt.AddPotion` calls
+    /// fired from `PotionCmd.GenerateRandom` during combat.
+    pub potions_added_this_combat: Vec<String>,
     /// Current energy this turn.
     pub energy: i32,
     /// Per-turn energy refresh amount. Modified by relics like Velvet
@@ -864,6 +871,7 @@ impl CombatState {
         // Walks enemies and grants block to their TurretOperator allies.
         if side == CombatSide::Player {
             self.tick_rampart_powers();
+            self.tick_aggression_powers();
             // HardenedShellPower.BeforeSideTurnStart (Player only):
             // reset `damageReceivedThisTurn` to 0 for any monster
             // holding HardenedShell. The counter tracks across the
@@ -878,6 +886,60 @@ impl CombatState {
                         ms.set_counter("hardened_shell_taken", 0);
                     }
                 }
+            }
+        }
+    }
+
+    /// AggressionPower.BeforeSideTurnStart (Player side): for each
+    /// player owning the power, pull `Amount` random Attack cards
+    /// from discard, append to hand bottom, and auto-upgrade any
+    /// that are upgradable. Mirrors C# `AggressionPower
+    /// .BeforeSideTurnStart` (Cards/Models/Powers/AggressionPower.cs).
+    /// Uses the combat-scoped RNG so the picks stay deterministic.
+    fn tick_aggression_powers(&mut self) {
+        let n_players = self.allies.len();
+        for player_idx in 0..n_players {
+            let amount = self.allies.get(player_idx)
+                .and_then(|c| c.powers.iter().find(|p| p.id == "AggressionPower"))
+                .map(|p| p.amount)
+                .unwrap_or(0);
+            if amount <= 0 { continue; }
+            // Collect indices of Attack cards in the discard pile.
+            let mut attack_indices: Vec<usize> = Vec::new();
+            if let Some(ps) = self.allies[player_idx].player.as_ref() {
+                for (i, c) in ps.discard.cards.iter().enumerate() {
+                    let Some(data) = crate::card::by_id(&c.id) else { continue };
+                    if matches!(data.card_type, crate::card::CardType::Attack) {
+                        attack_indices.push(i);
+                    }
+                }
+            }
+            if attack_indices.is_empty() { continue; }
+            // Shuffle deterministically with the combat RNG and take N.
+            let mut rng_taken = std::mem::replace(&mut self.rng, Rng::new(0, 0));
+            for k in (1..attack_indices.len()).rev() {
+                let j = rng_taken.next_int_range(0, (k + 1) as i32) as usize;
+                attack_indices.swap(k, j);
+            }
+            self.rng = rng_taken;
+            let take = (amount as usize).min(attack_indices.len());
+            // Move highest indices first so earlier indices stay valid.
+            let mut picks: Vec<usize> = attack_indices[..take].to_vec();
+            picks.sort_by(|a, b| b.cmp(a));
+            for di in picks {
+                let Some(ps) = self.allies[player_idx].player.as_mut() else { break };
+                if di >= ps.discard.cards.len() { continue; }
+                let mut card = ps.discard.cards.remove(di);
+                // Auto-upgrade if upgradable (mirrors C# auto-upgrade
+                // step in the BeforeSideTurnStart body).
+                if let Some(data) = crate::card::by_id(&card.id) {
+                    if data.max_upgrade_level > 0
+                        && card.upgrade_level < data.max_upgrade_level
+                    {
+                        card.upgrade_level += 1;
+                    }
+                }
+                ps.hand.cards.push(card);
             }
         }
     }
@@ -4158,9 +4220,15 @@ impl CombatState {
             .copied()
             .unwrap_or(0)
             .max(0);
+        // Power-driven play-count modifier (OneTwoPunchPower adds +1
+        // play on Attack cards). Mirrors C#
+        // `OnPlayWrapper.Hook.ModifyCardPlayCount`.
+        let power_play_delta = crate::effects::fire_modify_card_play_count_hooks(
+            self, player_idx, card_data.card_type,
+        );
         let play_count = (enchantment_modify_play_count(
             played_card.enchantment.as_ref(),
-        ) + base_replay).max(1);
+        ) + base_replay + power_play_delta).max(1);
         let mut handled = false;
         for _ in 0..play_count {
             handled |= dispatch_on_play(
@@ -4173,6 +4241,12 @@ impl CombatState {
                 x_value,
             );
         }
+        // C# `AfterModifyingCardPlayCount` — burn one stack per play
+        // for subscribers like OneTwoPunchPower (counter, removed at
+        // AfterTurnEnd).
+        crate::effects::fire_after_modifying_card_play_count(
+            self, player_idx, card_data.card_type,
+        );
 
         // 5a. VoidFormPower bookkeeping — bump
         //     `cards_played_this_turn` once per top-level play. Mirrors
@@ -12720,6 +12794,7 @@ impl Creature {
                 discard: CardPile::new(PileType::Discard),
                 exhaust: CardPile::new(PileType::Exhaust),
                 play_pile: Vec::new(),
+                potions_added_this_combat: Vec::new(),
                 energy: DEFAULT_TURN_ENERGY,
                 turn_energy: DEFAULT_TURN_ENERGY,
                 relics: setup.relics,
@@ -12902,6 +12977,187 @@ mod tests {
         };
         let cs = CombatState::start(encounter, vec![setup], Vec::new());
         assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 5);
+    }
+
+    /// Armaments base: gain block + stage a choice to upgrade one
+    /// card in hand. Armaments+ upgrades every upgradable card in
+    /// hand directly.
+    #[test]
+    fn armaments_upgraded_upgrades_all_in_hand() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80, max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(encounter, vec![setup], Vec::new());
+        // Seed hand with 3 upgradable Strikes.
+        let strike = CardInstance::from_card(crate::card::by_id("StrikeIronclad").unwrap(), 0);
+        for _ in 0..3 {
+            cs.allies[0].player.as_mut().unwrap().hand.cards.push(strike.clone());
+        }
+
+        let effects = card_effects("Armaments").expect("Armaments exists");
+        // Upgrade=1 path: every Strike in hand upgrades.
+        let ctx = EffectContext::for_card(0, None, "Armaments", 1, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let upgraded: Vec<_> = cs.allies[0].player.as_ref().unwrap()
+            .hand.cards.iter()
+            .filter(|c| c.id == "StrikeIronclad")
+            .map(|c| c.upgrade_level)
+            .collect();
+        assert!(upgraded.iter().all(|u| *u >= 1),
+            "Armaments+ should upgrade every Strike in hand, got {:?}", upgraded);
+    }
+
+    /// OneTwoPunchPower: while active, the next Attack plays twice
+    /// (play_count = base + 1). The power decrements after each Attack.
+    #[test]
+    fn one_two_punch_power_doubles_next_attack() {
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80, max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(encounter, vec![setup], Vec::new());
+        // Apply OneTwoPunchPower(1).
+        cs.allies[0].powers.push(PowerInstance {
+            id: "OneTwoPunchPower".to_string(),
+            amount: 1,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        // Put Strike in hand.
+        let strike = CardInstance::from_card(crate::card::by_id("StrikeIronclad").unwrap(), 0);
+        cs.allies[0].player.as_mut().unwrap().hand.cards = vec![strike];
+        cs.allies[0].player.as_mut().unwrap().energy = 3;
+
+        let enemy_hp_before = cs.enemies[0].current_hp;
+        let _r = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+        let enemy_hp_after = cs.enemies[0].current_hp;
+        let damage = enemy_hp_before - enemy_hp_after;
+        // Strike base = 6. With OneTwoPunchPower(1): plays 2 times → 12.
+        assert_eq!(damage, 12,
+            "Strike with OneTwoPunch should deal 6 × 2 = 12, got {}", damage);
+        // After play, OneTwoPunchPower stack decremented to 0.
+        let remaining = cs.allies[0].powers.iter()
+            .find(|p| p.id == "OneTwoPunchPower")
+            .map(|p| p.amount);
+        assert!(remaining.is_none() || remaining == Some(0),
+            "OneTwoPunchPower should decrement to 0 after Attack");
+    }
+
+    /// AggressionPower: at start of Player turn, pulls N random
+    /// Attacks from discard to hand bottom, auto-upgrading each.
+    #[test]
+    fn aggression_power_pulls_attack_from_discard_at_turn_start() {
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80, max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(encounter, vec![setup], Vec::new());
+        // Seed discard with 3 Strikes + 1 Defend (non-Attack).
+        let strike = CardInstance::from_card(crate::card::by_id("StrikeIronclad").unwrap(), 0);
+        let defend = CardInstance::from_card(crate::card::by_id("DefendIronclad").unwrap(), 0);
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.discard.cards = vec![strike.clone(), strike.clone(), strike, defend.clone()];
+        ps.hand.cards.clear();
+        // Apply AggressionPower(2).
+        cs.allies[0].powers.push(PowerInstance {
+            id: "AggressionPower".to_string(),
+            amount: 2,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+
+        // Fire begin_turn(Player) — runs tick_aggression_powers.
+        cs.begin_turn(CombatSide::Player);
+        let hand = &cs.allies[0].player.as_ref().unwrap().hand.cards;
+        assert_eq!(hand.len(), 2,
+            "Aggression(2) should pull 2 Attacks into hand, got {} cards", hand.len());
+        assert!(hand.iter().all(|c| c.id == "StrikeIronclad"),
+            "Only Attack cards (Strike) should be pulled, got {:?}",
+            hand.iter().map(|c| &c.id).collect::<Vec<_>>());
+        // Defend stays in discard.
+        let remaining_discard = &cs.allies[0].player.as_ref().unwrap().discard.cards;
+        assert!(remaining_discard.iter().any(|c| c.id == "DefendIronclad"),
+            "Defend (non-Attack) should remain in discard");
+    }
+
+    /// Alchemize: rolls a random potion and pushes it to
+    /// `potions_added_this_combat`. Strategic layer drains this on
+    /// combat end to add to the player's belt.
+    #[test]
+    fn alchemize_rolls_random_potion_into_pending_grant() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80, max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(encounter, vec![setup], Vec::new());
+        let effects = card_effects("Alchemize").expect("Alchemize exists");
+        let ctx = EffectContext::for_card(0, None, "Alchemize", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let added = &cs.allies[0].player.as_ref().unwrap().potions_added_this_combat;
+        assert_eq!(added.len(), 1, "Alchemize should add exactly 1 potion");
+        assert!(!added[0].is_empty(), "added potion id should be non-empty");
+        assert!(crate::potion::by_id(&added[0]).is_some(),
+            "added potion id should resolve in potion table: {}", added[0]);
+    }
+
+    /// Dominate: apply 1 Vulnerable to enemy, then read enemy's
+    /// post-apply Vulnerable count and apply that much Strength to
+    /// the player. Locks in the user-reported Strength-self-buff
+    /// behavior.
+    #[test]
+    fn dominate_grants_strength_equal_to_target_vulnerable() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80, max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(encounter, vec![setup], Vec::new());
+
+        // Fire Dominate base — should apply 1 Vulnerable → 1 Strength.
+        let effects = card_effects("Dominate").expect("Dominate exists");
+        let ctx = EffectContext::for_card(
+            0, Some((CombatSide::Enemy, 0)), "Dominate", 0, None, 0,
+        );
+        execute_effects(&mut cs, &effects, &ctx);
+
+        let player_strength = cs.allies[0].powers.iter()
+            .find(|p| p.id == "StrengthPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        let enemy_vuln = cs.enemies[0].powers.iter()
+            .find(|p| p.id == "VulnerablePower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert!(enemy_vuln >= 1, "enemy should have Vulnerable after Dominate, got {}", enemy_vuln);
+        assert!(player_strength >= 1,
+            "player should gain Strength = enemy Vulnerable after Dominate, got {} (enemy vuln {})",
+            player_strength, enemy_vuln);
     }
 
     /// Power subscriber: DemesnePower stack count adds to hand draw.

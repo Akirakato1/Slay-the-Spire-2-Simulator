@@ -834,6 +834,10 @@ pub enum Effect {
     /// Forge: in-combat upgrade hook tied to the StS2 smith system.
     /// STUB — forge system not yet wired.
     Forge { amount: AmountSpec },
+    /// Upgrade every card in `pile` matching `filter` in place. Used
+    /// by Armaments+ (upgrade all upgradable cards in hand). Mirrors
+    /// C# `CardCmd.Upgrade` looped over `pile.Where(c => c.IsUpgradable)`.
+    UpgradeAllInPile { pile: Pile, filter: CardFilter },
     /// End the player's turn immediately. STUB — calling cs.end_turn()
     /// from inside OnPlay nests the turn machine; needs a "pending
     /// end-of-turn" flag the env loop consumes. FranticEscape is the
@@ -4916,6 +4920,61 @@ fn relic_modify_hand_draw_delta(relic_id: &str) -> i32 {
     }
 }
 
+/// `Hook.ModifyCardPlayCount` dispatcher. C#
+/// `OnPlayWrapper` calls this once per card play; subscribers
+/// return a delta to the play count. We return the *delta* (not the
+/// final count) so the caller can fold it into the existing
+/// enchantment + per-card-replay-count chain.
+///
+/// Subscribers (`PowerModel.ModifyCardPlayCount` overrides):
+///   - `OneTwoPunchPower` — +1 plays if card type is Attack. Stack
+///     decrements once per replay; removed at AfterTurnEnd.
+///   - Other STS2 powers that override ModifyCardPlayCount land here
+///     incrementally.
+pub fn fire_modify_card_play_count_hooks(
+    cs: &CombatState,
+    player_idx: usize,
+    card_type: crate::card::CardType,
+) -> i32 {
+    let Some(ally) = cs.allies.get(player_idx) else { return 0; };
+    let mut delta = 0;
+    for p in &ally.powers {
+        if p.amount <= 0 { continue; }
+        match p.id.as_str() {
+            "OneTwoPunchPower" => {
+                if matches!(card_type, crate::card::CardType::Attack) {
+                    delta += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    delta
+}
+
+/// Decrement subscribers that fire `AfterModifyingCardPlayCount` so
+/// each card play burns one stack. Called from `play_card` after the
+/// play-count loop completes. Pairs with
+/// `fire_modify_card_play_count_hooks`.
+pub fn fire_after_modifying_card_play_count(
+    cs: &mut CombatState,
+    player_idx: usize,
+    card_type: crate::card::CardType,
+) {
+    if !matches!(card_type, crate::card::CardType::Attack) {
+        return;
+    }
+    if let Some(ally) = cs.allies.get_mut(player_idx) {
+        if let Some(p) = ally.powers.iter_mut()
+            .find(|p| p.id == "OneTwoPunchPower" && p.amount > 0)
+        {
+            p.amount -= 1;
+        }
+        // Sweep zero-amount counter powers.
+        ally.powers.retain(|p| p.id != "OneTwoPunchPower" || p.amount > 0);
+    }
+}
+
 /// Per-power hand-draw delta. The `amount` parameter is the power's
 /// current stack count (most powers' delta is their stack value;
 /// some always return 1 regardless of stacks — refine per-power as
@@ -7017,7 +7076,31 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Afterimage" => Some(vec![Effect::ApplyPower { power_id: "AfterimagePower".to_string(), amount: AmountSpec::Canonical("AfterimagePower".to_string()), target: Target::SelfPlayer }]),
         "Aggression" => Some(vec![Effect::ApplyPower { power_id: "AggressionPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "Alignment" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
-        "Armaments" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
+        "Armaments" => Some(vec![
+            // Base: gain block + pick 1 upgradable card from hand → upgrade.
+            // Upgraded: gain block + upgrade every upgradable in hand.
+            // Mirrors C# `Armaments.OnPlay` (CardSelectCmd.FromHandForUpgrade
+            // for base; foreach upgrade for +).
+            Effect::GainBlock {
+                amount: AmountSpec::Canonical("Block".to_string()),
+                target: Target::SelfPlayer,
+            },
+            Effect::Conditional {
+                condition: Condition::IsUpgraded,
+                then_branch: vec![Effect::UpgradeAllInPile {
+                    pile: Pile::Hand,
+                    filter: CardFilter::Upgradable,
+                }],
+                else_branch: vec![Effect::AwaitPlayerChoice {
+                    pile: Pile::Hand,
+                    n_min: 1,
+                    n_max: AmountSpec::Fixed(1),
+                    filter: CardFilter::Upgradable,
+                    action: ChoiceActionSpec::Upgrade,
+                    follow_up: Vec::new(),
+                }],
+            },
+        ]),
         "Arsenal" => Some(vec![Effect::ApplyPower { power_id: "ArsenalPower".to_string(), amount: AmountSpec::Canonical("ArsenalPower".to_string()), target: Target::SelfPlayer }]),
         "AscendersBane" => Some(vec![]),
         "Assassinate" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }]),
@@ -9902,6 +9985,25 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 }
             }
         }
+        Effect::UpgradeAllInPile { pile, filter } => {
+            // Walk the named pile, upgrade every card matching `filter`.
+            // Used by Armaments+ (upgrade all upgradable cards in hand).
+            let Some(ps) = player_state_mut(cs, ctx.player_idx) else { return };
+            let cards: &mut Vec<crate::combat::CardInstance> = match pile {
+                Pile::Hand => &mut ps.hand.cards,
+                Pile::Draw => &mut ps.draw.cards,
+                Pile::Discard => &mut ps.discard.cards,
+                Pile::Exhaust => &mut ps.exhaust.cards,
+                _ => return,
+            };
+            for card in cards.iter_mut() {
+                let Some(data) = card_by_id(&card.id) else { continue };
+                if data.max_upgrade_level <= 0 { continue }
+                if card.upgrade_level >= data.max_upgrade_level { continue }
+                if !matches_filter(card, filter) { continue }
+                card.upgrade_level += 1;
+            }
+        }
         Effect::EndTurn => {
             // STUB: calling end_turn() mid-card nests the turn machine.
             // Once a "pending end-of-turn" flag exists in CombatState,
@@ -9911,8 +10013,54 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         Effect::CompleteQuest => {
             // STUB: quest progression isn't represented in combat state.
         }
-        Effect::GenerateRandomPotion | Effect::FillPotionSlots => {
-            // STUB: potion belt isn't in CombatState.
+        Effect::GenerateRandomPotion => {
+            // Roll a random non-deprecated potion from the player's
+            // character pool ∪ "Shared". Pushes the id onto
+            // `potions_added_this_combat`; the strategic layer drains
+            // this list on combat end and folds it into the run-state
+            // potion belt (subject to max_potion_slot_count).
+            let character = cs.allies.get(ctx.player_idx)
+                .map(|c| c.model_id.clone())
+                .unwrap_or_default();
+            let candidates: Vec<&'static str> = crate::potion::ALL_POTIONS
+                .iter()
+                .filter(|p| p.id != "DeprecatedPotion")
+                .filter(|p| p.pools.iter().any(|pl| pl == &character || pl == "Shared"))
+                .map(|p| p.id.as_str())
+                .collect();
+            if candidates.is_empty() { return; }
+            let mut rng = std::mem::replace(&mut cs.rng, crate::rng::Rng::new(0, 0));
+            let idx = rng.next_int_range(0, candidates.len() as i32) as usize;
+            cs.rng = rng;
+            let picked = candidates[idx].to_string();
+            if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                ps.potions_added_this_combat.push(picked);
+            }
+        }
+        Effect::FillPotionSlots => {
+            // EntropicBrew: top up the belt to full. We don't track the
+            // belt's current size in CombatState, so we approximate by
+            // generating up to 3 potions (the typical max slot count).
+            // Strategic layer caps to actual belt capacity on fold.
+            for _ in 0..3 {
+                let character = cs.allies.get(ctx.player_idx)
+                    .map(|c| c.model_id.clone())
+                    .unwrap_or_default();
+                let candidates: Vec<&'static str> = crate::potion::ALL_POTIONS
+                    .iter()
+                    .filter(|p| p.id != "DeprecatedPotion")
+                    .filter(|p| p.pools.iter().any(|pl| pl == &character || pl == "Shared"))
+                    .map(|p| p.id.as_str())
+                    .collect();
+                if candidates.is_empty() { break; }
+                let mut rng = std::mem::replace(&mut cs.rng, crate::rng::Rng::new(0, 0));
+                let idx = rng.next_int_range(0, candidates.len() as i32) as usize;
+                cs.rng = rng;
+                let picked = candidates[idx].to_string();
+                if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
+                    ps.potions_added_this_combat.push(picked);
+                }
+            }
         }
         Effect::AutoplayFromDraw { n, force_exhaust } => {
             // C# Catastrophe / Havoc / Mayhem / DistilledChaos:
