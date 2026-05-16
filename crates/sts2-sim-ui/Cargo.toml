@@ -1,0 +1,16 @@
+[package]
+name = "sts2-sim-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Native sandbox UI for sts2-sim. Build a deck, attach enchantments, fight 2 BigDummy in real combat."
+
+[[bin]]
+name = "sts2-ui"
+path = "src/main.rs"
+
+[dependencies]
+sts2-sim = { path = "../sts2-sim" }
+eframe = { version = "0.27", default-features = false, features = ["default_fonts", "glow"] }
+egui = "0.27"

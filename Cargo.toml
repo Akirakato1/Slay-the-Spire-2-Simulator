@@ -4,6 +4,7 @@ members = [
     "crates/sts2-sim",
     "crates/sts2-sim-oracle-tests",
     "crates/sts2-sim-py",
+    "crates/sts2-sim-ui",
     "tools/extract_afflictions",
     "tools/extract_cards",
     "tools/extract_characters",
