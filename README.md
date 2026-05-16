@@ -65,9 +65,9 @@ reflectively.
 | Choice vs RNG semantics | 6 | ✅ |
 | Audit: no-combat-effect relics (158 relics) + loose comparisons | 44 | ✅ |
 | Enchantment audit incl. duplication + play-count + AfterCardDrawn | 17 | ✅ |
-| Potion audit | 8 | ✅ |
+| Potion audit (incl. SoldiersStew replay-count) | 9 | ✅ |
 | Composition-architecture audit | 10 | ✅ |
-| **Total** | **1183** | **100% PASS** |
+| **Total** | **1184** | **100% PASS** |
 
 **RNG, map, shuffle, acts** — bit-exact vs C# DLL via oracle (~36 tests).
 
@@ -159,27 +159,23 @@ print(json.loads(env.observation()))
 
 Primitives the remaining gaps need (ordered by leverage):
 
-1. **Per-card permanent field mutation** (`ModifyMasterDeckField`) —
-   unblocks SoldiersStew (`BaseReplayCount++` on Strike-tagged cards).
-   Needs a `base_replay_count: i32` on `CardInstance` consumed by the
-   `enchantment_modify_play_count` loop already in place.
-2. **Remaining enchantment lifecycle hooks** (`BeforeFlush`,
+1. **Remaining enchantment lifecycle hooks** (`BeforeFlush`,
    `BeforePlayPhaseStart`, `ModifyShuffleOrder`) — unblocks
    SlumberingEssence, Imbued, PerfectFit.
-3. **Modifier-hook layer** (`ModifyHandDraw` chain, `ModifyMaxEnergy`,
+2. **Modifier-hook layer** (`ModifyHandDraw` chain, `ModifyMaxEnergy`,
    `ModifyDamage*`, `TryModifyRewards*`, `TryModifyRestSiteOptions`) —
    threads relic-driven value modifications into the existing pipelines
    beyond the round-1 hand-draw special case already landed.
-4. **Hook dispatcher (#70)** — needs IL re-decompile of
+3. **Hook dispatcher (#70)** — needs IL re-decompile of
    `IterateHookListeners.MoveNext` (compiler-generated state machine
    stripped from current decompile).
-5. **Power VM expansion** — port hardcoded power behavior (Strength /
+4. **Power VM expansion** — port hardcoded power behavior (Strength /
    Dex / Weak / Vulnerable / Frail / Poison / DemonForm / Ritual /
    Barricade) to `power_effects` data table.
-6. **Forge runtime** — primitives exist (`Effect::Forge`); resolving
+5. **Forge runtime** — primitives exist (`Effect::Forge`); resolving
    `pending_forge` into a card-upgrade choice surface is pending.
 
-**Recently landed** (see `enchantment_audit.rs` for tests):
+**Recently landed** (see `enchantment_audit.rs` / `potion_audit.rs`):
 - `EnchantPlayCount` loop (Glam +N once-per-combat, Spiral +N always).
 - AfterCardPlayed enchantment self-state (Goopy `StackCount++` on each
   play of host card).
@@ -187,6 +183,9 @@ Primitives the remaining gaps need (ordered by leverage):
 - Choice continuation (`AwaitPlayerChoice.follow_up` +
   `AmountSpec::LastChoicePickCount`) — GamblersBrew's "draw what you
   discarded" now works in both auto-resolve and RL-deferred paths.
+- `BumpCardStateOnAllPiles` primitive + `BaseReplayCount` consumption
+  in `play_card` — SoldiersStew bumps `replay_count` on every
+  Strike-tagged card; HiddenGem's bump now actually fires per-replay.
 - Potion canonical resolver (verified wired; cleaned up two stale
   hardcoded-literal potions).
 

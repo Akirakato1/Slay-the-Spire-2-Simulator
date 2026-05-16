@@ -837,6 +837,18 @@ pub enum Effect {
         from: Pile,
         selector: Selector,
     },
+    /// Bump a per-card state counter on every CardInstance in the
+    /// player's combat piles (hand + draw + discard + exhaust)
+    /// matching `filter`. SoldiersStew uses
+    /// `BumpCardStateOnAllPiles { filter: HasKeyword("Strike"),
+    ///   key: "replay_count", delta: Fixed(1) }`
+    /// to bump every Strike-tagged card's play count by 1. The play_card
+    /// loop sums `replay_count` + enchantment play-count + implicit-1.
+    BumpCardStateOnAllPiles {
+        filter: CardFilter,
+        key: String,
+        delta: AmountSpec,
+    },
     /// Transform selected cards into random replacements from the
     /// card pool. PandorasBox-style. STUB — transformation requires
     /// CardFactory RNG plumbing.
@@ -4319,13 +4331,16 @@ pub fn potion_effects(potion_id: &str) -> Option<Vec<Effect>> {
         ]),
 
         // C# SoldiersStew: BaseReplayCount++ on every Strike-tagged
-        // card in master deck. This is a combat-scoped permanent
-        // buff applied to a tagged subset. Not yet a primitive; the
-        // closest existing variant is per-card state increments.
-        // Leaving as no-op (TODO: ModifyMasterDeckField) until the
-        // primitive lands so the potion test gates on infra, not
-        // silent regression.
-        "SoldiersStew" => Some(vec![]),
+        // card across all of the player's combat piles. The
+        // BumpCardStateOnAllPiles primitive walks hand/draw/discard/
+        // exhaust and bumps `state["replay_count"]` on each card with
+        // HasKeyword("Strike"). play_card's play-count loop sums the
+        // resulting BaseReplayCount into the total dispatch count.
+        "SoldiersStew" => Some(vec![Effect::BumpCardStateOnAllPiles {
+            filter: CardFilter::TaggedAs("Strike".to_string()),
+            key: "replay_count".to_string(),
+            delta: AmountSpec::Fixed(1),
+        }]),
 
         // C# TouchOfInsanity: pick 1 card from hand with cost > 0;
         // set its cost to 0 for the rest of combat.
@@ -9211,6 +9226,29 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         Effect::ApplyKeywordToCards { .. } => {
             // STUB: keyword runtime mutation needs a per-CardInstance
             // override field. Defer.
+        }
+        Effect::BumpCardStateOnAllPiles { filter, key, delta } => {
+            // Walk every player pile (hand + draw + discard + exhaust)
+            // and bump `state[key]` on each card matching `filter`.
+            // SoldiersStew → BaseReplayCount++ on Strike-tagged cards.
+            // The played-card loop reads `state["replay_count"]` as the
+            // BaseReplayCount source.
+            let d = delta.resolve(ctx, cs);
+            if d == 0 { /* no-op */ } else if let Some(ps) =
+                cs.allies.get_mut(ctx.player_idx).and_then(|c| c.player.as_mut())
+            {
+                for pile_ref in [
+                    &mut ps.hand, &mut ps.draw,
+                    &mut ps.discard, &mut ps.exhaust,
+                ] {
+                    for c in pile_ref.cards.iter_mut() {
+                        if matches_filter(c, filter) {
+                            let cur = c.state.get(key.as_str()).copied().unwrap_or(0);
+                            c.state.insert(key.clone(), cur + d);
+                        }
+                    }
+                }
+            }
         }
         Effect::TransformCards { .. } => {
             // STUB: CardFactory.CreateRandom* not yet plumbed through

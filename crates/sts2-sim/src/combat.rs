@@ -3783,14 +3783,25 @@ impl CombatState {
         //    modifier participation.
         //
         //    Play-count modifier chain (C# `OnPlayWrapper` loops
-        //    `playCount2 = ModifyCardPlayCount(...)` times). Enchantments
-        //    can bump the play count: Glam (+Times once-per-combat),
-        //    Spiral (+Times always). Each iteration re-runs the
-        //    OnPlay body — Bash with Glam(+1) deals 8+8 damage and
-        //    applies Vulnerable twice. We loop `play_count` times.
-        let play_count = enchantment_modify_play_count(
+        //    `playCount2 = ModifyCardPlayCount(...)` times). Three
+        //    sources stack additively:
+        //      1. Enchantment: Glam (+Times once-per-combat),
+        //         Spiral (+Times always).
+        //      2. Per-card BaseReplayCount: HiddenGem bumps the
+        //         picked card's `replay_count`, SoldiersStew bumps
+        //         every Strike-tagged card's `replay_count`.
+        //      3. Implicit 1 (the play itself).
+        //    Bash with Glam(+1) → 8+8 damage; Strike with
+        //    replay_count=2 → 6+6+6 damage; both stack.
+        let base_replay = played_card
+            .state
+            .get("replay_count")
+            .copied()
+            .unwrap_or(0)
+            .max(0);
+        let play_count = (enchantment_modify_play_count(
             played_card.enchantment.as_ref(),
-        ).max(1);
+        ) + base_replay).max(1);
         let mut handled = false;
         for _ in 0..play_count {
             handled |= dispatch_on_play(

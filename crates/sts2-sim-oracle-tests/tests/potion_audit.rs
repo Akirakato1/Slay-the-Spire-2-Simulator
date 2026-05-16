@@ -143,15 +143,65 @@ fn gamblers_brew_runs_without_panic() {
 }
 
 #[test]
-fn soldiers_stew_is_a_known_stub() {
-    // SoldiersStew needs a primitive (ModifyMasterDeckField on
-    // Strike-tagged cards) that doesn't exist. Encoded as empty
-    // pending the new primitive. This test documents the gap so
-    // the encoding regression doesn't go unnoticed.
-    let effects_list = effects::potion_effects("SoldiersStew")
-        .expect("SoldiersStew must have an encoding entry, even if empty");
-    assert!(effects_list.is_empty(),
-        "SoldiersStew encoded as empty (stub) — once the \
-        ModifyMasterDeckField primitive lands, replace the stub with \
-        the BaseReplayCount++ effect and update this test.");
+fn soldiers_stew_bumps_replay_count_on_every_strike() {
+    // SoldiersStew walks hand + draw + discard + exhaust and bumps
+    // state["replay_count"] on every Strike-tagged card. play_card's
+    // loop reads that counter as BaseReplayCount.
+    let mut cs = ironclad_combat();
+    // Confirm the starting Ironclad deck has Strike copies in the
+    // draw pile (sweep starts with all cards in draw, no hand).
+    let strike_count_before: usize = {
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        ps.draw.cards.iter()
+            .filter(|c| c.id == "StrikeIronclad")
+            .count()
+    };
+    assert!(strike_count_before >= 4,
+        "Ironclad starter deck should have >= 4 Strikes (had {})",
+        strike_count_before);
+
+    use_potion(&mut cs, "SoldiersStew", None);
+
+    // Every Strike in every pile should have replay_count == 1 now.
+    let ps = cs.allies[0].player.as_ref().unwrap();
+    for pile in [&ps.hand, &ps.draw, &ps.discard, &ps.exhaust] {
+        for c in &pile.cards {
+            if c.id == "StrikeIronclad" {
+                assert_eq!(c.state.get("replay_count").copied(), Some(1),
+                    "Strike must have replay_count=1 after SoldiersStew (got {:?})",
+                    c.state.get("replay_count"));
+            } else {
+                // Non-Strike cards untouched.
+                assert!(c.state.get("replay_count").is_none()
+                    || c.state.get("replay_count") == Some(&0),
+                    "non-Strike card {} should not have replay_count set",
+                    c.id);
+            }
+        }
+    }
+}
+
+#[test]
+fn soldiers_stew_makes_strike_dispatch_twice() {
+    // End-to-end: after SoldiersStew, playing a Strike fires OnPlay
+    // twice (one base + one BaseReplayCount). Strike deals 6 → 12.
+    let mut cs = ironclad_combat();
+    use_potion(&mut cs, "SoldiersStew", None);
+    // Move a Strike to hand for play.
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    let pos = ps.draw.cards.iter()
+        .position(|c| c.id == "StrikeIronclad")
+        .expect("a Strike in draw");
+    let strike = ps.draw.cards.remove(pos);
+    assert_eq!(strike.state.get("replay_count").copied(), Some(1));
+    ps.hand.cards.push(strike);
+    ps.energy = 3;
+    let hp_before = cs.enemies[0].current_hp;
+    let hand_idx = cs.allies[0].player.as_ref().unwrap()
+        .hand.cards.iter().position(|c| c.id == "StrikeIronclad").unwrap();
+    cs.play_card(0, hand_idx, Some((CombatSide::Enemy, 0)));
+    let dmg = hp_before - cs.enemies[0].current_hp;
+    assert_eq!(dmg, 12,
+        "Strike with replay_count=1 should deal 6+6=12 (dealt {})",
+        dmg);
 }
