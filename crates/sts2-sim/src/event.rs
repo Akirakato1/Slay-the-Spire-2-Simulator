@@ -16,6 +16,14 @@ pub struct EventData {
     pub initial_option_labels: Vec<String>,
     #[serde(default)]
     pub canonical_vars: Vec<EventVar>,
+    /// Acts whose runtime event pool includes this event. Acts'
+    /// `AllEvents` overrides are concatenated with `ModelDb.AllSharedEvents`
+    /// — shared events appear in all 4 canonical act pools, act-specific
+    /// events appear only in their own. An empty list means the event is
+    /// not in any canonical pool (deprecated / never-shipped / event-
+    /// chain-only).
+    #[serde(default)]
+    pub acts: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -45,6 +53,16 @@ pub static EVENT_INDEX: LazyLock<HashMap<&'static str, &'static EventData>> =
 
 pub fn by_id(id: &str) -> Option<&'static EventData> {
     EVENT_INDEX.get(id).copied()
+}
+
+/// All events in a specific act's runtime event pool (act-specific
+/// `AllEvents` concatenated with `ModelDb.AllSharedEvents`). Mirrors
+/// `ActModel.GenerateRooms` line 489.
+pub fn events_for_act(act: &str) -> Vec<&'static EventData> {
+    ALL_EVENTS
+        .iter()
+        .filter(|e| e.acts.iter().any(|a| a == act))
+        .collect()
 }
 
 #[cfg(test)]
@@ -79,5 +97,42 @@ mod tests {
             with_options,
             ALL_EVENTS.len()
         );
+    }
+
+    /// Per-act event pools are populated. The pool sizes are
+    /// (act-specific count) + (18 shared events) per C# source.
+    #[test]
+    fn act_event_pools_are_non_empty() {
+        for act in ["Overgrowth", "Hive", "Glory", "Underdocks"] {
+            let pool = events_for_act(act);
+            assert!(!pool.is_empty(), "{} has no events", act);
+            // 18 shared events appear in every act, so every act's
+            // pool must be at least that big.
+            assert!(pool.len() >= 18,
+                "{} has only {} events (expected ≥ 18 shared)",
+                act, pool.len(),
+            );
+        }
+    }
+
+    /// `FakeMerchant` is in `ModelDb.AllSharedEvents` (line 348) so it
+    /// must show up in all 4 canonical act pools.
+    #[test]
+    fn shared_events_appear_in_every_act() {
+        let fm = by_id("FakeMerchant").unwrap();
+        for act in ["Overgrowth", "Hive", "Glory", "Underdocks"] {
+            assert!(fm.acts.iter().any(|a| a == act),
+                "FakeMerchant missing from {}", act);
+        }
+    }
+
+    /// `ByrdonisNest` is in Overgrowth's `AllEvents` list (line 107)
+    /// but is NOT shared — should appear in Overgrowth only.
+    #[test]
+    fn act_specific_events_stay_in_their_act() {
+        let bn = by_id("ByrdonisNest").unwrap();
+        assert!(bn.acts.iter().any(|a| a == "Overgrowth"));
+        assert!(!bn.acts.iter().any(|a| a == "Hive"),
+            "ByrdonisNest leaked into Hive");
     }
 }

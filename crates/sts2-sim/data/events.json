@@ -20,6 +20,9 @@
         "kind": "Heal",
         "base_value": 10.0
       }
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
@@ -32,6 +35,9 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
@@ -40,6 +46,9 @@
     "initial_option_labels": [
       "AROMA_OF_CHAOS.pages.INITIAL.options.LET_GO",
       "AROMA_OF_CHAOS.pages.INITIAL.options.MAINTAIN_CONTROL"
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -60,6 +69,9 @@
       {
         "kind": "Dynamic"
       }
+    ],
+    "acts": [
+      "Glory"
     ]
   },
   {
@@ -91,6 +103,12 @@
         "key": "FromCardChoiceCount",
         "base_value": 5.0
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -107,6 +125,9 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
@@ -124,6 +145,9 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -137,6 +161,9 @@
         "kind": "Cards",
         "base_value": 3.0
       }
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
@@ -152,6 +179,9 @@
       {
         "kind": "Gold"
       }
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
@@ -180,6 +210,12 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -202,6 +238,9 @@
         "kind": "HpLoss",
         "base_value": 8.0
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -229,6 +268,12 @@
         "base_value": 15.0,
         "value_prop": "Unblockable"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -243,6 +288,9 @@
         "kind": "Cards",
         "base_value": 2.0
       }
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
@@ -263,6 +311,9 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
@@ -297,11 +348,20 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "FakeMerchant",
-    "is_shared": true
+    "is_shared": true,
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
+    ]
   },
   {
     "id": "FieldOfManSizedHoles",
@@ -325,6 +385,9 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
@@ -345,11 +408,17 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "HungryForMushrooms",
-    "is_shared": false
+    "is_shared": false,
+    "acts": [
+      "Glory"
+    ]
   },
   {
     "id": "InfestedAutomaton",
@@ -357,6 +426,9 @@
     "initial_option_labels": [
       "INFESTED_AUTOMATON.pages.INITIAL.options.STUDY",
       "INFESTED_AUTOMATON.pages.INITIAL.options.TOUCH_CORE"
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
@@ -383,6 +455,9 @@
         "key": "JoinForcesGold",
         "base_value": 50.0
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -402,6 +477,9 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
@@ -417,6 +495,9 @@
         "kind": "Gold",
         "base_value": 149.0
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -431,6 +512,9 @@
         "kind": "MaxHp",
         "base_value": 5.0
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -446,6 +530,12 @@
         "key": "FoulPotions",
         "base_value": 3.0
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -460,6 +550,9 @@
         "kind": "Gold",
         "base_value": 0.0
       }
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
@@ -481,6 +574,12 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -489,6 +588,9 @@
     "initial_option_labels": [
       "REFLECTIONS.pages.INITIAL.options.TOUCH_A_MIRROR",
       "REFLECTIONS.pages.INITIAL.options.SHATTER"
+    ],
+    "acts": [
+      "Glory"
     ]
   },
   {
@@ -519,6 +621,12 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -534,6 +642,12 @@
         "base_value": 14.0,
         "value_prop": "Unblockable"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -552,6 +666,9 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Glory"
     ]
   },
   {
@@ -569,6 +686,9 @@
         "kind": "Heal",
         "base_value": 9.0
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -608,6 +728,12 @@
         "key": "Enchantment3Amount",
         "base_value": 2.0
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -624,6 +750,12 @@
       {
         "kind": "Dynamic"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -638,6 +770,9 @@
         "kind": "Heal",
         "base_value": 0.0
       }
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
@@ -658,6 +793,9 @@
         "key": "LetItInHealAmount",
         "base_value": 25.0
       }
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
@@ -688,6 +826,12 @@
         "key": "PushVigorousAmount",
         "base_value": 8.0
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -710,6 +854,10 @@
         "key": "HpLoss",
         "base_value": 7.0
       }
+    ],
+    "acts": [
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -730,6 +878,9 @@
         "key": "LargeChestGold",
         "base_value": 333.0
       }
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
@@ -748,6 +899,12 @@
         "kind": "Cards",
         "base_value": 1.0
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -768,6 +925,9 @@
         "key": "DecipherMaxHpLoss",
         "base_value": 3.0
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -800,6 +960,12 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -808,7 +974,13 @@
   },
   {
     "id": "TheFutureOfPotions",
-    "is_shared": false
+    "is_shared": false,
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
+    ]
   },
   {
     "id": "TheLanternKey",
@@ -822,6 +994,9 @@
         "kind": "Gold",
         "base_value": 100.0
       }
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
@@ -837,6 +1012,12 @@
         "base_value": 8.0,
         "value_prop": "Unblockable"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -858,6 +1039,12 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -932,6 +1119,9 @@
         "key": "energyPrefix",
         "base_value": 1.0
       }
+    ],
+    "acts": [
+      "Glory"
     ]
   },
   {
@@ -950,6 +1140,9 @@
         "kind": "Gold",
         "base_value": 100.0
       }
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
@@ -965,6 +1158,9 @@
         "key": "EntrantNumber",
         "base_value": -1.0
       }
+    ],
+    "acts": [
+      "Glory"
     ]
   },
   {
@@ -984,6 +1180,9 @@
         "key": "MaxHpLoss",
         "base_value": 8.0
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -992,6 +1191,12 @@
     "initial_option_labels": [
       "WAR_HISTORIAN_REPY.pages.INITIAL.options.UNLOCK_CAGE",
       "WAR_HISTORIAN_REPY.pages.INITIAL.options.UNLOCK_CHEST"
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -1022,6 +1227,9 @@
         "kind": "Cards",
         "base_value": 2.0
       }
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
@@ -1080,6 +1288,12 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Glory",
+      "Hive",
+      "Overgrowth",
+      "Underdocks"
     ]
   },
   {
@@ -1095,6 +1309,9 @@
         "key": "BatheCurses",
         "base_value": 1.0
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -1113,6 +1330,9 @@
         "kind": "HpLoss",
         "base_value": 9.0
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -1134,6 +1354,9 @@
       {
         "kind": "String"
       }
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
@@ -1160,6 +1383,9 @@
         "key": "ArachnidAcupunctureCost",
         "base_value": 250.0
       }
+    ],
+    "acts": [
+      "Hive"
     ]
   }
 ]
