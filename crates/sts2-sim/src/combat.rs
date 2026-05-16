@@ -1210,9 +1210,12 @@ impl CombatState {
                 );
             }
         }
-        if self.current_side == CombatSide::Enemy {
-            self.tick_duration_debuffs();
-        }
+        // Tick duration-bound powers. Fires every end_turn; the
+        // internal gate routes each power to the correct boundary
+        // (Vuln/Weak/Frail/Intangible/Colossus/Hatch → Enemy end;
+        // DoubleDamage → Player end; Conqueror → owner's end).
+        let ending_side = self.current_side;
+        self.tick_duration_debuffs(ending_side);
         // SkittishPower.AfterTurnEnd (resets on the side OTHER than
         // owner's — i.e., end of Player turn for enemy-owned Skittish):
         // clear skittish_used so the next Player turn can trigger the
@@ -1589,34 +1592,76 @@ impl CombatState {
         }
     }
 
-    /// Decrement every duration-debuff stack on every creature by 1,
-    /// removing the stack on transition to 0. C# `AfterTurnEnd` on
-    /// FrailPower / WeakPower / VulnerablePower each call
-    /// `PowerCmd.TickDownDuration(this)` when `side == CombatSide.Enemy`,
-    /// regardless of who owns the power, so all three tick on the same
-    /// boundary.
-    fn tick_duration_debuffs(&mut self) {
-        const TICKING: &[&str] =
-            &["FrailPower", "WeakPower", "VulnerablePower"];
+    /// Decrement every duration-debuff stack on every creature by 1
+    /// at the end of the relevant turn boundary. Mirrors the C# powers
+    /// that override `AfterTurnEnd` and call
+    /// `PowerCmd.TickDownDuration(this)`. The tick boundary depends on
+    /// the power; we pass `ending_side` and dispatch internally.
+    ///
+    /// Per C# (one match arm per power):
+    ///   - end of **Enemy** turn (ticks on BOTH sides):
+    ///       FrailPower, WeakPower, VulnerablePower, IntangiblePower,
+    ///       ColossusPower, HatchPower
+    ///   - end of **Player** turn (ticks on BOTH sides):
+    ///       DoubleDamagePower
+    ///   - end of **owner's** turn:
+    ///       ConquerorPower (owner-specific gate)
+    fn tick_duration_debuffs(&mut self, ending_side: CombatSide) {
+        // (power_id, gate). The gate decides whether the stack ticks
+        // for a creature on `side` when `ending_side == X`.
+        struct Tick { id: &'static str, gate: TickGate }
+        enum TickGate {
+            OnEnemyEnd,
+            OnPlayerEnd,
+            OnOwnerEnd,
+        }
+        const TICKS: &[Tick] = &[
+            // Enemy-end ticks (apply to all creatures regardless of owner).
+            Tick { id: "FrailPower",       gate: TickGate::OnEnemyEnd },
+            Tick { id: "WeakPower",        gate: TickGate::OnEnemyEnd },
+            Tick { id: "VulnerablePower",  gate: TickGate::OnEnemyEnd },
+            Tick { id: "IntangiblePower",  gate: TickGate::OnEnemyEnd },
+            Tick { id: "ColossusPower",    gate: TickGate::OnEnemyEnd },
+            Tick { id: "HatchPower",       gate: TickGate::OnEnemyEnd },
+            // Player-end tick.
+            Tick { id: "DoubleDamagePower", gate: TickGate::OnPlayerEnd },
+            // Owner-end tick — only the creature whose side just ended
+            // sees its own Conqueror stack decrement.
+            Tick { id: "ConquerorPower",   gate: TickGate::OnOwnerEnd },
+        ];
         let n_allies = self.allies.len();
         let n_enemies = self.enemies.len();
-        for i in 0..n_allies {
-            for power_id in TICKING {
-                if self.consume_skip_tick(CombatSide::Player, i, power_id) {
-                    continue;
-                }
-                if self.get_power_amount(CombatSide::Player, i, power_id) > 0 {
-                    self.decrement_power(CombatSide::Player, i, power_id, 1);
+        for t in TICKS {
+            let player_eligible = match t.gate {
+                TickGate::OnEnemyEnd => matches!(ending_side, CombatSide::Enemy),
+                TickGate::OnPlayerEnd => matches!(ending_side, CombatSide::Player),
+                // Owner-end: only the owner's side ticks. Player-owned
+                // stack ticks at Player end; Enemy-owned at Enemy end.
+                TickGate::OnOwnerEnd => matches!(ending_side, CombatSide::Player),
+            };
+            let enemy_eligible = match t.gate {
+                TickGate::OnEnemyEnd => matches!(ending_side, CombatSide::Enemy),
+                TickGate::OnPlayerEnd => matches!(ending_side, CombatSide::Player),
+                TickGate::OnOwnerEnd => matches!(ending_side, CombatSide::Enemy),
+            };
+            if player_eligible {
+                for i in 0..n_allies {
+                    if self.consume_skip_tick(CombatSide::Player, i, t.id) {
+                        continue;
+                    }
+                    if self.get_power_amount(CombatSide::Player, i, t.id) > 0 {
+                        self.decrement_power(CombatSide::Player, i, t.id, 1);
+                    }
                 }
             }
-        }
-        for i in 0..n_enemies {
-            for power_id in TICKING {
-                if self.consume_skip_tick(CombatSide::Enemy, i, power_id) {
-                    continue;
-                }
-                if self.get_power_amount(CombatSide::Enemy, i, power_id) > 0 {
-                    self.decrement_power(CombatSide::Enemy, i, power_id, 1);
+            if enemy_eligible {
+                for i in 0..n_enemies {
+                    if self.consume_skip_tick(CombatSide::Enemy, i, t.id) {
+                        continue;
+                    }
+                    if self.get_power_amount(CombatSide::Enemy, i, t.id) > 0 {
+                        self.decrement_power(CombatSide::Enemy, i, t.id, 1);
+                    }
                 }
             }
         }
@@ -13113,13 +13158,14 @@ mod tests {
 
     #[test]
     fn non_duration_powers_dont_tick() {
-        // Strength/Poison/Intangible/Dexterity are not in the ticking
-        // set — they should be untouched at end-of-turn.
+        // Strength / Dexterity / Poison are *not* in the ticking set —
+        // they should be untouched at end-of-turn. Intangible IS in
+        // the ticking set (per C# IntangiblePower.AfterTurnEnd on
+        // CombatSide.Enemy), so we don't include it here.
         let mut cs = ironclad_combat();
         cs.apply_power(CombatSide::Player, 0, "StrengthPower", 3);
         cs.apply_power(CombatSide::Player, 0, "DexterityPower", 2);
         cs.apply_power(CombatSide::Enemy, 0, "PoisonPower", 5);
-        cs.apply_power(CombatSide::Enemy, 0, "IntangiblePower", 1);
         cs.current_side = CombatSide::Enemy;
         cs.end_turn();
         assert_eq!(
@@ -13134,10 +13180,82 @@ mod tests {
             cs.get_power_amount(CombatSide::Enemy, 0, "PoisonPower"),
             5
         );
+    }
+
+    #[test]
+    fn intangible_ticks_at_end_of_enemy_turn() {
+        // Per C# IntangiblePower.AfterTurnEnd: ticks on Enemy boundary
+        // for ANY owner (player-owned + enemy-owned both decrement).
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "IntangiblePower", 2);
+        cs.apply_power(CombatSide::Enemy, 0, "IntangiblePower", 3);
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "IntangiblePower"),
+            1);
         assert_eq!(
             cs.get_power_amount(CombatSide::Enemy, 0, "IntangiblePower"),
-            1
-        );
+            2);
+        // Player-end shouldn't tick.
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "IntangiblePower"),
+            1);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "IntangiblePower"),
+            2);
+    }
+
+    #[test]
+    fn double_damage_ticks_at_end_of_player_turn() {
+        // Per C# DoubleDamagePower.AfterTurnEnd: ticks only on Player
+        // boundary (regardless of owner — both sides decrement).
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "DoubleDamagePower", 1);
+        cs.apply_power(CombatSide::Enemy, 0, "DoubleDamagePower", 2);
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "DoubleDamagePower"),
+            0);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "DoubleDamagePower"),
+            1);
+    }
+
+    #[test]
+    fn conqueror_ticks_only_on_owner_side() {
+        // Per C# ConquerorPower.AfterTurnEnd: tick only when side == Owner.Side.
+        // Player-owned Conqueror ticks at Player end; Enemy-owned at Enemy end.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "ConquerorPower", 2);
+        cs.apply_power(CombatSide::Enemy, 0, "ConquerorPower", 3);
+        // ConquerorPower is a Debuff; applying it to the player during
+        // the player's own turn sets the skip-next-tick flag (same shape
+        // as Frail/Weak/Vulnerable). Clear it so the first end_turn ticks.
+        for p in cs.allies[0].powers.iter_mut() {
+            p.skip_next_duration_tick = false;
+        }
+        // End player turn: player Conqueror should tick, enemy's stays.
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "ConquerorPower"),
+            1);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ConquerorPower"),
+            3);
+        // End enemy turn: enemy's ticks, player's stays.
+        cs.current_side = CombatSide::Enemy;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "ConquerorPower"),
+            1);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Enemy, 0, "ConquerorPower"),
+            2);
     }
 
     // ---------- Damage primitive tests -----------------------------------

@@ -32,7 +32,10 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "sts2-ui",
         opts,
-        Box::new(|_cc| Box::new(App::default())),
+        Box::new(|cc| {
+            cc.egui_ctx.set_visuals(egui::Visuals::dark());
+            Box::new(App::default())
+        }),
     )
 }
 
@@ -796,9 +799,23 @@ fn render_log(ui: &mut egui::Ui, ac: &mut ActiveCombat) {
 }
 
 fn tick_end_turn(ac: &mut ActiveCombat) {
+    // Full turn cycle so all the tick_* hooks fire on the right
+    // boundaries. The C# turn loop is:
+    //   end_turn(Player)  →  fires BeforeTurnEnd / hand-flush / etc.
+    //   begin_turn(Enemy) →  flips current_side + enemy intents
+    //   end_turn(Enemy)   →  fires tick_duration_debuffs (Vuln/Weak/Frail
+    //                        on BOTH sides), tick_plating, tick_slumber,
+    //                        tick_asleep, AfterEnemyTurnEnd hooks
+    //   begin_turn(Player)→  refreshes energy, ticks Poison/DemonForm,
+    //                        fires AfterPlayerTurnStart hooks
+    // Skipping the enemy half (as the previous UI did) means Vulnerable
+    // / Weak / Frail / Plating never tick down.
     ac.cs.end_turn();
-    // The C# loop fires enemy intent here; for the sandbox the
-    // BigDummy has no intent_move so this is a no-op enemy turn.
+    ac.cs.begin_turn(CombatSide::Enemy);
+    // No intent execution: BigDummy is the punching bag with no
+    // intent_move. If we later introduce a non-dummy enemy, this is
+    // where monster_dispatch::execute_intent(...) would go.
+    ac.cs.end_turn();
     ac.cs.begin_turn(CombatSide::Player);
     let mut rng = sts2_sim::rng::Rng::new(0xC0FFEE, ac.cs.round_number);
     ac.cs.draw_cards(0, 5, &mut rng);
