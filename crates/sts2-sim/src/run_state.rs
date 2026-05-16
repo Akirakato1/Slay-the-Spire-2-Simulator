@@ -282,7 +282,7 @@ impl RunState {
         modifiers: Vec<String>,
     ) -> Option<Self> {
         let cd = crate::character::by_id(character_id)?;
-        let deck: Vec<crate::run_log::CardRef> = cd
+        let mut deck: Vec<crate::run_log::CardRef> = cd
             .starting_deck
             .iter()
             .map(|id| crate::run_log::CardRef {
@@ -292,6 +292,16 @@ impl RunState {
                 enchantment: None,
             })
             .collect();
+        // AscendersBane (A5+): start with the AscendersBane curse card
+        // injected into the deck. Mirrors C# `AscensionManager.ApplyEffectsTo`.
+        if crate::ascension::has_level(ascension, crate::ascension::level::AscendersBane) {
+            deck.push(crate::run_log::CardRef {
+                id: "AscendersBane".to_string(),
+                floor_added_to_deck: Some(0),
+                current_upgrade_level: Some(0),
+                enchantment: None,
+            });
+        }
         let relics: Vec<crate::run_log::RelicEntry> = cd
             .starting_relics
             .iter()
@@ -301,7 +311,12 @@ impl RunState {
                 props: None,
             })
             .collect();
-        let starting_hp = cd.starting_hp.unwrap_or(80);
+        let mut starting_hp = cd.starting_hp.unwrap_or(80);
+        // WearyTraveler (A2+): -5 max HP at run start.
+        if crate::ascension::has_level(ascension, crate::ascension::level::WearyTraveler) {
+            starting_hp = (starting_hp + crate::ascension::WEARY_TRAVELER_MAX_HP_DELTA)
+                .max(1);
+        }
         let player = PlayerState {
             character_id: character_id.to_string(),
             id: 1,
@@ -313,7 +328,14 @@ impl RunState {
             potions: Vec::new(),
             max_potion_slot_count: 3,
         };
-        Some(Self::new(seed_string, ascension, vec![player], acts, modifiers))
+        let mut rs = Self::new(seed_string, ascension, vec![player], acts, modifiers);
+        // DoubleBoss (A10): every act gets a second boss fight.
+        if crate::ascension::has_level(ascension, crate::ascension::level::DoubleBoss) {
+            for i in 0..rs.acts_have_second_boss.len() {
+                rs.acts_have_second_boss[i] = true;
+            }
+        }
+        Some(rs)
     }
 
     /// MapPointType of the cursor's current node. Returns `None` if no

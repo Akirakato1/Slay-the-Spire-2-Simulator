@@ -65,8 +65,8 @@ impl MonsterMove {
 
     /// Ascension-scaled single attack. Mirrors C# pattern
     /// `GetValueIfAscension(DeadlyEnemies, ascended, base)` on damage
-    /// per move. Threshold = 2 (DeadlyEnemies) by default — the common
-    /// case in STS2 monster classes.
+    /// per move. Threshold is `DeadlyEnemies` (level 9) — the canonical
+    /// damage-bump trigger in STS2 monster classes.
     pub fn attack_a(
         id: &'static str,
         base_damage: i32,
@@ -80,7 +80,7 @@ impl MonsterMove {
                 amount: crate::effects::AmountSpec::AscensionScaled {
                     base: base_damage,
                     ascended: ascended_damage,
-                    threshold: 2,
+                    threshold: crate::ascension::level::DeadlyEnemies,
                 },
                 target: Target::ChosenEnemy,
                 hits,

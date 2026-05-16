@@ -979,20 +979,25 @@ impl CombatState {
     ///   - Gold: range by room type (Monster 10-20, Elite 35-45, Boss
     ///     100). Uses `next_int_range(min, max+1)` per C# exclusive-max
     ///     convention.
+    ///   - Poverty multiplier: at `cs.ascension >= Poverty (A3+)`,
+    ///     gold is reduced by `POVERTY_GOLD_MULTIPLIER` (0.75×) per
+    ///     C# `AscensionHelper.PovertyAscensionGoldMultiplier`.
     ///   - Card / potion / relic rewards: deferred (need card-pool
     ///     rarity-weighted sampling + drop tables).
-    ///
-    /// Poverty-ascension gold multiplier deferred until ascension is
-    /// plumbed into CombatState.
     pub fn generate_rewards(&self, rng: &mut Rng) -> CombatRewards {
         let (min_gold, max_gold) = gold_reward_range(self.encounter_room_type());
-        let gold = if min_gold == max_gold {
+        let mut gold = if min_gold == max_gold {
             min_gold
         } else if min_gold < max_gold {
             rng.next_int_range(min_gold, max_gold + 1)
         } else {
             0
         };
+        // Poverty: combat gold × 0.75 at A3+. Truncating cast matches
+        // C# `(int)(gold * 0.75)` after the multiplication.
+        if crate::ascension::has_level(self.ascension, crate::ascension::level::Poverty) {
+            gold = ((gold as f64) * crate::ascension::POVERTY_GOLD_MULTIPLIER) as i32;
+        }
         CombatRewards {
             gold,
             ..Default::default()
@@ -12740,12 +12745,15 @@ impl Creature {
     }
 
     /// Ascension-aware spawn. `min_hp_ascended` / `max_hp_ascended` apply
-    /// when `ascension >= 1` (the C# `AscensionLevel.ToughEnemies`
-    /// threshold). Falls back to base HP at A0 or when the data table
+    /// when `ascension >= ToughEnemies (level 8)` per C# `AscensionLevel`.
+    /// Falls back to base HP below that threshold or when the data table
     /// lacks an ascended override.
     pub fn from_monster_spawn_at(monster_id: &str, slot: &str, ascension: i32) -> Self {
         let data = crate::monster::by_id(monster_id);
-        let use_ascended = ascension >= 1;
+        let use_ascended = crate::ascension::has_level(
+            ascension,
+            crate::ascension::level::ToughEnemies,
+        );
         let (_min_hp, max_hp) = data
             .map(|m| {
                 if use_ascended {

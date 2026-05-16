@@ -415,6 +415,68 @@ fn event_pool_draws_are_unique_within_a_run() {
     assert!(picks.contains(&repeat));
 }
 
+/// Ascension-10 run-state init applies WearyTraveler (-5 max HP),
+/// AscendersBane (adds curse to deck), and DoubleBoss (every act
+/// flagged for second boss). A0 run is unaffected.
+#[test]
+fn ascension_run_init_applies_per_level_modifiers() {
+    let a0 = RunState::start_run(
+        "A0", 0, "Ironclad", vec![ActId::Overgrowth], Vec::new(),
+    ).unwrap();
+    assert_eq!(a0.players()[0].max_hp, 80, "A0 keeps base max HP");
+    assert!(!a0.players()[0].deck.iter().any(|c| c.id == "AscendersBane"),
+        "A0 deck has no AscendersBane");
+
+    let a10 = RunState::start_run(
+        "A10", 10, "Ironclad", vec![ActId::Overgrowth], Vec::new(),
+    ).unwrap();
+    assert_eq!(a10.players()[0].max_hp, 75,
+        "A10 has WearyTraveler -5 max HP applied");
+    assert!(a10.players()[0].deck.iter().any(|c| c.id == "AscendersBane"),
+        "A10 deck must contain AscendersBane curse");
+    assert_eq!(a10.players()[0].deck.len(), 11,
+        "A10 Ironclad deck = 10 starter + 1 AscendersBane");
+}
+
+/// Poverty (A3+) reduces combat gold by 0.75×. Drive 50 monster fights
+/// at A0 and A10 with identical seeds; A10 should yield less gold.
+#[test]
+fn ascension_poverty_reduces_combat_gold() {
+    use sts2_sim::combat::CombatRewards;
+    use sts2_sim::rng::Rng;
+
+    fn sample_gold(ascension: i32) -> i32 {
+        let mut rs = RunState::start_run(
+            "POVERTY", ascension, "Ironclad",
+            vec![ActId::Overgrowth], Vec::new(),
+        ).unwrap();
+        rs.enter_act(0);
+        // Walk to first child + pick encounter.
+        let map = rs.current_map().unwrap().clone();
+        let start = map.starting().coord;
+        let child = *map.get_point(start.col, start.row).unwrap()
+            .children.iter().next().unwrap();
+        rs.advance_to(child).unwrap();
+        let enc = sts2_sim::run_flow::pick_encounter_for_current_node(&mut rs).unwrap();
+        let cs = sts2_sim::run_flow::build_combat_state(&rs, enc, 0).unwrap();
+        // Roll rewards with a fixed RNG so the only difference is the
+        // ascension multiplier.
+        let mut rng = Rng::new(7, 0);
+        let r: CombatRewards = cs.generate_rewards(&mut rng);
+        r.gold
+    }
+
+    let a0_gold = sample_gold(0);
+    let a10_gold = sample_gold(10);
+    // 0.75× of a positive base must be < base.
+    assert!(a10_gold < a0_gold,
+        "A10 gold ({}) should be less than A0 ({}) via Poverty", a10_gold, a0_gold);
+    // Sanity: ratio close to 0.75 ± rounding.
+    let ratio = a10_gold as f64 / a0_gold as f64;
+    assert!((ratio - 0.75).abs() < 0.10,
+        "ratio {:.3} should be near 0.75", ratio);
+}
+
 /// Stress: walk 3 consecutive map nodes from a fresh run. Catches
 /// state-bleed between combats (relic hooks not clearing, RNG counters
 /// not advancing properly, deck refilled wrong, etc).

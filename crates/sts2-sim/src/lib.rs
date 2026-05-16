@@ -5,6 +5,7 @@
 
 pub mod act;
 pub mod affliction;
+pub mod ascension;
 pub mod campfire;
 pub mod card;
 pub mod card_reward;

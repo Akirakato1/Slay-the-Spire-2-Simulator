@@ -49,19 +49,23 @@ mod ascension_smoke_tests {
         }
     }
 
-    /// At ascension >= 1, `Creature::from_monster_spawn_at` reads
-    /// `max_hp_ascended` from `monsters.json`. Axebot: base 40-44,
-    /// ascended 42-46.
+    /// `from_monster_spawn_at` reads `max_hp_ascended` only at A8+
+    /// (ToughEnemies threshold per C# AscensionLevel). Axebot:
+    /// base 40-44, ascended 42-46.
     #[test]
     fn ascended_monsters_spawn_with_ascended_hp() {
-        let base = crate::combat::Creature::from_monster_spawn_at("Axebot", "front", 0);
-        let asc = crate::combat::Creature::from_monster_spawn_at("Axebot", "front", 1);
-        assert_eq!(base.max_hp, 44, "base Axebot HP");
-        assert_eq!(asc.max_hp, 46, "ascended Axebot HP (A1+ ToughEnemies)");
+        let a0 = crate::combat::Creature::from_monster_spawn_at("Axebot", "front", 0);
+        let a7 = crate::combat::Creature::from_monster_spawn_at("Axebot", "front", 7);
+        let a8 = crate::combat::Creature::from_monster_spawn_at("Axebot", "front", 8);
+        let a10 = crate::combat::Creature::from_monster_spawn_at("Axebot", "front", 10);
+        assert_eq!(a0.max_hp, 44, "A0 base HP");
+        assert_eq!(a7.max_hp, 44, "A7 still below ToughEnemies (=A8)");
+        assert_eq!(a8.max_hp, 46, "A8 activates ToughEnemies");
+        assert_eq!(a10.max_hp, 46, "A10 still ascended");
     }
 
     /// CombatState built via run_flow propagates RunState.ascension
-    /// all the way to spawned enemies.
+    /// all the way to spawned enemies, and ascended HP applies at A10.
     #[test]
     fn ascension_pipes_through_to_combat_state() {
         let mut rs = RunState::new(
@@ -72,29 +76,30 @@ mod ascension_smoke_tests {
         let enc = crate::encounter::by_id("AxebotsNormal").unwrap();
         let cs = crate::run_flow::build_combat_state(&rs, enc, 0).unwrap();
         assert_eq!(cs.ascension, 10);
-        // Axebot ascended HP must apply.
+        // Axebot at A10 → ToughEnemies (A8+) active → ascended HP.
         assert_eq!(cs.enemies[0].max_hp, 46,
             "A10 should spawn ascended Axebot (46 max HP), got {}",
             cs.enemies[0].max_hp);
     }
 
-    /// `AmountSpec::AscensionScaled` resolves to `ascended` when
-    /// `cs.ascension >= threshold`, else `base`. Uses the
-    /// `for_card` builder for a minimal valid EffectContext.
+    /// `AmountSpec::AscensionScaled` resolves to `ascended` only
+    /// when `cs.ascension >= threshold`. Verified at the C#-correct
+    /// DeadlyEnemies (=9) threshold for monster damage.
     #[test]
     fn ascension_scaled_amount_resolves_correctly() {
         use crate::effects::{AmountSpec, EffectContext};
         use crate::combat::CombatSide;
 
         let spec = AmountSpec::AscensionScaled {
-            base: 5, ascended: 6, threshold: 2,
+            base: 5, ascended: 6,
+            threshold: crate::ascension::level::DeadlyEnemies,
         };
         let ctx = EffectContext::for_card(
             0, Some((CombatSide::Enemy, 0)), "TestCard", 0, None, 0,
         );
 
         let mut cs = CombatState::empty();
-        for (asc, want) in [(0, 5), (1, 5), (2, 6), (10, 6)] {
+        for (asc, want) in [(0, 5), (8, 5), (9, 6), (10, 6)] {
             cs.ascension = asc;
             assert_eq!(spec.resolve(&ctx, &cs), want,
                 "ascension {} should resolve to {}", asc, want);
