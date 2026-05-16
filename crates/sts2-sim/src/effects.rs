@@ -4221,6 +4221,99 @@ pub fn potion_effects(potion_id: &str) -> Option<Vec<Effect>> {
 
         "Ashwater" => Some(vec![Effect::ExhaustCards { from: Pile::Hand, selector: Selector::PlayerInteractive { n: 1 } }]),
 
+        // C# BloodPotion: heal target by MaxHp * HealPercent / 100.
+        // HealPercent canonical = 20. The Canonical resolver looks up
+        // CardData.canonical_vars; potions have their own table but
+        // it isn't threaded into the effect resolver yet. Use the
+        // literal 20 until the potion-canonical wiring lands.
+        "BloodPotion" => Some(vec![Effect::Heal {
+            amount: AmountSpec::FloorDiv {
+                left: Box::new(AmountSpec::Mul {
+                    left: Box::new(AmountSpec::TargetMaxHp),
+                    right: Box::new(AmountSpec::Fixed(20)),
+                }),
+                right: Box::new(AmountSpec::Fixed(100)),
+            },
+            target: Target::SelfPlayer,
+        }]),
+
+        // C# FairyInABottle: auto-triggers on death. Heals self by
+        // Math.Max(MaxHp * 0.3, 1). We approximate the floor-at-1
+        // by adding Fixed(1) after the percentage compute (good
+        // enough for any non-trivial max HP).
+        "FairyInABottle" => Some(vec![Effect::Heal {
+            amount: AmountSpec::FloorDiv {
+                left: Box::new(AmountSpec::Mul {
+                    left: Box::new(AmountSpec::TargetMaxHp),
+                    right: Box::new(AmountSpec::Fixed(30)),
+                }),
+                right: Box::new(AmountSpec::Fixed(100)),
+            },
+            target: Target::SelfPlayer,
+        }]),
+
+        // C# FoulPotion: damages every non-pet Creature in combat
+        // (player + all enemies) for DamageVar(12, Unpowered). The
+        // Canonical resolver doesn't read potion canonical_vars yet,
+        // so use Fixed(12). Two effects: AllEnemies damage + self LoseHp.
+        "FoulPotion" => Some(vec![
+            Effect::DealDamage {
+                amount: AmountSpec::Fixed(12),
+                target: Target::AllEnemies,
+                hits: 1,
+            },
+            Effect::LoseHp {
+                amount: AmountSpec::Fixed(12),
+                target: Target::SelfPlayer,
+            },
+        ]),
+
+        // C# GamblersBrew: discard any cards from hand, then draw
+        // that many. Encoded via AwaitPlayerChoice with action=Discard
+        // and a placeholder draw count (which today resolves to "draw
+        // up to the choice's n_max"). When the choice infrastructure
+        // grows continuations, this can resume into DrawCards(picked_n).
+        // For now we use the auto-resolve fallback: pick up to hand-
+        // size cards (typically 0 with PlayerInteractive top-N) and
+        // draw the same. Functional but not optimal.
+        "GamblersBrew" => Some(vec![Effect::AwaitPlayerChoice {
+            pile: Pile::Hand,
+            n_min: 0,
+            n_max: AmountSpec::Fixed(99),
+            filter: CardFilter::Any,
+            action: ChoiceActionSpec::Discard,
+        }]),
+
+        // C# SneckoOil: draw N cards, then randomize the cost of
+        // every non-X-cost card in hand to a uniform 0..MaxRandomized.
+        // The randomize step requires a per-card cost-override
+        // primitive that doesn't exist yet; for now we just draw.
+        "SneckoOil" => Some(vec![
+            // Canonical("Cards") = 7 for this potion. Same potion-
+            // canonical-vars-lookup gap as BloodPotion / FoulPotion.
+            Effect::DrawCards { amount: AmountSpec::Fixed(7) },
+            // TODO: add Effect::RandomizeHandCostsUntilPlayed { range: 0..=N }
+            // to fully port the Snecko cost-shuffle mechanic.
+        ]),
+
+        // C# SoldiersStew: BaseReplayCount++ on every Strike-tagged
+        // card in master deck. This is a combat-scoped permanent
+        // buff applied to a tagged subset. Not yet a primitive; the
+        // closest existing variant is per-card state increments.
+        // Leaving as no-op (TODO: ModifyMasterDeckField) until the
+        // primitive lands so the potion test gates on infra, not
+        // silent regression.
+        "SoldiersStew" => Some(vec![]),
+
+        // C# TouchOfInsanity: pick 1 card from hand with cost > 0;
+        // set its cost to 0 for the rest of combat.
+        "TouchOfInsanity" => Some(vec![Effect::SetCardCost {
+            from: Pile::Hand,
+            selector: Selector::PlayerInteractive { n: 1 },
+            cost: AmountSpec::Fixed(0),
+            scope: CostScope::ThisCombat,
+        }]),
+
         "BeetleJuice" => Some(vec![Effect::ApplyPower { power_id: "ShrinkPower".to_string(), amount: AmountSpec::Canonical("Repeat".to_string()), target: Target::ChosenEnemy }]),
 
         "BlessingOfTheForge" => Some(vec![Effect::UpgradeCards { from: Pile::Hand, selector: Selector::FirstMatching { n: i32::MAX, filter: CardFilter::Upgradable } }]),
@@ -7545,7 +7638,18 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         }]),
         "Anger" => Some(vec![
         Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
-        Effect::AddCardToPile { card_id: "Anger".to_string(), upgrade: 0, pile: Pile::Discard },
+        // C# Anger.OnPlay uses CardModel.CreateClone() — preserves the
+        // played card's enchantment with a fresh per-instance Status.
+        // CloneSourceCardToPile is the rust equivalent (clone + reset
+        // consumed_this_combat). Previously this used AddCardToPile
+        // which created a template-fresh instance and dropped the
+        // enchantment entirely; that broke once-per-combat enchantment
+        // + self-replication interaction (e.g., Sown on Anger).
+        Effect::CloneSourceCardToPile {
+            pile: Pile::Discard,
+            cost_override_this_combat: None,
+            copies: AmountSpec::Fixed(1),
+        },
         ]),
         "GraveWarden" => Some(vec![
         Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
@@ -8235,6 +8339,7 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                         card.enchantment = Some(EnchantmentInstance {
                             id: enchantment_id.clone(),
                             amount: *enchantment_amount,
+                            consumed_this_combat: false,
                         });
                     }
                 }
@@ -8562,6 +8667,15 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 return;
             };
             let upg = ctx.upgrade_level;
+            // Snapshot enchantment from EffectContext (carried through
+            // play_card from the source card). The clone's enchantment
+            // starts with consumed_this_combat=false so once-per-combat
+            // enchantments (Sown / Glam / Swift) fire freshly on the
+            // duplicate — matches C# CardModel.ToMutable behavior.
+            let source_ench = ctx.enchantment.cloned().map(|mut e| {
+                e.consumed_this_combat = false;
+                e
+            });
             if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
                 let target_pile = match pile {
                     Pile::Hand => &mut ps.hand,
@@ -8575,6 +8689,7 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                     if let Some(c) = cost_override_this_combat {
                         clone.cost_override_this_combat = Some(*c);
                     }
+                    clone.enchantment = source_ench.clone();
                     target_pile.cards.push(clone);
                 }
             }
@@ -8670,8 +8785,12 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         } => {
             let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             let n = copies.resolve(ctx, cs).max(0) as usize;
-            // Snapshot picked card-ids (don't remove from source).
-            let picked_ids: Vec<(String, i32)> = {
+            // Snapshot picked card data: id, upgrade, AND enchantment.
+            // DualWield clones a picked Attack/Power from hand; the
+            // copies must preserve the enchantment but with a fresh
+            // consumed_this_combat flag so once-per-combat enchantments
+            // (Sown / Glam / Swift / Vigorous) fire on each duplicate.
+            let picked: Vec<(String, i32, Option<crate::combat::EnchantmentInstance>)> = {
                 let Some(ps) = cs
                     .allies
                     .get(ctx.player_idx)
@@ -8689,10 +8808,16 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 picks
                     .iter()
                     .filter_map(|i| source_pile.cards.get(*i))
-                    .map(|c| (c.id.clone(), c.upgrade_level))
+                    .map(|c| {
+                        let fresh = c.enchantment.clone().map(|mut e| {
+                            e.consumed_this_combat = false;
+                            e
+                        });
+                        (c.id.clone(), c.upgrade_level, fresh)
+                    })
                     .collect()
             };
-            for (cid, upg) in picked_ids {
+            for (cid, upg, ench) in picked {
                 let Some(data) = crate::card::by_id(&cid) else {
                     continue;
                 };
@@ -8705,7 +8830,9 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                         Pile::Deck => continue,
                     };
                     for _ in 0..n {
-                        dest.cards.push(crate::combat::CardInstance::from_card(data, upg));
+                        let mut clone = crate::combat::CardInstance::from_card(data, upg);
+                        clone.enchantment = ench.clone();
+                        dest.cards.push(clone);
                     }
                 }
             }

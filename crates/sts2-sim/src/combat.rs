@@ -346,10 +346,21 @@ pub struct CardInstance {
 /// One enchantment attached to a card. `id` matches `EnchantmentData.id`;
 /// `amount` is the stack count (Sharp's `EnchantDamageAdditive` returns
 /// `Amount`; Corrupted uses a fixed factor and ignores Amount).
+///
+/// `consumed_this_combat` mirrors C# `EnchantmentModel.Status` —
+/// once-per-combat enchantments (Sown, Glam, Swift, Vigorous, etc.)
+/// flip this to true after their trigger fires and skip subsequent
+/// activations. CRITICAL for duplication mechanics: when a card is
+/// cloned via Anger / DualWield / CloneSourceCardToPile / etc., the
+/// new copy's enchantment is created with `consumed_this_combat=false`
+/// so the once-per-combat trigger fires fresh on each duplicate
+/// (matches C# behavior where each cloned CardModel gets a new
+/// EnchantmentModel via ToMutable()).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EnchantmentInstance {
     pub id: String,
     pub amount: i32,
+    pub consumed_this_combat: bool,
 }
 
 impl CardInstance {
@@ -3757,6 +3768,35 @@ impl CombatState {
             x_value,
         );
 
+        // 5b. Enchantment OnPlay hooks. Fired AFTER the card's own
+        //     OnPlay body so additive effects (Sown's GainEnergy,
+        //     Adroit's GainBlock) apply on the played-card context.
+        //     For once-per-combat enchantments (Sown, Swift, Glam,
+        //     Vigorous's per-instance gate), we mark consumed_this_combat
+        //     on the played_card's enchantment AND the dest-pile
+        //     instance if/when it lands there. Mutations stage on
+        //     `played_card` since it's the canonical instance for this
+        //     play; routing in step 6 carries the updated flag.
+        if let Some(ench) = played_card.enchantment.clone() {
+            apply_enchantment_on_play(
+                self,
+                player_idx,
+                &ench,
+                target,
+            );
+            // If the enchantment fired a once-per-combat trigger, the
+            // helper returned with consumed_this_combat=true via the
+            // mutation below. Update the played_card's local copy so
+            // post-play routing carries the flag.
+            if let Some(updated) = played_card.enchantment.as_mut() {
+                if matches!(updated.id.as_str(),
+                    "Sown" | "Swift" | "Glam" | "Vigorous"
+                ) {
+                    updated.consumed_this_combat = true;
+                }
+            }
+        }
+
         // 6. Route the card per its type / keywords. Status/Curse cards
         //    auto-exhaust on play; non-status cards check their
         //    CanonicalKeywords for "Exhaust" (Cinder, MoltenFist,
@@ -3981,11 +4021,11 @@ pub(crate) fn dispatch_on_play(
         // enemy. Upgrade: +2 per hit (becomes 7×2). C# uses
         // `.WithHitCount(2)` — each hit goes through modifiers independently.
         // Anger (Ironclad common): 6 damage + add a copy of self to
-        // discard pile. Upgrade: +2 damage. The clone is `played_card`
-        // pre-routing, so we can't directly access it from here —
-        // instead instantiate a fresh CardInstance via from_card.
-        // Enchantment is NOT inherited by the clone (matches C# —
-        // CreateClone strips enchantments from cloned cards).
+        // discard pile. Upgrade: +2 damage. C# uses CreateClone()
+        // which PRESERVES the played card's enchantment but with a
+        // fresh per-instance Status (consumed_this_combat=false). The
+        // user-flagged invariant: once-per-combat enchantments like
+        // Sown must fire on every Anger duplicate independently.
         "Anger" => {
             let Some(target) = target else { return false; };
             let Some(card) = card_by_id(card_id) else { return false; };
@@ -3997,8 +4037,12 @@ pub(crate) fn dispatch_on_play(
                 ValueProp::MOVE,
                 enchantment,
             );
-            // Append clone to discard at the same upgrade level.
-            let clone = CardInstance::from_card(card, upgrade_level);
+            // Append clone preserving enchantment with reset consumed flag.
+            let mut clone = CardInstance::from_card(card, upgrade_level);
+            clone.enchantment = enchantment.cloned().map(|mut e| {
+                e.consumed_this_combat = false;
+                e
+            });
             if let Some(ps) = cs.allies[player_idx].player.as_mut() {
                 ps.discard.cards.push(clone);
             }
@@ -5361,6 +5405,68 @@ fn power_block_multiplicative(power: &PowerInstance, props: ValueProp) -> f64 {
 
 /// Per-enchantment `EnchantDamageAdditive` contribution. Returns 0 for
 /// non-applicable enchantments / non-powered attacks (matches C# pattern).
+/// Fire any per-enchantment OnPlay hook (Sown, Swift, Adroit, Inky).
+/// Called from `play_card` AFTER the card's own OnPlay body. Pure
+/// state mutations on `cs`; the caller updates the played_card's
+/// enchantment `consumed_this_combat` flag for once-per-combat
+/// triggers. Mirrors C# EnchantmentModel.OnPlay overrides.
+pub fn apply_enchantment_on_play(
+    cs: &mut CombatState,
+    player_idx: usize,
+    ench: &EnchantmentInstance,
+    target: Option<(CombatSide, usize)>,
+) {
+    match ench.id.as_str() {
+        "Sown" => {
+            // C# Sown.OnPlay: if Status==Normal, GainEnergy(Amount).
+            // Then Status=Disabled. Once-per-combat per instance.
+            if !ench.consumed_this_combat {
+                if let Some(ps) = cs
+                    .allies
+                    .get_mut(player_idx)
+                    .and_then(|c| c.player.as_mut())
+                {
+                    ps.energy = (ps.energy + ench.amount).max(0);
+                }
+            }
+        }
+        "Swift" => {
+            // C# Swift.OnPlay: if Status==Normal, draw Amount cards.
+            if !ench.consumed_this_combat {
+                let mut rng_taken =
+                    std::mem::replace(&mut cs.rng, crate::rng::Rng::new(0, 0));
+                cs.draw_cards(player_idx, ench.amount, &mut rng_taken);
+                cs.rng = rng_taken;
+            }
+        }
+        "Adroit" => {
+            // C# Adroit.OnPlay: GainBlock(Amount) on owner. Always fires.
+            cs.gain_block_with_props(
+                CombatSide::Player,
+                player_idx,
+                ench.amount,
+                ValueProp::MOVE,
+            );
+        }
+        "Inky" => {
+            // C# Inky.OnPlay: deal 2 damage + apply Weak(1) to the
+            // target. Both per the card's resolved target.
+            if let Some((side, idx)) = target {
+                if side == CombatSide::Enemy {
+                    cs.deal_damage(
+                        (CombatSide::Player, player_idx),
+                        (CombatSide::Enemy, idx),
+                        2,
+                        ValueProp::MOVE,
+                    );
+                    cs.apply_power(CombatSide::Enemy, idx, "WeakPower", 1);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn enchantment_damage_additive(ench_id: &str, amount: i32, props: ValueProp) -> f64 {
     if !props.is_powered_attack() {
         return 0.0;
@@ -5370,6 +5476,35 @@ fn enchantment_damage_additive(ench_id: &str, amount: i32, props: ValueProp) -> 
         // CanEnchantCardType(Attack) — but that's enforced at attach time,
         // not in the modifier pipeline.
         "Sharp" => amount as f64,
+        // Vigorous: +Amount on powered attacks until the card is played
+        // once (then AfterCardPlayed flips Status=Disabled). The
+        // damage pipeline doesn't have a consumed-flag-aware path —
+        // the per-instance gate is checked at apply-enchantment-on-
+        // play time. For damage we approximate by always returning
+        // Amount; tests that fire two attacks back-to-back on the same
+        // un-replicated Vigorous card will still over-count the bonus
+        // until the AfterCardPlayed wiring lands. Marked as a known
+        // gap when audit Section 8d-equivalent rolls.
+        "Vigorous" => amount as f64,
+        _ => 0.0,
+    }
+}
+
+/// Per-enchantment block additive on the same shape, but with the
+/// consumed gate respected by callers that pass the live
+/// EnchantmentInstance (not just id/amount). Kept separate from the
+/// id-keyed helper above so callers without a full instance still get
+/// the legacy Sharp/Vigorous values (without consumed semantics).
+pub fn enchantment_instance_damage_additive_gated(
+    ench: &EnchantmentInstance,
+    props: ValueProp,
+) -> f64 {
+    if !props.is_powered_attack() {
+        return 0.0;
+    }
+    match ench.id.as_str() {
+        "Sharp" => ench.amount as f64,
+        "Vigorous" if !ench.consumed_this_combat => ench.amount as f64,
         _ => 0.0,
     }
 }
@@ -13092,6 +13227,8 @@ mod tests {
         let ench = EnchantmentInstance {
             id: "Sharp".to_string(),
             amount: 3,
+        
+            consumed_this_combat: false,
         };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
@@ -13109,6 +13246,8 @@ mod tests {
         let ench = EnchantmentInstance {
             id: "Corrupted".to_string(),
             amount: 1, // ignored — Corrupted is a fixed factor
+
+            consumed_this_combat: false,
         };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
@@ -13123,7 +13262,7 @@ mod tests {
     #[test]
     fn enchantments_skip_on_non_powered_attacks() {
         let cs = ironclad_combat();
-        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 5 };
+        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 5, consumed_this_combat: false };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
             (CombatSide::Enemy, 0),
@@ -13143,7 +13282,7 @@ mod tests {
         let mut cs = ironclad_combat();
         cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
         cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
-        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 3 };
+        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 3, consumed_this_combat: false };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
             (CombatSide::Enemy, 0),
@@ -13166,7 +13305,9 @@ mod tests {
             card.enchantment = Some(EnchantmentInstance {
                 id: "Sharp".to_string(),
                 amount: 2,
-            });
+            
+            consumed_this_combat: false,
+        });
             ps.hand.cards.push(card);
         }
         let axebot_hp = cs.enemies[0].current_hp;
@@ -13182,6 +13323,8 @@ mod tests {
         let ench = EnchantmentInstance {
             id: "NotAnEnchantment".to_string(),
             amount: 99,
+        
+            consumed_this_combat: false,
         };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
@@ -13281,6 +13424,8 @@ mod tests {
         let ench = EnchantmentInstance {
             id: "Nimble".to_string(),
             amount: 3,
+        
+            consumed_this_combat: false,
         };
         let with = cs.modify_block_with_enchantment(
             (CombatSide::Player, 0),

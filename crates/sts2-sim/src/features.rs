@@ -683,6 +683,8 @@ mod tests {
         inst.enchantment = Some(EnchantmentInstance {
             id: "Sharp".to_string(),
             amount: 2,
+        
+            consumed_this_combat: false,
         });
         let f = card_features(strike, Some(&inst));
         assert_eq!(f.values[IDX_HAS_ENCHANTMENT], 1.0);
