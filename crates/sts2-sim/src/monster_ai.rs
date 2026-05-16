@@ -516,6 +516,7 @@ pub static MONSTER_AI_REGISTRY: LazyLock<HashMap<&'static str, MonsterAi>> = Laz
     register_migrated_legacy(&mut m);
     register_migrated_legacy_b2(&mut m);
     register_migrated_legacy_b3(&mut m);
+    register_bosses_b4(&mut m);
     m
 });
 
@@ -3637,6 +3638,550 @@ fn register_migrated_legacy_b3(m: &mut HashMap<&'static str, MonsterAi>) {
     }
 }
 
+/// Fourth batch — bosses + remaining specials. Most boss state
+/// machines are clean cycles; complex multi-phase bosses (Queen,
+/// KnowledgeDemon, TheInsatiable, WaterfallGiant) get partial ports
+/// here and full ports when their bespoke primitives land.
+#[allow(clippy::too_many_lines)]
+fn register_bosses_b4(m: &mut HashMap<&'static str, MonsterAi>) {
+    use crate::effects::AmountSpec;
+
+    // Architect: passive tutorial encounter, no actions.
+    m.insert("Architect", MonsterAi {
+        model_id: "Architect",
+        moves: vec![MonsterMove::sleep("NOTHING_MOVE")],
+        spawn: vec![],
+        pattern: MovePattern::Cycle { moves: vec!["NOTHING_MOVE"] },
+    });
+
+    // PaelsLegion: passive encounter (9999 HP, no actions).
+    m.insert("PaelsLegion", MonsterAi {
+        model_id: "PaelsLegion",
+        moves: vec![MonsterMove::sleep("NOTHING_MOVE")],
+        spawn: vec![],
+        pattern: MovePattern::Cycle { moves: vec!["NOTHING_MOVE"] },
+    });
+
+    // TheLost: cycle DebilitatingSmog (Str -2 / +2 self) ↔ EyeLasers (4×2).
+    // Spawn: PossessStrength(1).
+    m.insert("TheLost", MonsterAi {
+        model_id: "TheLost",
+        moves: vec![
+            MonsterMove {
+                id: "DEBILITATING_SMOG_MOVE",
+                kind: IntentKind::Debuff,
+                body: vec![
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(-2),
+                        target: Target::ChosenEnemy,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    },
+                ],
+            },
+            MonsterMove::attack("EYE_LASERS_MOVE", 4, 2),
+        ],
+        spawn: vec![Effect::ApplyPower {
+            power_id: "PossessStrengthPower".to_string(),
+            amount: AmountSpec::Fixed(1),
+            target: Target::SelfActor,
+        }],
+        pattern: MovePattern::Cycle {
+            moves: vec!["DEBILITATING_SMOG_MOVE", "EYE_LASERS_MOVE"],
+        },
+    });
+
+    // TheForgotten: cycle Miasma (Dex -2 / +2 self + 8 block) ↔ Dread (13 dmg).
+    // Spawn: PossessSpeed(1). C# scales dread damage with Dex; we use base 13.
+    m.insert("TheForgotten", MonsterAi {
+        model_id: "TheForgotten",
+        moves: vec![
+            MonsterMove {
+                id: "MIASMA_MOVE",
+                kind: IntentKind::Defend,
+                body: vec![
+                    Effect::ApplyPower {
+                        power_id: "DexterityPower".to_string(),
+                        amount: AmountSpec::Fixed(-2),
+                        target: Target::ChosenEnemy,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "DexterityPower".to_string(),
+                        amount: AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    },
+                    Effect::GainBlock {
+                        amount: AmountSpec::Fixed(8),
+                        target: Target::SelfActor,
+                    },
+                ],
+            },
+            MonsterMove::attack("DREAD_MOVE", 13, 1),
+        ],
+        spawn: vec![Effect::ApplyPower {
+            power_id: "PossessSpeedPower".to_string(),
+            amount: AmountSpec::Fixed(1),
+            target: Target::SelfActor,
+        }],
+        pattern: MovePattern::Cycle {
+            moves: vec!["MIASMA_MOVE", "DREAD_MOVE"],
+        },
+    });
+
+    // TheAdversaryMkOne: cycle Smash(12) → Beam(15) → Barrage(8×2+Str2)
+    //   → Smash(loop). Spawn: Artifact(0) — placeholder per C#.
+    m.insert("TheAdversaryMkOne", MonsterAi {
+        model_id: "TheAdversaryMkOne",
+        moves: vec![
+            MonsterMove::attack("SMASH_MOVE", 12, 1),
+            MonsterMove::attack("BEAM_MOVE", 15, 1),
+            MonsterMove::attack_buff("BARRAGE_MOVE", 8, 2, "StrengthPower", 2),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec!["SMASH_MOVE", "BEAM_MOVE", "BARRAGE_MOVE"],
+        },
+    });
+
+    // TheAdversaryMkTwo: cycle Bash(13) → FlameBeam(16) → Barrage(9×2+Str3)
+    //   → Bash(loop). Spawn: Artifact(1).
+    m.insert("TheAdversaryMkTwo", MonsterAi {
+        model_id: "TheAdversaryMkTwo",
+        moves: vec![
+            MonsterMove::attack("BASH_MOVE", 13, 1),
+            MonsterMove::attack("FLAME_BEAM_MOVE", 16, 1),
+            MonsterMove::attack_buff("BARRAGE_MOVE", 9, 2, "StrengthPower", 3),
+        ],
+        spawn: vec![Effect::ApplyPower {
+            power_id: "ArtifactPower".to_string(),
+            amount: AmountSpec::Fixed(1),
+            target: Target::SelfActor,
+        }],
+        pattern: MovePattern::Cycle {
+            moves: vec!["BASH_MOVE", "FLAME_BEAM_MOVE", "BARRAGE_MOVE"],
+        },
+    });
+
+    // TheAdversaryMkThree: cycle Crash(15) → FlameBeam(18) → Barrage(10×2+Str4)
+    //   → Crash(loop). Spawn: Artifact(2).
+    m.insert("TheAdversaryMkThree", MonsterAi {
+        model_id: "TheAdversaryMkThree",
+        moves: vec![
+            MonsterMove::attack("CRASH_MOVE", 15, 1),
+            MonsterMove::attack("FLAME_BEAM_MOVE", 18, 1),
+            MonsterMove::attack_buff("BARRAGE_MOVE", 10, 2, "StrengthPower", 4),
+        ],
+        spawn: vec![Effect::ApplyPower {
+            power_id: "ArtifactPower".to_string(),
+            amount: AmountSpec::Fixed(2),
+            target: Target::SelfActor,
+        }],
+        pattern: MovePattern::Cycle {
+            moves: vec!["CRASH_MOVE", "FLAME_BEAM_MOVE", "BARRAGE_MOVE"],
+        },
+    });
+
+    // CubexConstruct: ChargeUp(+Str 2) → Repeater(7+Str 2) → Repeater(7+Str 2)
+    //   → ExpelBlast(6×2) → Repeater(7+Str 2) → Submerge(15 block) → loop.
+    // Spawn: Block 13 + Artifact applied via combat init.
+    m.insert("CubexConstruct", MonsterAi {
+        model_id: "CubexConstruct",
+        moves: vec![
+            MonsterMove::buff("CHARGE_UP_MOVE", "StrengthPower", 2),
+            MonsterMove::attack_buff("REPEATER_MOVE", 7, 1, "StrengthPower", 2),
+            MonsterMove::attack("EXPEL_BLAST_MOVE", 6, 2),
+            MonsterMove::defend("SUBMERGE_MOVE", 15),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "CHARGE_UP_MOVE",
+                "REPEATER_MOVE",
+                "REPEATER_MOVE",
+                "EXPEL_BLAST_MOVE",
+                "REPEATER_MOVE",
+                "SUBMERGE_MOVE",
+            ],
+        },
+    });
+
+    // LagavulinMatriarch: HasFlag(asleep) → Sleep; else
+    //   Slash(19) → Disembowel(9×2) → Slash2(12+14 block) → SoulSiphon
+    //   → Slash(loop). Spawn: AsleepPower + PlatingPower.
+    m.insert("LagavulinMatriarch", MonsterAi {
+        model_id: "LagavulinMatriarch",
+        moves: vec![
+            MonsterMove::sleep("SLEEP_MOVE"),
+            MonsterMove::attack("SLASH_MOVE", 19, 1),
+            MonsterMove::attack("DISEMBOWEL_MOVE", 9, 2),
+            MonsterMove::attack_defend("SLASH2_MOVE", 12, 1, 14),
+            MonsterMove {
+                id: "SOUL_SIPHON_MOVE",
+                kind: IntentKind::Buff,
+                body: vec![
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(-2),
+                        target: Target::ChosenEnemy,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "DexterityPower".to_string(),
+                        amount: AmountSpec::Fixed(-2),
+                        target: Target::ChosenEnemy,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "DexterityPower".to_string(),
+                        amount: AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    },
+                ],
+            },
+        ],
+        spawn: vec![
+            Effect::ApplyPower {
+                power_id: "AsleepPower".to_string(),
+                amount: AmountSpec::Fixed(1),
+                target: Target::SelfActor,
+            },
+            Effect::ApplyPower {
+                power_id: "PlatingPower".to_string(),
+                amount: AmountSpec::Fixed(8),
+                target: Target::SelfActor,
+            },
+        ],
+        pattern: MovePattern::Conditional {
+            predicate: AiCondition::HasFlag("asleep"),
+            then_branch: Box::new(MovePattern::Cycle { moves: vec!["SLEEP_MOVE"] }),
+            else_branch: Box::new(MovePattern::FirstTurnOverride {
+                first_move: "SLASH_MOVE",
+                then: Box::new(MovePattern::Conditional {
+                    predicate: AiCondition::LastMoveWas("SLASH_MOVE"),
+                    then_branch: Box::new(MovePattern::Cycle {
+                        moves: vec!["DISEMBOWEL_MOVE"],
+                    }),
+                    else_branch: Box::new(MovePattern::Conditional {
+                        predicate: AiCondition::LastMoveWas("DISEMBOWEL_MOVE"),
+                        then_branch: Box::new(MovePattern::Cycle {
+                            moves: vec!["SLASH2_MOVE"],
+                        }),
+                        else_branch: Box::new(MovePattern::Conditional {
+                            predicate: AiCondition::LastMoveWas("SLASH2_MOVE"),
+                            then_branch: Box::new(MovePattern::Cycle {
+                                moves: vec!["SOUL_SIPHON_MOVE"],
+                            }),
+                            // After SoulSiphon → Slash loop.
+                            else_branch: Box::new(MovePattern::Cycle {
+                                moves: vec!["SLASH_MOVE"],
+                            }),
+                        }),
+                    }),
+                }),
+            }),
+        },
+    });
+
+    // TheObscura: Illusion (summon Parafright) → weighted {Gaze(10),
+    //   Sail(+3 Str), HardeningStrike(6+7 block)}, no_repeat all.
+    m.insert("TheObscura", MonsterAi {
+        model_id: "TheObscura",
+        moves: vec![
+            MonsterMove {
+                id: "ILLUSION_MOVE",
+                kind: IntentKind::Summon,
+                body: vec![Effect::SummonMonster {
+                    monster_id: "Parafright".to_string(),
+                    slot: "illusion".to_string(),
+                }],
+            },
+            MonsterMove::attack("PIERCING_GAZE_MOVE", 10, 1),
+            MonsterMove::buff("SAIL_MOVE", "StrengthPower", 3),
+            MonsterMove::attack_defend("HARDENING_STRIKE_MOVE", 6, 1, 7),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::FirstTurnOverride {
+            first_move: "ILLUSION_MOVE",
+            then: Box::new(MovePattern::WeightedRandom {
+                weights: vec![
+                    ("PIERCING_GAZE_MOVE", 1),
+                    ("SAIL_MOVE", 1),
+                    ("HARDENING_STRIKE_MOVE", 1),
+                ],
+                no_repeat: vec![
+                    "PIERCING_GAZE_MOVE",
+                    "SAIL_MOVE",
+                    "HARDENING_STRIKE_MOVE",
+                ],
+            }),
+        },
+    });
+
+    // Queen: PuppetStrings → YourMine → BurnBright → OffWithYourHead →
+    //   Execution → Enrage → OffWithYourHead loop. The "HasAmalgamDied"
+    //   conditional split is approximated as straight cycle for now —
+    //   tracking amalgam death requires a custom hook.
+    m.insert("Queen", MonsterAi {
+        model_id: "Queen",
+        moves: vec![
+            MonsterMove::debuff("PUPPET_STRINGS_MOVE", "ChainsOfBindingPower", 3),
+            MonsterMove {
+                id: "YOUR_MINE_MOVE",
+                kind: IntentKind::Debuff,
+                body: vec![
+                    Effect::ApplyPower {
+                        power_id: "FrailPower".to_string(),
+                        amount: AmountSpec::Fixed(99),
+                        target: Target::ChosenEnemy,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "WeakPower".to_string(),
+                        amount: AmountSpec::Fixed(99),
+                        target: Target::ChosenEnemy,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "VulnerablePower".to_string(),
+                        amount: AmountSpec::Fixed(99),
+                        target: Target::ChosenEnemy,
+                    },
+                ],
+            },
+            MonsterMove {
+                id: "BURN_BRIGHT_FOR_ME_MOVE",
+                kind: IntentKind::Buff,
+                body: vec![
+                    Effect::GainBlock {
+                        amount: AmountSpec::Fixed(20),
+                        target: Target::SelfActor,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(1),
+                        target: Target::SelfActor,
+                    },
+                ],
+            },
+            MonsterMove::attack("OFF_WITH_YOUR_HEAD_MOVE", 3, 5),
+            MonsterMove::attack("EXECUTION_MOVE", 15, 1),
+            MonsterMove::buff("ENRAGE_MOVE", "StrengthPower", 2),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "PUPPET_STRINGS_MOVE",
+                "YOUR_MINE_MOVE",
+                "BURN_BRIGHT_FOR_ME_MOVE",
+                "OFF_WITH_YOUR_HEAD_MOVE",
+                "EXECUTION_MOVE",
+                "ENRAGE_MOVE",
+            ],
+        },
+    });
+
+    // CeremonialBeast: Stamp(+Plow 150) → Plow(18+Str 2) → Plow(loop).
+    // C# also has a Beast Cry → Stomp → Crush sub-cycle (post-plow-removal
+    // phase) which we approximate as the same cycle.
+    m.insert("CeremonialBeast", MonsterAi {
+        model_id: "CeremonialBeast",
+        moves: vec![
+            MonsterMove::buff("STAMP_MOVE", "PlowPower", 150),
+            MonsterMove::attack_buff("PLOW_MOVE", 18, 1, "StrengthPower", 2),
+            MonsterMove::debuff("BEAST_CRY_MOVE", "RingingPower", 1),
+            MonsterMove::attack("STOMP_MOVE", 15, 1),
+            MonsterMove::attack_buff("CRUSH_MOVE", 17, 1, "StrengthPower", 3),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::FirstTurnOverride {
+            first_move: "STAMP_MOVE",
+            then: Box::new(MovePattern::Cycle {
+                moves: vec!["PLOW_MOVE", "PLOW_MOVE"],
+            }),
+        },
+    });
+
+    // KnowledgeDemon: simplified port. The C# spec has a curse-card
+    // injection minigame; we approximate as a 4-cycle attack pattern
+    // until card-injection-from-curse-pool primitive lands.
+    m.insert("KnowledgeDemon", MonsterAi {
+        model_id: "KnowledgeDemon",
+        moves: vec![
+            MonsterMove {
+                id: "CURSE_OF_KNOWLEDGE_MOVE",
+                kind: IntentKind::Debuff,
+                // Approximation: add a Doubt curse to player deck.
+                // Actual C# offers a player-pick from 3 curse sets.
+                body: vec![Effect::AddCardToPile {
+                    card_id: "Doubt".to_string(),
+                    upgrade: 0,
+                    pile: crate::effects::Pile::Discard,
+                }],
+            },
+            MonsterMove::attack("SLAP_MOVE", 17, 1),
+            MonsterMove::attack("KNOWLEDGE_OVERWHELMING_MOVE", 8, 3),
+            MonsterMove::attack_buff("PONDER_MOVE", 11, 1, "StrengthPower", 2),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "CURSE_OF_KNOWLEDGE_MOVE",
+                "SLAP_MOVE",
+                "KNOWLEDGE_OVERWHELMING_MOVE",
+                "PONDER_MOVE",
+            ],
+        },
+    });
+
+    // TheInsatiable: Liquify → Thrash(8×2) → LungingBite(28) → Salivate(+Str 2)
+    //   → Thrash → Thrash loop. C# injects 6 FranticEscape status cards on
+    //   Liquify — partially modeled.
+    m.insert("TheInsatiable", MonsterAi {
+        model_id: "TheInsatiable",
+        moves: vec![
+            MonsterMove {
+                id: "LIQUIFY_GROUND_MOVE",
+                kind: IntentKind::Buff,
+                body: vec![
+                    Effect::ApplyPower {
+                        power_id: "SandpitPower".to_string(),
+                        amount: AmountSpec::Fixed(4),
+                        target: Target::SelfActor,
+                    },
+                    Effect::AddCardToPile {
+                        card_id: "FranticEscape".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Draw,
+                    },
+                ],
+            },
+            MonsterMove::attack("THRASH_MOVE", 8, 2),
+            MonsterMove::attack("LUNGING_BITE_MOVE", 28, 1),
+            MonsterMove::buff("SALIVATE_MOVE", "StrengthPower", 2),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "LIQUIFY_GROUND_MOVE",
+                "THRASH_MOVE",
+                "LUNGING_BITE_MOVE",
+                "SALIVATE_MOVE",
+                "THRASH_MOVE",
+                "THRASH_MOVE",
+            ],
+        },
+    });
+
+    // WaterfallGiant: Pressurize (+SteamEruption 20) → Stomp(15+Weak 1) →
+    //   Ram(10) → Siphon(no-op — heal not yet wired through monster context)
+    //   → PressureGun(23) → PressureUp(13) → Stomp(loop). Phase transition
+    //   (AboutToBlow → Explode) requires HpThresholdSwitch wired with custom
+    //   state; deferred.
+    m.insert("WaterfallGiant", MonsterAi {
+        model_id: "WaterfallGiant",
+        moves: vec![
+            MonsterMove::buff("PRESSURIZE_MOVE", "SteamEruptionPower", 20),
+            MonsterMove::attack_debuff("STOMP_MOVE", 15, 1, "WeakPower", 1),
+            MonsterMove::attack("RAM_MOVE", 10, 1),
+            MonsterMove::sleep("SIPHON_MOVE"),
+            MonsterMove::attack("PRESSURE_GUN_MOVE", 23, 1),
+            MonsterMove::attack("PRESSURE_UP_MOVE", 13, 1),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "PRESSURIZE_MOVE",
+                "STOMP_MOVE",
+                "RAM_MOVE",
+                "SIPHON_MOVE",
+                "PRESSURE_GUN_MOVE",
+                "PRESSURE_UP_MOVE",
+            ],
+        },
+    });
+
+    // Fabricator: Conditional on ally count.
+    //   if can fabricate (allies < cap) → 50/50 {Fabricate (summon), FabricatingStrike (18 + summon)}
+    //   else → Disintegrate(11). Summon body deferred — only the strike does damage.
+    m.insert("Fabricator", MonsterAi {
+        model_id: "Fabricator",
+        moves: vec![
+            MonsterMove::sleep("FABRICATE_MOVE"),
+            MonsterMove::attack("FABRICATING_STRIKE_MOVE", 18, 1),
+            MonsterMove::attack("DISINTEGRATE_MOVE", 11, 1),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Conditional {
+            // Approximation: treat ally count >= 3 as "cap reached".
+            predicate: AiCondition::LivingEnemyCountLessThan(3),
+            then_branch: Box::new(MovePattern::WeightedRandom {
+                weights: vec![("FABRICATE_MOVE", 1), ("FABRICATING_STRIKE_MOVE", 1)],
+                no_repeat: vec![],
+            }),
+            else_branch: Box::new(MovePattern::Cycle {
+                moves: vec!["DISINTEGRATE_MOVE"],
+            }),
+        },
+    });
+
+    // Ovicopter: Conditional on ally count.
+    //   if can lay (alive allies ≤ 3) → LayEggs (summon stub)
+    //   else → NutritionalPaste(+3 Str).
+    //   Plus Tenderizer(7+Vuln 2) and Smash(16) as alternates.
+    m.insert("Ovicopter", MonsterAi {
+        model_id: "Ovicopter",
+        moves: vec![
+            MonsterMove::sleep("LAY_EGGS_MOVE"),
+            MonsterMove::attack("SMASH_MOVE", 16, 1),
+            MonsterMove::attack_debuff("TENDERIZER_MOVE", 7, 1, "VulnerablePower", 2),
+            MonsterMove::buff("NUTRITIONAL_PASTE_MOVE", "StrengthPower", 3),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::FirstTurnOverride {
+            first_move: "LAY_EGGS_MOVE",
+            then: Box::new(MovePattern::WeightedRandom {
+                weights: vec![
+                    ("SMASH_MOVE", 2),
+                    ("TENDERIZER_MOVE", 1),
+                    ("NUTRITIONAL_PASTE_MOVE", 1),
+                ],
+                no_repeat: vec![],
+            }),
+        },
+    });
+
+    // Guardbot: minimal port — guards Fabricators with block. C# applies
+    // 15 block to Fabricator allies; in lieu of multi-target block we
+    // give the Guardbot its own block as a placeholder.
+    m.insert("Guardbot", MonsterAi {
+        model_id: "Guardbot",
+        moves: vec![MonsterMove::defend("GUARD_MOVE", 15)],
+        spawn: vec![],
+        pattern: MovePattern::Cycle { moves: vec!["GUARD_MOVE"] },
+    });
+
+    // FakeMerchantMonster: a "talks then attacks once revealed" boss.
+    // C# uses dialogue choices to start combat; once combat starts the
+    // monster pattern is a simple cycle. Encode as 3-move cycle.
+    m.insert("FakeMerchantMonster", MonsterAi {
+        model_id: "FakeMerchantMonster",
+        moves: vec![
+            MonsterMove::attack("SLASH_MOVE", 12, 1),
+            MonsterMove::attack("BACKSTAB_MOVE", 18, 1),
+            MonsterMove::buff("DEALS_MOVE", "StrengthPower", 2),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec!["SLASH_MOVE", "BACKSTAB_MOVE", "DEALS_MOVE"],
+        },
+    });
+}
+
 // ---------------------------------------------------------------- Tests
 
 #[cfg(test)]
@@ -3743,7 +4288,7 @@ mod tests {
     fn ai_registry_covers_new_monsters() {
         // 5 RubyRaiders + 2 test + 3 gremlins + 7 single + 3 two-move
         // + 4 three-move + 4 weighted + 4 flag-state
-        // + 22 batch 1 + 19 batch 2 + 18 batch 3 = 91 monsters.
+        // + 22 batch 1 + 19 batch 2 + 18 batch 3 + 19 batch 4 = 110 monsters.
         let expected = [
             "AxeRubyRaider", "CrossbowRubyRaider", "BruteRubyRaider",
             "AssassinRubyRaider", "TrackerRubyRaider",
@@ -3776,6 +4321,13 @@ mod tests {
             "SlitheringStrangler",
             "DecimillipedeSegmentFront", "DecimillipedeSegmentMiddle",
             "DecimillipedeSegmentBack",
+            // Batch 4 — bosses + specials:
+            "Architect", "PaelsLegion", "TheLost", "TheForgotten",
+            "TheAdversaryMkOne", "TheAdversaryMkTwo", "TheAdversaryMkThree",
+            "CubexConstruct", "LagavulinMatriarch", "TheObscura", "Queen",
+            "CeremonialBeast", "KnowledgeDemon", "TheInsatiable",
+            "WaterfallGiant", "Fabricator", "Ovicopter", "Guardbot",
+            "FakeMerchantMonster",
         ];
         for id in expected {
             assert!(ai_for(id).is_some(), "Missing AI for {}", id);
