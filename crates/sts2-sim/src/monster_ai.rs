@@ -517,6 +517,7 @@ pub static MONSTER_AI_REGISTRY: LazyLock<HashMap<&'static str, MonsterAi>> = Laz
     register_migrated_legacy_b2(&mut m);
     register_migrated_legacy_b3(&mut m);
     register_bosses_b4(&mut m);
+    register_misc_b5(&mut m);
     m
 });
 
@@ -4182,6 +4183,181 @@ fn register_bosses_b4(m: &mut HashMap<&'static str, MonsterAi>) {
     });
 }
 
+/// Fifth batch — test fixtures, Osty (player pet), and the remaining
+/// odd-shaped real monsters (TestSubject + Wriggler).
+///
+/// Every entry is still a generic `MovePattern` over `MonsterMove`
+/// primitives — no monster-name branching in the runtime. The agent
+/// observes the move list (id + body) and the next-move selection
+/// signal, never the monster id.
+fn register_misc_b5(m: &mut HashMap<&'static str, MonsterAi>) {
+    use crate::effects::AmountSpec;
+
+    // Test fixtures (BigDummy / DeprecatedMonster / OneHpMonster /
+    // TenHpMonster) and Osty (player pet) all share the same trivial
+    // "do nothing forever" pattern. Registered so the AI lookup never
+    // returns None for valid MonsterModel ids — keeps the runtime
+    // free of model-id allowlists.
+    for id in [
+        "BigDummy",
+        "DeprecatedMonster",
+        "OneHpMonster",
+        "TenHpMonster",
+        "Osty",
+    ] {
+        m.insert(
+            id,
+            MonsterAi {
+                model_id: id,
+                moves: vec![MonsterMove::sleep("NOTHING_MOVE")],
+                spawn: vec![],
+                pattern: MovePattern::Cycle { moves: vec!["NOTHING_MOVE"] },
+            },
+        );
+    }
+
+    // BattleFriendV1/V2/V3: passive NPC ally tiers. All NOTHING-loop;
+    // spawn applies BattlewornDummyTimeLimitPower(3) which counts down
+    // and expires the ally. Same pattern, different HP (handled in
+    // MonsterData, not here).
+    for id in ["BattleFriendV1", "BattleFriendV2", "BattleFriendV3"] {
+        m.insert(
+            id,
+            MonsterAi {
+                model_id: id,
+                moves: vec![MonsterMove::sleep("NOTHING_MOVE")],
+                spawn: vec![Effect::ApplyPower {
+                    power_id: "BattlewornDummyTimeLimitPower".to_string(),
+                    amount: AmountSpec::Fixed(3),
+                    target: Target::SelfActor,
+                }],
+                pattern: MovePattern::Cycle { moves: vec!["NOTHING_MOVE"] },
+            },
+        );
+    }
+
+    // TestSubject: a 3-phase HP-threshold boss. C# tracks a Respawns
+    // counter that bumps each time HP crosses a threshold; we
+    // approximate with HpThresholdSwitch since the agent-visible
+    // distinction is "which cycle is active right now."
+    //
+    // Phase 1 (>66% HP): BITE ↔ SKULL_BASH alternation.
+    // Phase 2 (33-66% HP): MULTI_CLAW cycle.
+    // Phase 3 (<33% HP): LACERATE → BIG_POUNCE → BURNING_GROWL cycle.
+    //
+    // Spawn payload: AdaptablePower(1) + EnragePower(2). These power
+    // ids may not be wired in the combat VM yet — the Effect list is
+    // still the primitive, the no-op fallback is graceful, and the
+    // observation surface is unchanged when those powers land.
+    m.insert("TestSubject", MonsterAi {
+        model_id: "TestSubject",
+        moves: vec![
+            MonsterMove::attack("BITE_MOVE", 20, 1),
+            MonsterMove::attack_debuff("SKULL_BASH_MOVE", 12, 1, "VulnerablePower", 2),
+            MonsterMove::attack("MULTI_CLAW_MOVE", 10, 3),
+            MonsterMove::attack("PHASE3_LACERATE_MOVE", 10, 3),
+            MonsterMove::attack("BIG_POUNCE_MOVE", 45, 1),
+            MonsterMove {
+                id: "BURNING_GROWL_MOVE",
+                kind: IntentKind::Debuff,
+                body: vec![
+                    Effect::AddCardToPile {
+                        card_id: "Burn".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    },
+                ],
+            },
+        ],
+        spawn: vec![
+            Effect::ApplyPower {
+                power_id: "AdaptablePower".to_string(),
+                amount: AmountSpec::Fixed(1),
+                target: Target::SelfActor,
+            },
+            Effect::ApplyPower {
+                power_id: "EnragePower".to_string(),
+                amount: AmountSpec::Fixed(2),
+                target: Target::SelfActor,
+            },
+        ],
+        pattern: MovePattern::HpThresholdSwitch {
+            threshold_pct: 33,
+            below: Box::new(MovePattern::Cycle {
+                moves: vec![
+                    "PHASE3_LACERATE_MOVE",
+                    "BIG_POUNCE_MOVE",
+                    "BURNING_GROWL_MOVE",
+                ],
+            }),
+            above: Box::new(MovePattern::HpThresholdSwitch {
+                threshold_pct: 66,
+                below: Box::new(MovePattern::Cycle { moves: vec!["MULTI_CLAW_MOVE"] }),
+                above: Box::new(MovePattern::Cycle {
+                    moves: vec!["BITE_MOVE", "SKULL_BASH_MOVE"],
+                }),
+            }),
+        },
+    });
+
+    // Wriggler: encounter-config-driven slot dispatch. Slots
+    // "wriggler1" / "wriggler3" open on NastyBite; "wriggler2" /
+    // "wriggler4" open on Wriggle; thereafter alternate.
+    //
+    // WRIGGLE_MOVE: apply Infection card to player + Strength+2 self.
+    // The C# StartStunned flag is a per-instance encounter property,
+    // not part of the AI table — handled by combat init if/when the
+    // encounter sets it.
+    m.insert("Wriggler", MonsterAi {
+        model_id: "Wriggler",
+        moves: vec![
+            MonsterMove::attack("NASTY_BITE_MOVE", 6, 1),
+            MonsterMove {
+                id: "WRIGGLE_MOVE",
+                kind: IntentKind::Buff,
+                body: vec![
+                    Effect::AddCardToPile {
+                        card_id: "Infection".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    },
+                ],
+            },
+            MonsterMove::sleep("SPAWNED_MOVE"),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::BySlot {
+            branches: vec![
+                ("wriggler1", MovePattern::Cycle {
+                    moves: vec!["NASTY_BITE_MOVE", "WRIGGLE_MOVE"],
+                }),
+                ("wriggler3", MovePattern::Cycle {
+                    moves: vec!["NASTY_BITE_MOVE", "WRIGGLE_MOVE"],
+                }),
+                ("wriggler2", MovePattern::Cycle {
+                    moves: vec!["WRIGGLE_MOVE", "NASTY_BITE_MOVE"],
+                }),
+                ("wriggler4", MovePattern::Cycle {
+                    moves: vec!["WRIGGLE_MOVE", "NASTY_BITE_MOVE"],
+                }),
+            ],
+            default: Box::new(MovePattern::Cycle {
+                moves: vec!["NASTY_BITE_MOVE", "WRIGGLE_MOVE"],
+            }),
+        },
+    });
+}
+
 // ---------------------------------------------------------------- Tests
 
 #[cfg(test)]
@@ -4288,7 +4464,12 @@ mod tests {
     fn ai_registry_covers_new_monsters() {
         // 5 RubyRaiders + 2 test + 3 gremlins + 7 single + 3 two-move
         // + 4 three-move + 4 weighted + 4 flag-state
-        // + 22 batch 1 + 19 batch 2 + 18 batch 3 + 19 batch 4 = 110 monsters.
+        // + 22 batch 1 + 19 batch 2 + 18 batch 3 + 19 batch 4
+        // + 10 batch 5 (fixtures + Osty + BattleFriendV1/2/3 +
+        //   TestSubject + Wriggler)
+        // = 120 monsters. Abstract DecimillipedeSegment is unused;
+        // its 3 concrete subclasses live in the Decimillipede
+        // for-loop already counted in batch 3.
         let expected = [
             "AxeRubyRaider", "CrossbowRubyRaider", "BruteRubyRaider",
             "AssassinRubyRaider", "TrackerRubyRaider",
@@ -4328,11 +4509,45 @@ mod tests {
             "CeremonialBeast", "KnowledgeDemon", "TheInsatiable",
             "WaterfallGiant", "Fabricator", "Ovicopter", "Guardbot",
             "FakeMerchantMonster",
+            // Batch 5 — test fixtures + Osty + BattleFriends +
+            // odd-shaped bosses:
+            "BigDummy", "DeprecatedMonster", "OneHpMonster",
+            "TenHpMonster", "Osty", "TestSubject", "Wriggler",
+            "BattleFriendV1", "BattleFriendV2", "BattleFriendV3",
         ];
         for id in expected {
             assert!(ai_for(id).is_some(), "Missing AI for {}", id);
         }
         assert_eq!(MONSTER_AI_REGISTRY.len(), expected.len());
+    }
+
+    /// Property: every concrete MonsterModel in `ALL_MONSTERS` has an
+    /// AI registration. The abstract `DecimillipedeSegment` base has
+    /// no instances — its three concrete subclasses are registered
+    /// instead. This test catches new MonsterModel subclasses that
+    /// the extractor picks up but no AI port has landed for yet.
+    #[test]
+    fn every_concrete_monster_resolves_to_ai() {
+        use crate::monster::ALL_MONSTERS;
+
+        // Abstract bases that exist in monsters.json (via the
+        // inheritance walker) but never spawn standalone.
+        const ABSTRACT_BASES: &[&str] = &["DecimillipedeSegment"];
+
+        let mut missing = Vec::new();
+        for md in ALL_MONSTERS.iter() {
+            if ABSTRACT_BASES.contains(&md.id.as_str()) {
+                continue;
+            }
+            if ai_for(&md.id).is_none() {
+                missing.push(md.id.clone());
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "MonsterModel ids without AI registration: {:?}",
+            missing,
+        );
     }
 
     #[test]
