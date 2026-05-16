@@ -9914,6 +9914,18 @@ fn pick_card_from_pile(
 /// to exhaust (Exhaust keyword) or discard. Skips energy gating, target
 /// validation, and the BeforeCardPlayed/AfterCardPlayed hook chain —
 /// mirrors C# CardCmd.AutoPlay which bypasses the normal play flow.
+/// Public re-export: callers outside the effects module (e.g.,
+/// `combat::fire_enchantment_before_play_phase_start`) need to drive
+/// the auto-play flow with a pre-removed CardInstance.
+pub fn auto_play_card_pub(
+    cs: &mut CombatState,
+    player_idx: usize,
+    card: crate::combat::CardInstance,
+    force_exhaust: bool,
+) {
+    auto_play_card(cs, player_idx, card, force_exhaust);
+}
+
 fn auto_play_card(
     cs: &mut CombatState,
     player_idx: usize,

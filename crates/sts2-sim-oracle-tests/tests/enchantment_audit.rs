@@ -239,6 +239,21 @@ fn nimble_adds_amount_to_block() {
 }
 
 #[test]
+fn instinct_multiplies_attack_damage_by_2() {
+    let mut cs = ironclad_combat();
+    force_enchanted(&mut cs, "StrikeIronclad", "Instinct", 0);
+    let hp_before = cs.enemies[0].current_hp;
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    ps.energy = 3;
+    cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+    // Strike: 6 damage × 2.0 = 12.
+    let dmg = hp_before - cs.enemies[0].current_hp;
+    assert_eq!(dmg, 12,
+        "Instinct should ⊙ 2.0 on Strike's 6 damage → 12 (dealt {})",
+        dmg);
+}
+
+#[test]
 fn corrupted_multiplies_attack_damage_by_1_5() {
     let mut cs = ironclad_combat();
     force_enchanted(&mut cs, "StrikeIronclad", "Corrupted", 0);
@@ -260,15 +275,18 @@ fn corrupted_multiplies_attack_damage_by_1_5() {
 fn enchantment_coverage_report() {
     // Lists each of the 22 enchantments and what's wired today.
     // This is a documentation test that prints status; doesn't fail.
-    let wired_modifier_pipeline = ["Sharp", "Corrupted", "Nimble", "Vigorous"];
+    let wired_modifier_pipeline = ["Sharp", "Corrupted", "Instinct", "Nimble", "Vigorous"];
     let wired_onplay = ["Sown", "Swift", "Adroit", "Inky"];
     let wired_play_count = ["Glam", "Spiral"];
     let wired_self_state = ["Momentum", "Goopy"];
     let wired_after_drawn = ["Slither"];
+    let wired_before_flush = ["SlumberingEssence"];
+    let wired_before_play_phase = ["Imbued"];
+    let wired_shuffle_order = ["PerfectFit"];
+    let wired_no_op_markers = ["Clone"];
     let keyword_only = ["Steady", "TezcatarasEmber", "SoulsPower",
                         "RoyallyApproved"];
-    let needs_other_infra = ["Imbued", "PerfectFit", "SlumberingEssence",
-                             "Clone"];
+    let needs_other_infra: [&str; 0] = [];
 
     let all = ["Adroit","Clone","Corrupted","DeprecatedEnchantment","Glam",
                "Goopy","Imbued","Inky","Instinct","Momentum","Nimble",
@@ -280,24 +298,40 @@ fn enchantment_coverage_report() {
         + wired_play_count.len()
         + wired_self_state.len()
         + wired_after_drawn.len()
+        + wired_before_flush.len()
+        + wired_before_play_phase.len()
+        + wired_shuffle_order.len()
+        + wired_no_op_markers.len()
         + keyword_only.len();
     eprintln!("\n========= ENCHANTMENT COVERAGE =========");
     eprintln!("Total enchantments in data:    {}", all.len());
-    eprintln!("Wired (modifier pipeline):     {} {:?}",
+    eprintln!("Wired (modifier pipeline):       {} {:?}",
         wired_modifier_pipeline.len(), wired_modifier_pipeline);
-    eprintln!("Wired (OnPlay hook):           {} {:?}",
+    eprintln!("Wired (OnPlay hook):             {} {:?}",
         wired_onplay.len(), wired_onplay);
-    eprintln!("Wired (EnchantPlayCount loop): {} {:?}",
+    eprintln!("Wired (EnchantPlayCount loop):   {} {:?}",
         wired_play_count.len(), wired_play_count);
-    eprintln!("Wired (per-instance state):    {} {:?}",
+    eprintln!("Wired (per-instance state):      {} {:?}",
         wired_self_state.len(), wired_self_state);
-    eprintln!("Wired (AfterCardDrawn hook):   {} {:?}",
+    eprintln!("Wired (AfterCardDrawn hook):     {} {:?}",
         wired_after_drawn.len(), wired_after_drawn);
-    eprintln!("Wired (keyword-only at attach time): {} {:?}",
+    eprintln!("Wired (BeforeFlush hook):        {} {:?}",
+        wired_before_flush.len(), wired_before_flush);
+    eprintln!("Wired (BeforePlayPhaseStart):    {} {:?}",
+        wired_before_play_phase.len(), wired_before_play_phase);
+    eprintln!("Wired (ModifyShuffleOrder hook): {} {:?}",
+        wired_shuffle_order.len(), wired_shuffle_order);
+    eprintln!("Wired (no-op marker):            {} {:?}",
+        wired_no_op_markers.len(), wired_no_op_markers);
+    eprintln!("Wired (keyword-only at attach):  {} {:?}",
         keyword_only.len(), keyword_only);
-    eprintln!("Not wired — other infra:       {} {:?}",
-        needs_other_infra.len(), needs_other_infra);
+    let stub_count = needs_other_infra.len();
+    eprintln!("Not wired — other infra:         {} {:?}",
+        stub_count, needs_other_infra);
     eprintln!("Effectively wired: {}/{}", total_wired, all.len());
+    assert!(stub_count == 0,
+        "All non-deprecated enchantments should be wired (was {})",
+        stub_count);
 }
 
 // ----------------------------------------------------------------------
@@ -504,4 +538,185 @@ fn last_choice_pick_count_carries_to_follow_up_effects() {
     assert_eq!(ps2.draw.cards.len(), draw_before - 2,
         "draw pile should shrink by 2 (was {}, now {})",
         draw_before, ps2.draw.cards.len());
+}
+
+// ----------------------------------------------------------------------
+// Section I: Late-arriving enchantment hooks (SlumberingEssence,
+// PerfectFit, Imbued). Clone is intentionally a no-op marker.
+// ----------------------------------------------------------------------
+
+#[test]
+fn slumbering_essence_ramps_cost_down_per_turn() {
+    // Start with a 2-cost card carrying SlumberingEssence. After one
+    // BeforeFlush trigger (end of player turn) the override should be 1.
+    // After two triggers, 0. After three, -1 (clamped by play-time).
+    let mut cs = ironclad_combat();
+    let strike = card::by_id("StrikeIronclad").unwrap();
+    let mut inst = CardInstance::from_card(strike, 0);
+    inst.enchantment = Some(EnchantmentInstance {
+        id: "SlumberingEssence".to_string(),
+        amount: 0,
+        consumed_this_combat: false,
+        state: Default::default(),
+    });
+    cs.allies[0].player.as_mut().unwrap().hand.cards.push(inst);
+    let printed = cs.allies[0].player.as_ref().unwrap()
+        .hand.cards[0].current_energy_cost;
+
+    cs.fire_enchantment_before_flush();
+    let after1 = cs.allies[0].player.as_ref().unwrap()
+        .hand.cards[0].cost_override_until_played;
+    assert_eq!(after1, Some(printed - 1),
+        "After 1 flush: cost should drop by 1 (printed {} → {:?})",
+        printed, after1);
+
+    cs.fire_enchantment_before_flush();
+    let after2 = cs.allies[0].player.as_ref().unwrap()
+        .hand.cards[0].cost_override_until_played;
+    assert_eq!(after2, Some(printed - 2),
+        "After 2 flushes: cost should drop by 2 (printed {} → {:?})",
+        printed, after2);
+}
+
+#[test]
+fn slumbering_essence_ignores_cards_not_in_hand() {
+    // Cards in draw / discard / exhaust must not be modified.
+    let mut cs = ironclad_combat();
+    let strike = card::by_id("StrikeIronclad").unwrap();
+    let make_inst = || {
+        let mut inst = CardInstance::from_card(strike, 0);
+        inst.enchantment = Some(EnchantmentInstance {
+            id: "SlumberingEssence".to_string(),
+            amount: 0,
+            consumed_this_combat: false,
+            state: Default::default(),
+        });
+        inst
+    };
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    ps.draw.cards.push(make_inst());
+    ps.discard.cards.push(make_inst());
+
+    cs.fire_enchantment_before_flush();
+
+    let ps = cs.allies[0].player.as_ref().unwrap();
+    let draw_card = ps.draw.cards.last().unwrap();
+    let discard_card = ps.discard.cards.last().unwrap();
+    assert!(draw_card.cost_override_until_played.is_none(),
+        "SlumberingEssence in draw should not be touched");
+    assert!(discard_card.cost_override_until_played.is_none(),
+        "SlumberingEssence in discard should not be touched");
+}
+
+#[test]
+fn perfect_fit_moves_to_top_on_reshuffle() {
+    // Set up: empty draw, discard with PerfectFit card + 4 non-PerfectFit
+    // cards. Draw 5 forces a reshuffle. After reshuffle, the PerfectFit
+    // card must be at index 0 of the new draw pile.
+    let mut cs = ironclad_combat();
+    let strike = card::by_id("StrikeIronclad").unwrap();
+    let defend = card::by_id("DefendIronclad").unwrap();
+    let mut pf = CardInstance::from_card(strike, 0);
+    pf.enchantment = Some(EnchantmentInstance {
+        id: "PerfectFit".to_string(),
+        amount: 0,
+        consumed_this_combat: false,
+        state: Default::default(),
+    });
+    // Mark it via cost so we can identify it post-shuffle (RNG order
+    // is otherwise indistinguishable for same-id cards).
+    pf.cost_override_until_played = Some(99);
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    ps.draw.cards.clear();
+    ps.discard.cards.clear();
+    // Put 4 strikes + 1 PerfectFit in discard.
+    for _ in 0..4 {
+        ps.discard.cards.push(CardInstance::from_card(defend, 0));
+    }
+    ps.discard.cards.push(pf);
+    let mut rng = sts2_sim::rng::Rng::new(7, 0);
+    // Drawing forces a reshuffle (draw empty, discard non-empty).
+    cs.draw_cards(0, 1, &mut rng);
+    // After: 1 card has been drawn (was at index 0 post-reshuffle),
+    // remaining 4 sit in draw. The PerfectFit card should have been
+    // pushed to index 0 → drawn first. Verify the drawn card is the
+    // marked one.
+    let drawn = cs.allies[0].player.as_ref().unwrap()
+        .hand.cards.last().expect("a card drawn");
+    assert_eq!(drawn.cost_override_until_played, Some(99),
+        "PerfectFit should be drawn first because ModifyShuffleOrder \
+        promoted it to index 0");
+}
+
+#[test]
+fn imbued_auto_plays_on_round_1() {
+    // Imbued + Defend in hand at round 1 should auto-play on
+    // BeforePlayPhaseStart (which fires inside begin_turn(Player)).
+    // Net effect: Defend's block lands and the card routes to discard.
+    let mut cs = ironclad_combat();
+    let defend = card::by_id("DefendIronclad").unwrap();
+    let mut inst = CardInstance::from_card(defend, 0);
+    inst.enchantment = Some(EnchantmentInstance {
+        id: "Imbued".to_string(),
+        amount: 0,
+        consumed_this_combat: false,
+        state: Default::default(),
+    });
+    cs.allies[0].player.as_mut().unwrap().hand.cards.push(inst);
+    let block_before = cs.allies[0].block;
+    // begin_turn(Player) fires BeforePlayPhaseStart → Imbued auto-plays.
+    cs.begin_turn(CombatSide::Player);
+    assert!(cs.allies[0].block >= block_before + 5,
+        "Imbued Defend should auto-play +5 block (was {}, now {})",
+        block_before, cs.allies[0].block);
+    // Card moved to discard.
+    let in_hand = cs.allies[0].player.as_ref().unwrap()
+        .hand.cards.iter()
+        .any(|c| c.enchantment.as_ref()
+            .map(|e| e.id == "Imbued").unwrap_or(false));
+    assert!(!in_hand, "Imbued card should have left hand (auto-played)");
+}
+
+#[test]
+fn imbued_does_not_auto_play_on_round_2() {
+    // BeforePlayPhaseStart on round > 1 should not auto-play.
+    let mut cs = ironclad_combat();
+    let defend = card::by_id("DefendIronclad").unwrap();
+    let mut inst = CardInstance::from_card(defend, 0);
+    inst.enchantment = Some(EnchantmentInstance {
+        id: "Imbued".to_string(),
+        amount: 0,
+        consumed_this_combat: false,
+        state: Default::default(),
+    });
+    cs.allies[0].player.as_mut().unwrap().hand.cards.push(inst);
+    cs.round_number = 2;
+    let block_before = cs.allies[0].block;
+    cs.begin_turn(CombatSide::Player);
+    assert_eq!(cs.allies[0].block, block_before,
+        "Imbued should not auto-play on round > 1");
+    let in_hand = cs.allies[0].player.as_ref().unwrap()
+        .hand.cards.iter()
+        .any(|c| c.enchantment.as_ref()
+            .map(|e| e.id == "Imbued").unwrap_or(false));
+    assert!(in_hand, "Imbued card must remain in hand on round 2");
+}
+
+#[test]
+fn clone_enchantment_is_a_pure_marker_noop() {
+    // Per C# `Clone.cs`: the class body is empty — no virtual methods
+    // overridden. The enchantment exists as a data marker only. This
+    // test pins that interpretation: a card with Clone behaves
+    // identically to a card without an enchantment (modulo the
+    // enchantment field being Some).
+    let mut cs = ironclad_combat();
+    force_enchanted(&mut cs, "StrikeIronclad", "Clone", 0);
+    let hp_before = cs.enemies[0].current_hp;
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    ps.energy = 3;
+    cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+    let dmg = hp_before - cs.enemies[0].current_hp;
+    assert_eq!(dmg, 6,
+        "Strike + Clone should deal vanilla 6 damage (Clone is a marker, \
+        no modifier or hook)");
 }

@@ -761,6 +761,9 @@ impl CombatState {
                 crate::effects::RelicHookKind::BeforePlayPhaseStart,
                 CombatSide::Player,
             );
+            // Enchantment BeforePlayPhaseStart hook — Imbued auto-plays
+            // itself on round 1.
+            self.fire_enchantment_before_play_phase_start();
         }
         // AfterSideTurnStart hook pass.
         // Hook firing order proper will land in #70; for now powers
@@ -1137,6 +1140,10 @@ impl CombatState {
             // CardModel.OnTurnEndInHand iteration in PlayerCombatState
             // before the keyword-routing flush.
             self.fire_turn_end_in_hand_effects();
+            // BeforeFlush enchantment hook — SlumberingEssence
+            // subtracts 1 from cost_override_until_played for each
+            // hand card carrying it (cost ramps down as the card lingers).
+            self.fire_enchantment_before_flush();
             // Collect per-player routing decisions so the
             // history-event push + relic-hook fire can happen after
             // the &mut self.allies borrow drops.
@@ -1748,6 +1755,95 @@ impl CombatState {
         }
     }
 
+    /// BeforePlayPhaseStart enchantment hook — fires once per Player
+    /// `begin_turn`. Imbued auto-plays itself on round 1. Mirrors C#
+    /// `Imbued.BeforePlayPhaseStart`: `if RoundNumber == 1 →
+    /// CardCmd.AutoPlay(card)`. Iterates hand + draw + discard +
+    /// exhaust because Imbued's `ShouldStartAtBottomOfDrawPile=true`
+    /// usually leaves it in draw at round 1, but other effects might
+    /// have moved it.
+    pub fn fire_enchantment_before_play_phase_start(&mut self) {
+        if self.round_number != 1 {
+            return;
+        }
+        let n_allies = self.allies.len();
+        for player_idx in 0..n_allies {
+            // Collect (pile_kind, idx) tuples for Imbued-enchanted
+            // cards across all piles. Decouples iteration from mutation.
+            let mut targets: Vec<(crate::combat::PileType, usize)> = Vec::new();
+            let Some(ps) = self.allies.get(player_idx)
+                .and_then(|c| c.player.as_ref()) else { continue; };
+            for (i, c) in ps.hand.cards.iter().enumerate() {
+                if c.enchantment.as_ref().map(|e| e.id == "Imbued").unwrap_or(false) {
+                    targets.push((crate::combat::PileType::Hand, i));
+                }
+            }
+            for (i, c) in ps.draw.cards.iter().enumerate() {
+                if c.enchantment.as_ref().map(|e| e.id == "Imbued").unwrap_or(false) {
+                    targets.push((crate::combat::PileType::Draw, i));
+                }
+            }
+            for (i, c) in ps.discard.cards.iter().enumerate() {
+                if c.enchantment.as_ref().map(|e| e.id == "Imbued").unwrap_or(false) {
+                    targets.push((crate::combat::PileType::Discard, i));
+                }
+            }
+            // Auto-play in reverse so earlier indices remain valid.
+            // The pile-grouping is per-pile reverse-sorted; we
+            // re-sort here defensively. The end result is each Imbued
+            // card auto-plays once.
+            targets.sort_by(|a, b| b.1.cmp(&a.1));
+            for (pile, idx) in targets {
+                let card_opt = {
+                    let Some(ps) = self.allies.get_mut(player_idx)
+                        .and_then(|c| c.player.as_mut()) else { continue; };
+                    let pile_ref = match pile {
+                        crate::combat::PileType::Hand => &mut ps.hand.cards,
+                        crate::combat::PileType::Draw => &mut ps.draw.cards,
+                        crate::combat::PileType::Discard => &mut ps.discard.cards,
+                        _ => continue,
+                    };
+                    if idx < pile_ref.len() {
+                        Some(pile_ref.remove(idx))
+                    } else {
+                        None
+                    }
+                };
+                if let Some(card) = card_opt {
+                    crate::effects::auto_play_card_pub(self, player_idx, card, false);
+                }
+            }
+        }
+    }
+
+    /// BeforeFlush enchantment hook — fires at end-of-player-turn
+    /// before the pile flush. SlumberingEssence subtracts 1 from each
+    /// hand card's `cost_override_until_played` so the cost ramps
+    /// down the longer the card sits in hand. Mirrors C#
+    /// `SlumberingEssence.BeforeFlush`:
+    ///   `base.Card.EnergyCost.AddUntilPlayed(-1, false)` — additive,
+    /// not absolute. Multiple turns stacking ⇒ cost can go negative,
+    /// which is clamped to 0 by `effective_energy_cost()`.
+    pub fn fire_enchantment_before_flush(&mut self) {
+        let n_allies = self.allies.len();
+        for player_idx in 0..n_allies {
+            let Some(ps) = self.allies.get_mut(player_idx)
+                .and_then(|c| c.player.as_mut()) else { continue; };
+            for c in ps.hand.cards.iter_mut() {
+                let Some(ench) = c.enchantment.as_ref() else { continue; };
+                if ench.id == "SlumberingEssence" {
+                    // Additive -1 onto the until-played slot. Existing
+                    // override (Slither, SneckoOil, TouchOfInsanity) is
+                    // honored: start from its value if Some, else from
+                    // current_energy_cost.
+                    let base = c.cost_override_until_played
+                        .unwrap_or(c.current_energy_cost);
+                    c.cost_override_until_played = Some(base - 1);
+                }
+            }
+        }
+    }
+
     /// Move every Innate card from the player's draw pile to the
     /// hand. Returns the number moved. Called once at combat start
     /// before the standard initial draw. Mirrors C# innate-priority
@@ -1804,6 +1900,34 @@ impl CombatState {
                     ps.draw.cards.append(&mut ps.discard.cards);
                     rng.shuffle(&mut ps.draw.cards);
                     did_reshuffle = true;
+                    // ModifyShuffleOrder enchantment hook —
+                    // PerfectFit moves itself to the top (index 0) on
+                    // every non-initial shuffle. The mid-combat
+                    // discard→draw reshuffle is non-initial by
+                    // definition. Iterate in reverse so multiple
+                    // PerfectFit cards don't fight over index 0; the
+                    // first one (lowest pre-shuffle index) ends up on top.
+                    // Mirrors C#:
+                    //   if (isInitialShuffle) return;
+                    //   if (!cards.Contains(this)) return;
+                    //   cards.Remove(this); cards.Insert(0, this);
+                    let perfect_fit_idxs: Vec<usize> = ps.draw.cards
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, c)| c.enchantment.as_ref()
+                            .map(|e| e.id == "PerfectFit").unwrap_or(false))
+                        .map(|(i, _)| i)
+                        .collect();
+                    // Remove from back to front so earlier indices stay valid.
+                    let mut picked: Vec<CardInstance> = Vec::new();
+                    for &i in perfect_fit_idxs.iter().rev() {
+                        picked.push(ps.draw.cards.remove(i));
+                    }
+                    // Re-insert at front in original order (so first
+                    // PerfectFit card ends up at index 0).
+                    for c in picked.into_iter() {
+                        ps.draw.cards.insert(0, c);
+                    }
                 }
                 // Draw from index 0 — top of deck per C# convention
                 // (`drawPile.Cards.FirstOrDefault()` in CardPileCmd.Draw).
@@ -5755,6 +5879,10 @@ fn enchantment_damage_multiplicative(
     match ench_id {
         // Corrupted: fixed ×1.5 on powered attacks. Ignores Amount.
         "Corrupted" => 1.5,
+        // Instinct: fixed ×2.0 on powered attacks. Ignores Amount.
+        // Only attaches to Attack cards (data-side enforcement via
+        // CanEnchantCardType in C#).
+        "Instinct" => 2.0,
         _ => 1.0,
     }
 }
