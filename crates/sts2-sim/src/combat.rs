@@ -127,10 +127,15 @@ pub struct PlayerState {
     /// Max queue capacity. Default 3 for Defect. ChangeOrbSlots
     /// primitive mutates this. Mirrors C# `PlayerCombatState.OrbCapacity`.
     pub orb_slots: i32,
-    /// Pending Forge credits — increments when a card with
-    /// `Effect::Forge` is played. Mirrors C# `ForgeCmd.Forge` queue.
-    /// Card-upgrade resolution is deferred until a player-choice
-    /// mechanism lands.
+    /// Total amount applied by `Effect::Forge` this combat. Display-
+    /// only counter — the actual Forge mechanic mutates per-card
+    /// `forge_bonus` state on SovereignBlade instances (which feeds
+    /// `AmountSpec::SourceCardCounter` for the card's damage calc).
+    /// Cleared on `CombatState::start`; never persists to the run-
+    /// state PlayerState. Mirrors what C# `ForgeCmd.Forge` does:
+    /// per-card bonus accumulator + conjure-to-hand if absent. C# has
+    /// no `pending_forge` equivalent — this is purely a UI / log
+    /// readout for the sandbox.
     pub pending_forge: i32,
     /// Optional Osty companion (Necrobinder). None until SummonOsty
     /// fires. Mirrors C# `PlayerCombatState.Osty: OstyModel?`. C# Osty
@@ -12805,6 +12810,80 @@ mod tests {
         assert_eq!(cs.current_side, CombatSide::Player);
         assert!(cs.allies.is_empty());
         assert!(cs.enemies.is_empty());
+    }
+
+    /// Forge mechanic end-to-end: an `Effect::Forge` fired during
+    /// combat must (1) conjure SovereignBlade to hand if absent,
+    /// (2) bump the per-card `forge_bonus` state, and (3) increment
+    /// the informational `pending_forge` counter. Locks in the
+    /// resolution of the "Forge runtime" base-sim gap — the campfire
+    /// has nothing to do with Forge; it's combat-scoped per C#
+    /// `ForgeCmd.Forge`.
+    #[test]
+    fn forge_effect_conjures_sovereign_blade_and_bumps_per_card_bonus() {
+        use crate::effects::{
+            Effect, EffectContext, AmountSpec, execute_effects,
+        };
+
+        // Build a minimal Ironclad combat. No SovereignBlade in deck yet.
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80,
+            max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(encounter, vec![setup], Vec::new());
+        // Sanity: no SovereignBlade in any pile yet.
+        let pre = sovereign_count(&cs);
+        assert_eq!(pre, 0, "starting Ironclad has no SovereignBlade");
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().pending_forge, 0);
+
+        // Fire Effect::Forge(3) twice.
+        let mut effects = vec![Effect::Forge { amount: AmountSpec::Fixed(3) }];
+        let ctx = EffectContext::for_card(
+            0, None, "Bulwark", 0, None, 0,
+        );
+        execute_effects(&mut cs, &effects, &ctx);
+        effects = vec![Effect::Forge { amount: AmountSpec::Fixed(5) }];
+        execute_effects(&mut cs, &effects, &ctx);
+
+        // 1 SovereignBlade conjured (idempotent: second Forge bumps
+        // the existing one, doesn't create a duplicate).
+        let post = sovereign_count(&cs);
+        assert_eq!(post, 1,
+            "Forge conjures exactly one SovereignBlade; second Forge \
+             bumps the same card (got {post})");
+
+        // Per-card forge_bonus accumulated: 3 + 5 = 8.
+        let bonus = sovereign_forge_bonus(&cs);
+        assert_eq!(bonus, Some(8),
+            "forge_bonus must accumulate (3 + 5 = 8)");
+
+        // Display counter tracks total amount.
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().pending_forge, 8);
+    }
+
+    fn sovereign_count(cs: &CombatState) -> usize {
+        use crate::effects::FORGE_TARGET_CARD;
+        let p = cs.allies[0].player.as_ref().unwrap();
+        p.hand.cards.iter()
+            .chain(p.draw.cards.iter())
+            .chain(p.discard.cards.iter())
+            .filter(|c| c.id == FORGE_TARGET_CARD)
+            .count()
+    }
+
+    fn sovereign_forge_bonus(cs: &CombatState) -> Option<i32> {
+        use crate::effects::{FORGE_TARGET_CARD, FORGE_BONUS_KEY};
+        let p = cs.allies[0].player.as_ref().unwrap();
+        p.hand.cards.iter()
+            .chain(p.draw.cards.iter())
+            .chain(p.discard.cards.iter())
+            .find(|c| c.id == FORGE_TARGET_CARD)
+            .and_then(|c| c.state.get(FORGE_BONUS_KEY).copied())
     }
 
     #[test]
