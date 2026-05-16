@@ -110,6 +110,48 @@ pub struct RunState {
     /// daily mutators). Kept as plain strings until the modifier module
     /// lands.
     modifiers: Vec<String>,
+    /// When true, OfferX effects auto-pick the first option and apply
+    /// immediately. RL training flips this to false so the agent can
+    /// see and resolve each offer through `resolve_run_state_offer`.
+    /// Default true for replay / scripted-fight purposes.
+    pub auto_resolve_offers: bool,
+    /// One in-flight player offer (card / relic / potion). When `Some`,
+    /// the run is paused waiting for the agent to commit. Resolution
+    /// applies the picked indices to the player's deck / relics / potions.
+    pub pending_offer: Option<PendingRunStateOffer>,
+}
+
+/// What kind of reward is being offered. The resolver dispatches on
+/// this when applying the agent's picks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OfferKind {
+    /// Card to add to the player's master deck.
+    Card,
+    /// Relic to add to the player's relic list (fires AfterObtained).
+    Relic,
+    /// Potion to add to the player's potion belt (capped at
+    /// max_potion_slot_count).
+    Potion,
+}
+
+/// One in-flight reward offer. Mirrors `CombatState.PendingChoice`
+/// but operates on the run-state. RL training reads this to know
+/// what's on offer; the simulator resolves it via
+/// `resolve_run_state_offer(picks)`.
+#[derive(Debug, Clone)]
+pub struct PendingRunStateOffer {
+    pub kind: OfferKind,
+    pub player_idx: usize,
+    /// Candidate ids the agent picks from.
+    pub options: Vec<String>,
+    /// Minimum picks (0 = skip allowed; standard card reward is 0).
+    pub n_min: i32,
+    /// Maximum picks (typically 1 for card / relic / potion offers).
+    pub n_max: i32,
+    /// Optional source-card / source-room / source-effect tag for
+    /// replay diagnostics and feature extraction. e.g. "TreasureRoom",
+    /// "EliteReward", "JackOfAllTrades".
+    pub source: Option<String>,
 }
 
 impl RunState {
@@ -133,6 +175,8 @@ impl RunState {
             current_map: None,
             current_coord: None,
             modifiers,
+            auto_resolve_offers: true,
+            pending_offer: None,
         }
     }
 
@@ -230,6 +274,62 @@ impl RunState {
                 );
             }
         }
+    }
+
+    /// Add a card to the player's master deck. Mirrors C# `CardCmd.AddToDeck`.
+    /// Fires AfterCardAddedToDeck hooks on every owned relic (BingBong /
+    /// BookOfFiveRings / DarkstonePeriapt / LuckyFysh / etc.).
+    pub fn add_card(&mut self, player_idx: usize, card_id: &str, upgrade: i32) {
+        if let Some(ps) = self.players.get_mut(player_idx) {
+            ps.deck.push(crate::run_log::CardRef {
+                id: card_id.to_string(),
+                floor_added_to_deck: Some(self.act_floor),
+                current_upgrade_level: Some(upgrade),
+                enchantment: None,
+            });
+        }
+        // Fire AfterCardAddedToDeck hooks. Filter is on the added card
+        // (the relic's filter narrows which adds trigger it).
+        let n = self.players[player_idx].relics.len();
+        let relic_ids: Vec<String> = self.players[player_idx]
+            .relics
+            .iter()
+            .map(|r| r.id.clone())
+            .collect();
+        for relic_id in relic_ids {
+            let Some(arms) = crate::effects::run_state_effects(&relic_id) else {
+                continue;
+            };
+            for (hook, body) in arms {
+                if let crate::effects::RunStateHook::AfterCardAddedToDeck { filter } = &hook {
+                    let matches = match filter {
+                        None => true,
+                        Some(f) => crate::effects::card_id_matches_filter(card_id, f),
+                    };
+                    if matches {
+                        crate::effects::execute_run_state_effects_with_relic(
+                            self, player_idx, &body, Some(&relic_id),
+                        );
+                    }
+                }
+            }
+        }
+        let _ = n;
+    }
+
+    /// Add a potion to the player's belt. Capped at `max_potion_slot_count`;
+    /// excess potions are silently dropped (C# behavior — UI offers a
+    /// "swap or skip" choice in real play, but RL replay uses fill-or-drop).
+    pub fn add_potion(&mut self, player_idx: usize, potion_id: &str) -> bool {
+        let Some(ps) = self.players.get_mut(player_idx) else { return false };
+        if (ps.potions.len() as i32) >= ps.max_potion_slot_count {
+            return false;
+        }
+        ps.potions.push(crate::run_log::PotionEntry {
+            id: potion_id.to_string(),
+            slot_index: ps.potions.len() as i32,
+        });
+        true
     }
 
     /// Notify run-state of room entry. Fires AfterRoomEntered hooks on

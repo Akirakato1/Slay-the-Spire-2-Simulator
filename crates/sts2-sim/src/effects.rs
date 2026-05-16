@@ -944,6 +944,40 @@ pub enum Effect {
     /// Drop a specific potion into the player's potion belt.
     /// AlchemicalCoffer / event rewards. STUB — see GainRelic.
     GainPotionToBelt { potion_id: String },
+    /// Offer the player N cards to choose from for the master deck.
+    /// Standard post-combat card reward (n_min=0, n_max=1, 3 options
+    /// from a pool). Other shapes: events offering A/B/C cards
+    /// (n_max=1, n_min=1 if mandatory), JackOfAllTrades (n_max=2
+    /// optional). Sets `RunState.pending_offer` with kind=Card; the
+    /// auto-resolve path picks 0 by default (typical card-reward
+    /// shape is "skip allowed"). Caller specifies `options` directly
+    /// because random-from-pool selection is driven by run-state RNG
+    /// at the call site (not at effect-execution time).
+    OfferCardReward {
+        options: Vec<String>,
+        n_min: i32,
+        n_max: i32,
+        source: Option<String>,
+    },
+    /// Offer the player N relics to choose from. Treasure rooms / boss
+    /// rewards typically offer 1-of-1 (skip-not-allowed). Elite
+    /// rewards offer 1-of-1 with skip allowed. Shop offers list-of-N
+    /// with prices (price handled separately).
+    OfferRelicReward {
+        options: Vec<String>,
+        n_min: i32,
+        n_max: i32,
+        source: Option<String>,
+    },
+    /// Offer the player N potions to choose from. Standard
+    /// post-combat potion drop (40% chance, 1 option). Some events
+    /// offer multi-potion picks. Pick is silently dropped if belt is full.
+    OfferPotionReward {
+        options: Vec<String>,
+        n_min: i32,
+        n_max: i32,
+        source: Option<String>,
+    },
     /// Lose HP at run-state level (events that say "lose 8 HP").
     /// STUB — bypasses combat block/modifier pipeline. Distinct from
     /// `LoseHp` which mutates the combat-frame creature's current_hp.
@@ -3394,6 +3428,21 @@ fn execute_run_state_effect(
                 });
             }
         }
+        Effect::OfferCardReward { options, n_min, n_max, source } => {
+            handle_offer(rs, player_idx,
+                crate::run_state::OfferKind::Card,
+                options.clone(), *n_min, *n_max, source.clone());
+        }
+        Effect::OfferRelicReward { options, n_min, n_max, source } => {
+            handle_offer(rs, player_idx,
+                crate::run_state::OfferKind::Relic,
+                options.clone(), *n_min, *n_max, source.clone());
+        }
+        Effect::OfferPotionReward { options, n_min, n_max, source } => {
+            handle_offer(rs, player_idx,
+                crate::run_state::OfferKind::Potion,
+                options.clone(), *n_min, *n_max, source.clone());
+        }
         Effect::LoseRunStateMaxHp { amount } => {
             let amt = run_state_resolve_amount(rs, player_idx, amount, relic_id).max(0);
             if let Some(ps) = rs.player_state_mut(player_idx) {
@@ -3677,6 +3726,104 @@ fn fire_run_state_after_gold_gained(
 /// player's relics, looks up run-state arms, and dispatches matching
 /// AfterCardAddedToDeck bodies (with optional CardFilter on the added
 /// card's type / keywords / tags).
+/// Stage a reward offer or auto-resolve it. Mirrors combat's
+/// AwaitPlayerChoice flow but on the run-state side. When
+/// `auto_resolve_offers == true` (replay / default), picks the
+/// first option (or 0 picks if n_min==0 — typical card-reward
+/// "skip" behavior). When false, sets `pending_offer` and pauses.
+fn handle_offer(
+    rs: &mut crate::run_state::RunState,
+    player_idx: usize,
+    kind: crate::run_state::OfferKind,
+    options: Vec<String>,
+    n_min: i32,
+    n_max: i32,
+    source: Option<String>,
+) {
+    let n_max = n_max.max(0).min(options.len() as i32);
+    let n_min = n_min.max(0).min(n_max);
+    if rs.auto_resolve_offers {
+        // Auto-pick: take the first `n_min.max(0)` options. If
+        // n_min == 0, skip entirely (no picks). This makes "skip
+        // allowed" rewards a no-op under auto-resolve — appropriate
+        // for replay where the recorded run already captured what
+        // the player kept.
+        let take = n_min as usize;
+        let picks: Vec<usize> = (0..take).collect();
+        apply_offer_picks(rs, player_idx, &kind, &options, &picks);
+    } else {
+        rs.pending_offer = Some(crate::run_state::PendingRunStateOffer {
+            kind,
+            player_idx,
+            options,
+            n_min,
+            n_max,
+            source,
+        });
+    }
+}
+
+/// Apply the agent's resolved offer picks. Used by both the auto-resolve
+/// path and the public `resolve_run_state_offer` entry point.
+fn apply_offer_picks(
+    rs: &mut crate::run_state::RunState,
+    player_idx: usize,
+    kind: &crate::run_state::OfferKind,
+    options: &[String],
+    picks: &[usize],
+) {
+    use crate::run_state::OfferKind;
+    for &i in picks {
+        let Some(id) = options.get(i) else { continue };
+        match kind {
+            OfferKind::Card => rs.add_card(player_idx, id, 0),
+            OfferKind::Relic => rs.add_relic(player_idx, id),
+            OfferKind::Potion => {
+                // add_potion returns false when the belt is full; we
+                // silently drop in that case. Real game offers a
+                // swap-or-skip prompt; left for the campfire/event UI
+                // phase to model.
+                let _ = rs.add_potion(player_idx, id);
+            }
+        }
+    }
+}
+
+/// Resolve a pending run-state offer. Mirrors `resolve_pending_choice`
+/// for combat. Validates pick count and indices, applies the picks,
+/// and clears `pending_offer`. Returns Err with a message on validation
+/// failure (count out of range / duplicate / out-of-range index).
+pub fn resolve_run_state_offer(
+    rs: &mut crate::run_state::RunState,
+    picks: &[usize],
+) -> Result<(), String> {
+    let Some(offer) = rs.pending_offer.take() else {
+        return Err("no pending offer".to_string());
+    };
+    let count = picks.len() as i32;
+    if count < offer.n_min || count > offer.n_max {
+        rs.pending_offer = Some(offer.clone());
+        return Err(format!(
+            "pick count {} outside [{}, {}]",
+            count, offer.n_min, offer.n_max));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for &i in picks {
+        if i >= offer.options.len() {
+            rs.pending_offer = Some(offer.clone());
+            return Err(format!(
+                "pick index {} out of range (options.len = {})",
+                i, offer.options.len()));
+        }
+        if !seen.insert(i) {
+            rs.pending_offer = Some(offer.clone());
+            return Err(format!("duplicate pick index {}", i));
+        }
+    }
+    apply_offer_picks(rs, offer.player_idx, &offer.kind, &offer.options, picks);
+    Ok(())
+}
+
 fn fire_run_state_card_added_to_deck(
     rs: &mut crate::run_state::RunState,
     player_idx: usize,
@@ -9396,7 +9543,10 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::GainRunStateGold { .. }
         | Effect::LoseRunStateMaxHp { .. }
         | Effect::AddCardToRunStateDeck { .. }
-        | Effect::GainMaxPotionSlots { .. } => {
+        | Effect::GainMaxPotionSlots { .. }
+        | Effect::OfferCardReward { .. }
+        | Effect::OfferRelicReward { .. }
+        | Effect::OfferPotionReward { .. } => {
             // STUB: see Pile::Deck rationale. Mutates RunState; combat
             // VM has no handle. Routes through run_state_effects path.
         }
@@ -10167,6 +10317,33 @@ pub fn resolve_pending_choice(
         execute_effects(cs, &pc.queued_effects, &resume_ctx);
     }
     Ok(())
+}
+
+/// Card-id-only filter matcher. Used by run-state code that doesn't
+/// have a live CardInstance — only an id. Mirrors `matches_filter`
+/// but without per-instance state (Upgradable / WithEnergyCost still
+/// resolve against CardData; HasId compares against the id).
+/// Treats Upgradable as "max_upgrade_level > 0" (no upgrade-level
+/// state available); callers that need true upgradability should
+/// pre-filter.
+pub fn card_id_matches_filter(card_id: &str, filter: &CardFilter) -> bool {
+    let Some(data) = crate::card::by_id(card_id) else { return false };
+    match filter {
+        CardFilter::Any => true,
+        CardFilter::Upgradable => data.max_upgrade_level > 0,
+        CardFilter::OfType(t) => format!("{:?}", data.card_type).eq_ignore_ascii_case(t),
+        CardFilter::HasKeyword(k) => data.keywords.iter().any(|kw| kw.eq_ignore_ascii_case(k)),
+        CardFilter::TaggedAs(t) => data.tags.iter().any(|tag| tag.eq_ignore_ascii_case(t)),
+        CardFilter::OfRarity(r) => format!("{:?}", data.rarity).eq_ignore_ascii_case(r),
+        CardFilter::And(a, b) => card_id_matches_filter(card_id, a)
+            && card_id_matches_filter(card_id, b),
+        CardFilter::Or(a, b) => card_id_matches_filter(card_id, a)
+            || card_id_matches_filter(card_id, b),
+        CardFilter::Not(inner) => !card_id_matches_filter(card_id, inner),
+        CardFilter::HasId(id) => card_id == id,
+        CardFilter::WithEnergyCost { op, value } => compare(data.energy_cost, *op, *value),
+        CardFilter::NotXCost => !data.has_energy_cost_x,
+    }
 }
 
 fn matches_filter(card: &crate::combat::CardInstance, filter: &CardFilter) -> bool {
