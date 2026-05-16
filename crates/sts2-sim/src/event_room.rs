@@ -335,16 +335,17 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "ORNATE".to_string(),
-                    body: vec![], // TODO: needs "grant next-rolled relic" primitive
+                    body: vec![Effect::GainRandomRelicFromPool {
+                        pool: crate::effects::RelicPoolRef::CharacterPool,
+                        count: 1,
+                    }],
                 },
             ],
         }),
 
-        // TrashHeap: dive (HP loss + relic) vs grab (gold).
-        // The relic in DiveIn is picked from TrashHeap.Relics list at random —
-        // C# uses `Rng.NextItem`. We grant a fixed placeholder ("Anchor") since
-        // our infra doesn't have an event-specific relic-pool selector yet.
-        // Functionally captures the "+1 random relic" element.
+        // TrashHeap: dive (-8 HP + random relic) vs grab (+100 gold).
+        // C# picks from a curated event-specific relic list; we use
+        // the player's character pool as a close approximation.
         "TrashHeap" => Some(EventModel {
             id: "TrashHeap".to_string(),
             choices: vec![
@@ -352,8 +353,10 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                     label: "DIVE_IN".to_string(),
                     body: vec![
                         Effect::LoseRunStateHp { amount: AmountSpec::Fixed(8) },
-                        // TODO: random-from-pool relic. Anchor is a placeholder.
-                        Effect::GainRelic { relic_id: "Anchor".to_string() },
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
                     ],
                 },
                 EventChoice {
@@ -433,23 +436,30 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
-        // LuminousChoir: reach-into-flesh (remove 2 cards) vs offer-tribute
-        // (-149 gold). Card-removal here is the "pick 2 cards from deck"
-        // interactive flow — needs the run-state deck-action staging.
-        // For MVP, encode as a no-op for the removal branch.
+        // LuminousChoir: REACH_INTO_FLESH picks 2 cards for removal.
+        // OFFER_TRIBUTE: spend 149 gold + grant 1 random relic.
         "LuminousChoir" => Some(EventModel {
             id: "LuminousChoir".to_string(),
             choices: vec![
                 EventChoice {
                     label: "REACH_INTO_FLESH".to_string(),
-                    body: vec![], // TODO: pick-2-cards-from-deck-for-removal
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Remove,
+                        filter: crate::effects::CardFilter::Any,
+                        n_min: 2,
+                        n_max: 2,
+                        source: "LuminousChoir.REACH_INTO_FLESH".to_string(),
+                    }],
                 },
                 EventChoice {
                     label: "OFFER_TRIBUTE".to_string(),
-                    body: vec![Effect::LoseRunStateGold {
-                        amount: AmountSpec::Fixed(149),
-                    }],
-                    // TODO: + reward (relic / card pick)
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(149) },
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
                 },
             ],
         }),
@@ -491,16 +501,22 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
-        // ColorfulPhilosophers: offers one of {common card, uncommon card, rare card}
-        // — each is a card reward from the player's pool. Needs reward-from-rarity
-        // primitive that we have via OfferCardReward but at event-time the options
-        // need to be generated. Encoded as 3 placeholder offers.
+        // ColorfulPhilosophers: a single COMMON_REWARD choice that
+        // rolls 3 character-pool cards (Normal-style rarity weights).
+        // C# has separate per-rarity options gated on player progress;
+        // we collapse to one rolled-options offer.
         "ColorfulPhilosophers" => Some(EventModel {
             id: "ColorfulPhilosophers".to_string(),
             choices: vec![
                 EventChoice {
                     label: "COMMON_REWARD".to_string(),
-                    body: vec![], // TODO: needs OfferCardReward with rolled options.
+                    body: vec![Effect::OfferCardRewardFromPool {
+                        pool: crate::effects::CardPoolRef::CharacterAny,
+                        count: 3,
+                        n_min: 0,
+                        n_max: 1,
+                        source: Some("ColorfulPhilosophers.COMMON_REWARD".to_string()),
+                    }],
                 },
             ],
         }),
@@ -726,35 +742,42 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
         }),
 
         // WhisperingHollow: Gold (-35 gold + 2 potion rewards) vs Hug
-        // (transform 1 picked card with -9 HP).
+        // (-9 HP + transform 1 picked card).
         "WhisperingHollow" => Some(EventModel {
             id: "WhisperingHollow".to_string(),
             choices: vec![
                 EventChoice {
                     label: "GOLD".to_string(),
-                    body: vec![Effect::LoseRunStateGold {
-                        amount: AmountSpec::Fixed(35),
-                    }],
-                    // TODO: + 2 potion rewards
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(35) },
+                        Effect::OfferPotionRewardFromPool {
+                            count: 2,
+                            n_min: 0,
+                            n_max: 2,
+                            source: Some("WhisperingHollow.GOLD".to_string()),
+                        },
+                    ],
                 },
                 EventChoice {
                     label: "HUG".to_string(),
                     body: vec![
                         Effect::LoseRunStateHp { amount: AmountSpec::Fixed(9) },
-                        // TODO: should be "transform 1 PICKED card" not random.
-                        Effect::TransformRandomDeckCards {
-                            n: AmountSpec::Fixed(1),
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Transform {
+                                pool: "CharacterAny".to_string(),
+                            },
                             filter: crate::effects::CardFilter::Any,
-                            pool: crate::effects::CardPoolRef::CharacterAny,
+                            n_min: 1,
+                            n_max: 1,
+                            source: "WhisperingHollow.HUG".to_string(),
                         },
                     ],
                 },
             ],
         }),
 
-        // PotionCourier: Grab (3 FoulPotions to belt) vs Ransack (1 uncommon potion).
-        // Ransack picks a random uncommon potion via PlayerRng.rewards — for
-        // MVP we drop GlowwaterPotion as a placeholder.
+        // PotionCourier: Grab (3 FoulPotions to belt) vs Ransack
+        // (1 random potion from the player's pool).
         "PotionCourier" => Some(EventModel {
             id: "PotionCourier".to_string(),
             choices: vec![
@@ -768,22 +791,30 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "RANSACK".to_string(),
-                    // TODO: random uncommon potion. Placeholder.
-                    body: vec![Effect::GainPotionToBelt {
-                        potion_id: "GlowwaterPotion".to_string(),
+                    body: vec![Effect::OfferPotionRewardFromPool {
+                        count: 1,
+                        n_min: 1,
+                        n_max: 1,
+                        source: Some("PotionCourier.RANSACK".to_string()),
                     }],
                 },
             ],
         }),
 
-        // RoomFullOfCheese: Gorge (8 common card rewards — stub) vs
+        // RoomFullOfCheese: Gorge (8-card character-pool reward) vs
         // Search (-14 HP unblockable + ChosenCheese relic).
         "RoomFullOfCheese" => Some(EventModel {
             id: "RoomFullOfCheese".to_string(),
             choices: vec![
                 EventChoice {
                     label: "GORGE".to_string(),
-                    body: vec![], // TODO: 8-card common reward picker
+                    body: vec![Effect::OfferCardRewardFromPool {
+                        pool: crate::effects::CardPoolRef::CharacterAny,
+                        count: 8,
+                        n_min: 0,
+                        n_max: 1,
+                        source: Some("RoomFullOfCheese.GORGE".to_string()),
+                    }],
                 },
                 EventChoice {
                     label: "SEARCH".to_string(),
@@ -795,55 +826,106 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
-        // Wellspring: Bathe (remove 1 picked card + 1 Guilty curse) vs
-        // Bottle (random potion). Both stub mostly — Bathe needs pick;
-        // Bottle uses PlayerRng.Rewards.
+        // Wellspring: BATHE adds Guilty curse + stages a remove-1-pick.
+        // BOTTLE rolls 1 random potion from the player's pool.
         "Wellspring" => Some(EventModel {
             id: "Wellspring".to_string(),
             choices: vec![
                 EventChoice {
                     label: "BATHE".to_string(),
-                    body: vec![Effect::AddCardToRunStateDeck {
-                        card_id: "Guilty".to_string(), upgrade: 0,
-                    }],
-                    // TODO: + remove 1 picked card
+                    body: vec![
+                        Effect::AddCardToRunStateDeck {
+                            card_id: "Guilty".to_string(), upgrade: 0,
+                        },
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Remove,
+                            filter: crate::effects::CardFilter::Any,
+                            n_min: 1,
+                            n_max: 1,
+                            source: "Wellspring.BATHE".to_string(),
+                        },
+                    ],
                 },
                 EventChoice {
                     label: "BOTTLE".to_string(),
-                    body: vec![], // TODO: random potion drop
+                    body: vec![Effect::OfferPotionRewardFromPool {
+                        count: 1,
+                        n_min: 1,
+                        n_max: 1,
+                        source: Some("Wellspring.BOTTLE".to_string()),
+                    }],
                 },
             ],
         }),
 
         // BattlewornDummy + DenseVegetation + PunchOff: combat-in-event.
-        // The "choice" is which encounter to fight; outcome is determined
-        // by combat. Skipped until event-driven combat lands.
+        // FIGHT enters an event-combat encounter (EnterEventCombat is
+        // currently a stub; combat itself isn't simulated yet).
         "BattlewornDummy" | "DenseVegetation" | "PunchOff" => Some(EventModel {
             id: id.to_string(),
             choices: vec![
                 EventChoice {
                     label: "FIGHT".to_string(),
-                    body: vec![], // TODO: trigger event-encounter combat
+                    body: vec![Effect::EnterEventCombat {
+                        encounter_id: format!("{}EventEncounter", id),
+                    }],
                 },
             ],
         }),
 
-        // RelicTrader: pick one of your relics to swap for one of 3 new ones.
-        // Skipped — needs RelicSwap primitive.
+        // RelicTrader: pick one of your relics to swap for one of 3 new
+        // ones. Encoded as 3 random-relic-from-pool choices where the
+        // swap removes a random non-starter relic first.
         "RelicTrader" => Some(EventModel {
             id: "RelicTrader".to_string(),
             choices: vec![
-                EventChoice { label: "TOP".to_string(),    body: vec![] },
-                EventChoice { label: "MIDDLE".to_string(), body: vec![] },
-                EventChoice { label: "BOTTOM".to_string(), body: vec![] },
-                EventChoice { label: "LEAVE".to_string(),  body: vec![] },
+                EventChoice {
+                    label: "TOP".to_string(),
+                    body: vec![
+                        Effect::LoseRandomRelic,
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "MIDDLE".to_string(),
+                    body: vec![
+                        Effect::LoseRandomRelic,
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "BOTTOM".to_string(),
+                    body: vec![
+                        Effect::LoseRandomRelic,
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
+                },
+                EventChoice { label: "LEAVE".to_string(), body: vec![] },
             ],
         }),
 
-        // FakeMerchant: a deceptive 3-relic shop. Skip — needs Shop event flow.
+        // FakeMerchant: deceptive 3-relic shop. C# fires a combat
+        // after the relic interaction. Stubbed via EnterEventCombat.
         "FakeMerchant" => Some(EventModel {
             id: "FakeMerchant".to_string(),
-            choices: vec![EventChoice { label: "LEAVE".to_string(), body: vec![] }],
+            choices: vec![
+                EventChoice {
+                    label: "INTERACT".to_string(),
+                    body: vec![Effect::EnterEventCombat {
+                        encounter_id: "FakeMerchantEventEncounter".to_string(),
+                    }],
+                },
+                EventChoice { label: "LEAVE".to_string(), body: vec![] },
+            ],
         }),
 
         // Reflections: TouchAMirror downgrades 2 random upgraded
@@ -932,12 +1014,42 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
 
         // FieldOfManSizedHoles: Resist (remove N cards) vs EnterYourHole
         // (enchant PerfectFit) vs Leave. Both options need primitives.
+        // FieldOfManSizedHoles: RESIST removes 2 picked cards + adds
+        // Normality curse. ENTER_YOUR_HOLE enchants 1 picked card with
+        // PerfectFit(1). Optional LEAVE.
         "FieldOfManSizedHoles" => Some(EventModel {
             id: "FieldOfManSizedHoles".to_string(),
             choices: vec![
-                EventChoice { label: "RESIST".to_string(),         body: vec![] },
-                EventChoice { label: "ENTER_YOUR_HOLE".to_string(), body: vec![] },
-                EventChoice { label: "LEAVE".to_string(),           body: vec![] },
+                EventChoice {
+                    label: "RESIST".to_string(),
+                    body: vec![
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Remove,
+                            filter: crate::effects::CardFilter::Any,
+                            n_min: 2,
+                            n_max: 2,
+                            source: "FieldOfManSizedHoles.RESIST".to_string(),
+                        },
+                        Effect::AddCardToRunStateDeck {
+                            card_id: "Normality".to_string(),
+                            upgrade: 0,
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "ENTER_YOUR_HOLE".to_string(),
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Enchant {
+                            enchantment_id: "PerfectFit".to_string(),
+                            amount: 1,
+                        },
+                        filter: crate::effects::CardFilter::Any,
+                        n_min: 1,
+                        n_max: 1,
+                        source: "FieldOfManSizedHoles.ENTER_YOUR_HOLE".to_string(),
+                    }],
+                },
+                EventChoice { label: "LEAVE".to_string(), body: vec![] },
             ],
         }),
 
@@ -978,7 +1090,15 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "KEEP_THE_KEY".to_string(),
-                    body: vec![], // TODO: event-combat with LanternKey reward
+                    body: vec![
+                        Effect::AddCardToRunStateDeck {
+                            card_id: "LanternKey".to_string(),
+                            upgrade: 0,
+                        },
+                        Effect::EnterEventCombat {
+                            encounter_id: "TheLanternKeyEventEncounter".to_string(),
+                        },
+                    ],
                 },
             ],
         }),
@@ -990,17 +1110,31 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             choices: vec![
                 EventChoice {
                     label: "UNCOVER_FUTURE".to_string(),
-                    body: vec![Effect::LoseRunStateGold {
-                        amount: AmountSpec::Fixed(50),
-                    }],
-                    // TODO: minigame produces 3 prophesized cards
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(50) },
+                        Effect::OfferCardRewardFromPool {
+                            pool: crate::effects::CardPoolRef::CharacterAny,
+                            count: 3,
+                            n_min: 0,
+                            n_max: 1,
+                            source: Some("CrystalSphere.UNCOVER_FUTURE".to_string()),
+                        },
+                    ],
                 },
                 EventChoice {
                     label: "PAYMENT_PLAN".to_string(),
-                    body: vec![Effect::AddCardToRunStateDeck {
-                        card_id: "Debt".to_string(), upgrade: 0,
-                    }],
-                    // TODO: minigame produces 6 prophesized cards
+                    body: vec![
+                        Effect::AddCardToRunStateDeck {
+                            card_id: "Debt".to_string(), upgrade: 0,
+                        },
+                        Effect::OfferCardRewardFromPool {
+                            pool: crate::effects::CardPoolRef::CharacterAny,
+                            count: 6,
+                            n_min: 0,
+                            n_max: 1,
+                            source: Some("CrystalSphere.PAYMENT_PLAN".to_string()),
+                        },
+                    ],
                 },
             ],
         }),
@@ -1024,23 +1158,43 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
-        // DollRoom: TakeSomeTime (-5 HP, 2-of-5 random doll) vs Examine
-        // (-15 HP, all-5 doll pick) vs ChooseRandom (1 random doll).
-        // "Doll" is a random relic; needs relic-pool primitive — stub.
+        // DollRoom: 3 options, each grants 1 doll (random relic).
+        //   CHOOSE_RANDOM   → 1 random doll (free)
+        //   TAKE_SOME_TIME  → -5 HP, then pick from 2 dolls
+        //   EXAMINE         → -15 HP, then pick from all 5 dolls
+        // C# narrows the random pool to 5 specific dolls and lets the
+        // player pick after the HP cost. Our approximation grants 1
+        // random character-pool relic for each — same expected value,
+        // loses the "curated picks" UI affordance.
         "DollRoom" => Some(EventModel {
             id: "DollRoom".to_string(),
             choices: vec![
                 EventChoice {
                     label: "CHOOSE_RANDOM".to_string(),
-                    body: vec![],
+                    body: vec![Effect::GainRandomRelicFromPool {
+                        pool: crate::effects::RelicPoolRef::CharacterPool,
+                        count: 1,
+                    }],
                 },
                 EventChoice {
                     label: "TAKE_SOME_TIME".to_string(),
-                    body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(5) }],
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(5) },
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
                 },
                 EventChoice {
                     label: "EXAMINE".to_string(),
-                    body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(15) }],
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(15) },
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
                 },
             ],
         }),
@@ -1052,10 +1206,13 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             choices: vec![
                 EventChoice {
                     label: "BUY_BARGAIN_BIN".to_string(),
-                    body: vec![Effect::LoseRunStateGold {
-                        amount: AmountSpec::Fixed(100),
-                    }],
-                    // TODO: + random Common relic from pool
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(100) },
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
                 },
                 EventChoice {
                     label: "BUY_MYSTERY_BOX".to_string(),
@@ -1066,73 +1223,134 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "BUY_FEATURED_ITEM".to_string(),
-                    body: vec![Effect::LoseRunStateGold {
-                        amount: AmountSpec::Fixed(200),
-                    }],
-                    // TODO: + featured-item relic (varies per visit)
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(200) },
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
                 },
                 EventChoice { label: "LEAVE".to_string(), body: vec![] },
             ],
         }),
 
-        // ZenWeaver: 3 graduated remove-cards options at gold cost.
+        // ZenWeaver: 3 graduated card-transform/remove options at gold cost.
         "ZenWeaver" => Some(EventModel {
             id: "ZenWeaver".to_string(),
             choices: vec![
                 EventChoice {
                     label: "BREATHING_TECHNIQUES".to_string(),
-                    body: vec![Effect::LoseRunStateGold {
-                        amount: AmountSpec::Fixed(50),
-                    }],
-                    // TODO: + transform-2-cards-into-zen-something
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(50) },
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Transform {
+                                pool: "CharacterAny".to_string(),
+                            },
+                            filter: crate::effects::CardFilter::Any,
+                            n_min: 2,
+                            n_max: 2,
+                            source: "ZenWeaver.BREATHING_TECHNIQUES".to_string(),
+                        },
+                    ],
                 },
                 EventChoice {
                     label: "EMOTIONAL_AWARENESS".to_string(),
-                    body: vec![Effect::LoseRunStateGold {
-                        amount: AmountSpec::Fixed(125),
-                    }],
-                    // TODO: + remove 1 picked card
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(125) },
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Remove,
+                            filter: crate::effects::CardFilter::Any,
+                            n_min: 1,
+                            n_max: 1,
+                            source: "ZenWeaver.EMOTIONAL_AWARENESS".to_string(),
+                        },
+                    ],
                 },
                 EventChoice {
                     label: "ARACHNID_ACUPUNCTURE".to_string(),
-                    body: vec![Effect::LoseRunStateGold {
-                        amount: AmountSpec::Fixed(250),
-                    }],
-                    // TODO: + remove 2 picked cards
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(250) },
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Remove,
+                            filter: crate::effects::CardFilter::Any,
+                            n_min: 2,
+                            n_max: 2,
+                            source: "ZenWeaver.ARACHNID_ACUPUNCTURE".to_string(),
+                        },
+                    ],
                 },
             ],
         }),
 
-        // Amalgamator: combine 2 Strikes / 2 Defends → single card.
-        // Needs interactive pick of 2-by-tag from deck; stub.
+        // Amalgamator: combine 2 Strikes (or 2 Defends) into 1 card.
+        // Approximation: remove 2 strike/defend cards. The "combined
+        // single card" is a unique upgraded variant — encoded as a
+        // simple pair-removal since the upgrade-form mapping needs
+        // per-card data we don't track yet.
         "Amalgamator" => Some(EventModel {
             id: "Amalgamator".to_string(),
             choices: vec![
-                EventChoice { label: "COMBINE_STRIKES".to_string(), body: vec![] },
-                EventChoice { label: "COMBINE_DEFENDS".to_string(), body: vec![] },
-                EventChoice { label: "LEAVE".to_string(),            body: vec![] },
+                EventChoice {
+                    label: "COMBINE_STRIKES".to_string(),
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Remove,
+                        filter: crate::effects::CardFilter::TaggedAs("Strike".to_string()),
+                        n_min: 2,
+                        n_max: 2,
+                        source: "Amalgamator.COMBINE_STRIKES".to_string(),
+                    }],
+                },
+                EventChoice {
+                    label: "COMBINE_DEFENDS".to_string(),
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Remove,
+                        filter: crate::effects::CardFilter::TaggedAs("Defend".to_string()),
+                        n_min: 2,
+                        n_max: 2,
+                        source: "Amalgamator.COMBINE_DEFENDS".to_string(),
+                    }],
+                },
+                EventChoice { label: "LEAVE".to_string(), body: vec![] },
             ],
         }),
 
-        // SapphireSeed: Eat (+9 heal + upgrade picked) vs Plant (enchant Sown).
+        // SapphireSeed: Eat (+9 heal + upgrade 1 picked) vs Plant
+        // (enchant 1 picked card with Sown).
         "SapphireSeed" => Some(EventModel {
             id: "SapphireSeed".to_string(),
             choices: vec![
                 EventChoice {
                     label: "EAT".to_string(),
-                    body: vec![Effect::HealRunState { amount: AmountSpec::Fixed(9) }],
-                    // TODO: + upgrade 1 picked card
+                    body: vec![
+                        Effect::HealRunState { amount: AmountSpec::Fixed(9) },
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Upgrade,
+                            filter: crate::effects::CardFilter::Upgradable,
+                            n_min: 1,
+                            n_max: 1,
+                            source: "SapphireSeed.EAT".to_string(),
+                        },
+                    ],
                 },
                 EventChoice {
                     label: "PLANT".to_string(),
-                    body: vec![],
-                    // TODO: enchant 1 picked card with Sown
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Enchant {
+                            enchantment_id: "Sown".to_string(),
+                            amount: 0,
+                        },
+                        filter: crate::effects::CardFilter::Any,
+                        n_min: 1,
+                        n_max: 1,
+                        source: "SapphireSeed.PLANT".to_string(),
+                    }],
                 },
             ],
         }),
 
-        // StoneOfAllTime: Drink → +10 MaxHp. Push → -6 HP + Vigorous enchant.
-        // Lift → +MaxHp + RNG side-effect (stub).
+        // StoneOfAllTime: Drink (+10 MaxHp) / Push (-6 HP + Vigorous(8)
+        // enchant on a picked card) / Lift (+10 MaxHp + discard a potion).
         "StoneOfAllTime" => Some(EventModel {
             id: "StoneOfAllTime".to_string(),
             choices: vec![
@@ -1142,25 +1360,75 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "PUSH".to_string(),
-                    body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(6) }],
-                    // TODO: + Vigorous(8) enchant pick
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(6) },
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Enchant {
+                                enchantment_id: "Vigorous".to_string(),
+                                amount: 8,
+                            },
+                            filter: crate::effects::CardFilter::Any,
+                            n_min: 1,
+                            n_max: 1,
+                            source: "StoneOfAllTime.PUSH".to_string(),
+                        },
+                    ],
                 },
                 EventChoice {
                     label: "LIFT".to_string(),
-                    body: vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(10) }],
-                    // TODO: + discard a potion
+                    body: vec![
+                        Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(10) },
+                        Effect::DiscardPotion {
+                            strategy: crate::effects::PotionDiscardStrategy::Random,
+                        },
+                    ],
                 },
             ],
         }),
 
-        // WoodCarvings: 3 carvings (Bird/Snake/Torus) — all enchant or
-        // transform 1 picked Basic card. All stubs for pick infra.
+        // WoodCarvings: 3 carvings — Bird transforms a Basic card to
+        // Peck. Snake enchants any card with Slither(1). Torus
+        // transforms a Basic card to ToricToughness.
         "WoodCarvings" => Some(EventModel {
             id: "WoodCarvings".to_string(),
             choices: vec![
-                EventChoice { label: "BIRD".to_string(),  body: vec![] },
-                EventChoice { label: "SNAKE".to_string(), body: vec![] },
-                EventChoice { label: "TORUS".to_string(), body: vec![] },
+                EventChoice {
+                    label: "BIRD".to_string(),
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::TransformTo {
+                            card_id: "Peck".to_string(),
+                        },
+                        filter: crate::effects::CardFilter::OfRarity("Basic".to_string()),
+                        n_min: 1,
+                        n_max: 1,
+                        source: "WoodCarvings.BIRD".to_string(),
+                    }],
+                },
+                EventChoice {
+                    label: "SNAKE".to_string(),
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Enchant {
+                            enchantment_id: "Slither".to_string(),
+                            amount: 1,
+                        },
+                        filter: crate::effects::CardFilter::Any,
+                        n_min: 1,
+                        n_max: 1,
+                        source: "WoodCarvings.SNAKE".to_string(),
+                    }],
+                },
+                EventChoice {
+                    label: "TORUS".to_string(),
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::TransformTo {
+                            card_id: "ToricToughness".to_string(),
+                        },
+                        filter: crate::effects::CardFilter::OfRarity("Basic".to_string()),
+                        n_min: 1,
+                        n_max: 1,
+                        source: "WoodCarvings.TORUS".to_string(),
+                    }],
+                },
             ],
         }),
 
@@ -1288,11 +1556,27 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "UNLOCK_CHEST".to_string(),
-                    body: vec![Effect::RemoveAllCardsOfType {
-                        card_id: "LanternKey".to_string(),
-                    }],
-                    // TODO: + custom-reward bundle (2 PotionReward +
-                    // 2 RelicReward) — needs OfferCustomRewards infra.
+                    body: vec![
+                        Effect::RemoveAllCardsOfType {
+                            card_id: "LanternKey".to_string(),
+                        },
+                        // C# offers a custom bundle of 2 potions +
+                        // 2 relics in one mixed-reward screen. We
+                        // approximate by granting one of each kind
+                        // directly: 2 random potions go to the belt
+                        // (via offer-with-must-pick), 2 random relics
+                        // straight to the relic list.
+                        Effect::OfferPotionRewardFromPool {
+                            count: 2,
+                            n_min: 0,
+                            n_max: 2,
+                            source: Some("WarHistorianRepy.UNLOCK_CHEST".to_string()),
+                        },
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 2,
+                        },
+                    ],
                 },
             ],
         }),

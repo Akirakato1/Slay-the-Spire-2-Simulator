@@ -1103,6 +1103,15 @@ pub enum Effect {
         n_max: i32,
         source: Option<String>,
     },
+    /// Roll `count` potion options from the player's character pool
+    /// (∪ Shared). Whispering Hollow / Drowning Beacon / event-time
+    /// potion drops. Pick is silently dropped if belt is full.
+    OfferPotionRewardFromPool {
+        count: i32,
+        n_min: i32,
+        n_max: i32,
+        source: Option<String>,
+    },
     /// Replace the in-flight event's available choices with a new
     /// list. Used by multi-page events (Trial REJECT → double-down
     /// sub-menu, TabletOfTruth DECIPHER loop, AbyssalBaths chained
@@ -3716,6 +3725,36 @@ fn execute_run_state_effect(
             }
             handle_offer(rs, player_idx,
                 crate::run_state::OfferKind::Card,
+                options, *n_min, *n_max, source.clone());
+        }
+        Effect::OfferPotionRewardFromPool { count, n_min, n_max, source } => {
+            let count = (*count).max(0) as usize;
+            if count == 0 {
+                return;
+            }
+            let character = rs
+                .players()
+                .get(player_idx)
+                .map(|ps| ps.character_id.clone())
+                .unwrap_or_default();
+            // Roll `count` potions from the player's pool ∪ Shared.
+            // No duplicate guard — same as C# random potion rolls.
+            let candidates: Vec<&'static str> = crate::potion::ALL_POTIONS
+                .iter()
+                .filter(|p| p.pools.iter().any(|pl| pl == &character || pl == "Shared"))
+                .map(|p| p.id.as_str())
+                .collect();
+            if candidates.is_empty() {
+                return;
+            }
+            let mut options: Vec<String> = Vec::with_capacity(count);
+            for _ in 0..count {
+                let idx = rs.rng_set_mut().up_front
+                    .next_int_range(0, candidates.len() as i32) as usize;
+                options.push(candidates[idx].to_string());
+            }
+            handle_offer(rs, player_idx,
+                crate::run_state::OfferKind::Potion,
                 options, *n_min, *n_max, source.clone());
         }
         Effect::SetEventChoices { choices } => {
@@ -10056,6 +10095,7 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::RemoveAllCardsOfType { .. }
         | Effect::StageDeckPick { .. }
         | Effect::OfferCardRewardFromPool { .. }
+        | Effect::OfferPotionRewardFromPool { .. }
         | Effect::SetEventChoices { .. }
         | Effect::RngBranchedSetEventChoices { .. }
         | Effect::GainRandomRelicFromPool { .. }
