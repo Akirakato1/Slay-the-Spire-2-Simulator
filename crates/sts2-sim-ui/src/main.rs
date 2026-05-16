@@ -1,12 +1,18 @@
 //! sts2-ui — sandbox UI for verifying card / relic / potion / enchantment
-//! behavior interactively. Build a deck, fight 2× BigDummy (9999 HP each).
+//! behavior interactively. Build a deck, pick any subset of the 120
+//! monsters as enemies, fight them through real intent execution.
 //!
 //! Layout:
 //!   - Setup phase: search + click to add cards/relics/potions to a
-//!     deck. Click a deck card to attach an enchantment.
+//!     deck. Click a deck card to attach an enchantment. Pick enemies
+//!     from the monster registry — defaults to 2× BigDummy if nothing
+//!     else is selected so card/relic testing against a punching bag
+//!     still "just works."
 //!   - Combat phase: top shows enemies + player, bottom shows hand,
 //!     side panel lists draw/discard/exhaust piles and the combat log.
 //!     Click an enemy first to target it; then click a card to play.
+//!     On End Turn, each living enemy runs its AI intent via
+//!     `monster_dispatch::dispatch_enemy_turn`.
 
 use eframe::egui;
 use std::collections::HashMap;
@@ -19,6 +25,9 @@ use sts2_sim::combat::{
 };
 use sts2_sim::enchantment as enchmod;
 use sts2_sim::encounter::EncounterData;
+use sts2_sim::monster as monstermod;
+use sts2_sim::monster_ai;
+use sts2_sim::monster_dispatch;
 use sts2_sim::potion as potionmod;
 use sts2_sim::relic as relicmod;
 
@@ -51,6 +60,27 @@ struct DeckEntry {
     enchantment: Option<(String, i32)>,
 }
 
+/// Slot labels used when seating successive enemies. Most BySlot
+/// patterns key on "first"/"second"/"third"/"fourth" or "front"/"back";
+/// arbitrary unique strings work for the rest.
+const DEFAULT_SLOTS: &[&str] = &["first", "second", "third", "fourth"];
+
+fn default_dummies() -> Vec<EnemySlot> {
+    vec![
+        EnemySlot { monster_id: "BigDummy".into(), slot_label: "first".into() },
+        EnemySlot { monster_id: "BigDummy".into(), slot_label: "second".into() },
+    ]
+}
+
+/// One enemy slot in the encounter the user is building. Slot label
+/// matters for `BySlot` AI patterns (Inklet, Wriggler, Decimillipede)
+/// — for everything else any unique label works.
+#[derive(Clone, Debug)]
+struct EnemySlot {
+    monster_id: String,
+    slot_label: String,
+}
+
 #[derive(Default)]
 struct Builder {
     character_id: String, // "Ironclad" / "Silent" / "Defect" / etc.
@@ -60,10 +90,15 @@ struct Builder {
     relics: Vec<String>,
     /// Indexed potion belt with fixed 3 slots.
     potions: Vec<String>,
+    /// Enemies to seat at combat start. Defaults to 2× BigDummy so the
+    /// "punching bag for testing cards" use case still works without
+    /// clicking through the picker.
+    enemies: Vec<EnemySlot>,
     card_filter: String,
     relic_filter: String,
     potion_filter: String,
     enchantment_filter: String,
+    monster_filter: String,
     /// Which deck card is selected for enchantment-editing (if any).
     selected_deck_idx: Option<usize>,
 }
@@ -83,6 +118,7 @@ impl Builder {
             deck: Vec::new(),
             relics: Vec::new(),
             potions: Vec::new(),
+            enemies: default_dummies(),
             ..Default::default()
         }
     }
@@ -110,13 +146,14 @@ impl Builder {
 
 struct ActiveCombat {
     cs: CombatState,
-    /// Selected enemy index (0 or 1) for targeted-attack plays.
+    /// Selected enemy index for targeted-attack plays.
     target_enemy: usize,
     /// Per-tick combat log.
     log: Vec<String>,
-    /// Side-channel HP snapshot at last tick so we can summarize what
-    /// changed when displaying the log.
-    last_enemy_hp: [i32; 2],
+    /// Side-channel HP snapshot per enemy at last tick so we can
+    /// summarize what changed when displaying the log. Length matches
+    /// the enemy roster at combat start.
+    last_enemy_hp: Vec<i32>,
     last_player_hp: i32,
     last_player_block: i32,
     /// While a `pending_choice` is open, this holds the agent's
@@ -124,6 +161,9 @@ struct ActiveCombat {
     /// on resolve. RL training would pass this directly to
     /// resolve_pending_choice; the UI manages it via the choice overlay.
     pending_picks: Vec<usize>,
+    /// Stable RNG counter for enemy-turn dispatch. Bumped each enemy
+    /// turn so weighted-random patterns don't lock onto the same roll.
+    enemy_turn_counter: u32,
 }
 
 // ----------------------------------------------------------------------
@@ -211,7 +251,22 @@ fn render_setup(ctx: &egui::Context, b: &mut Builder) -> Option<Phase> {
             ui.add(egui::DragValue::new(&mut b.max_hp).clamp_range(1..=999));
             if b.starting_hp > b.max_hp { b.starting_hp = b.max_hp; }
             ui.separator();
-            if ui.button(egui::RichText::new("▶ Start Combat (vs 2× BigDummy)").strong()).clicked() {
+            let enemy_summary = if b.enemies.is_empty() {
+                "no enemies".to_string()
+            } else if b.enemies.len() == 1 {
+                b.enemies[0].monster_id.clone()
+            } else {
+                format!("{} enemies", b.enemies.len())
+            };
+            let start_label = format!("▶ Start Combat (vs {})", enemy_summary);
+            let enabled = !b.enemies.is_empty();
+            if ui.add_enabled(enabled,
+                egui::Button::new(egui::RichText::new(start_label).strong())
+            ).on_hover_text(if enabled {
+                "Begin combat with the picked enemies."
+            } else {
+                "Pick at least one enemy in the right panel."
+            }).clicked() {
                 start = true;
             }
         });
@@ -278,7 +333,7 @@ fn render_setup(ctx: &egui::Context, b: &mut Builder) -> Option<Phase> {
         let pf = b.potion_filter.to_ascii_lowercase();
         egui::ScrollArea::vertical()
             .id_source("potions_scroll")
-            .max_height(200.0)
+            .max_height(160.0)
             .show(ui, |ui| {
                 for p in potionmod::ALL_POTIONS.iter() {
                     if p.id == "DeprecatedPotion" { continue; }
@@ -290,6 +345,78 @@ fn render_setup(ctx: &egui::Context, b: &mut Builder) -> Option<Phase> {
                         egui::Button::new(format!("[{:?}] {}", p.rarity, p.id)));
                     if resp.clicked() {
                         b.potions.push(p.id.clone());
+                    }
+                }
+            });
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.heading(format!("Enemies ({})", b.enemies.len()));
+            if ui.small_button("Reset to 2× BigDummy").on_hover_text(
+                "Restore the original sandbox dummies."
+            ).clicked() {
+                b.enemies = default_dummies();
+            }
+            if ui.small_button("Clear").clicked() {
+                b.enemies.clear();
+            }
+        });
+        // Selected enemies: show + allow remove + edit slot label.
+        let mut remove_enemy: Option<usize> = None;
+        for i in 0..b.enemies.len() {
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(format!("👹 {}", b.enemies[i].monster_id))
+                    .color(egui::Color32::from_rgb(255, 140, 120)));
+                ui.label("slot:");
+                ui.add(egui::TextEdit::singleline(&mut b.enemies[i].slot_label)
+                    .desired_width(72.0));
+                if ui.small_button(
+                    egui::RichText::new("✕").color(egui::Color32::from_rgb(255, 110, 110))
+                ).clicked() {
+                    remove_enemy = Some(i);
+                }
+            });
+        }
+        if let Some(i) = remove_enemy { b.enemies.remove(i); }
+        ui.horizontal(|ui| {
+            ui.label("filter:");
+            ui.text_edit_singleline(&mut b.monster_filter);
+        });
+        let mf = b.monster_filter.to_ascii_lowercase();
+        egui::ScrollArea::vertical()
+            .id_source("monsters_scroll")
+            .max_height(220.0)
+            .show(ui, |ui| {
+                for md in monstermod::ALL_MONSTERS.iter() {
+                    if !mf.is_empty() && !md.id.to_ascii_lowercase().contains(&mf) {
+                        continue;
+                    }
+                    // Filter abstract base — no instances to seat.
+                    if md.id == "DecimillipedeSegment" { continue; }
+                    let has_ai = monster_ai::ai_for(&md.id).is_some();
+                    let hp = md.max_hp_base.unwrap_or(0);
+                    let label = format!(
+                        "{}{} (HP {})",
+                        if has_ai { "✓ " } else { "? " },
+                        md.id,
+                        hp,
+                    );
+                    if ui.button(label)
+                        .on_hover_text(if has_ai {
+                            "Has AI dispatch — will run intents during enemy turn."
+                        } else {
+                            "No AI dispatch registered — will sit idle."
+                        })
+                        .clicked()
+                    {
+                        let next_slot = DEFAULT_SLOTS
+                            .get(b.enemies.len())
+                            .copied()
+                            .unwrap_or("extra")
+                            .to_string();
+                        b.enemies.push(EnemySlot {
+                            monster_id: md.id.clone(),
+                            slot_label: next_slot,
+                        });
                     }
                 }
             });
@@ -450,10 +577,12 @@ impl Builder {
             deck: self.deck.clone(),
             relics: self.relics.clone(),
             potions: self.potions.clone(),
+            enemies: self.enemies.clone(),
             card_filter: String::new(),
             relic_filter: String::new(),
             potion_filter: String::new(),
             enchantment_filter: String::new(),
+            monster_filter: String::new(),
             selected_deck_idx: None,
         }
     }
@@ -542,9 +671,26 @@ fn start_combat(b: Builder) -> Phase {
     };
     cs.allies.push(creature);
 
-    // 2 BigDummies.
-    cs.enemies.push(Creature::from_monster_spawn("BigDummy", "first"));
-    cs.enemies.push(Creature::from_monster_spawn("BigDummy", "second"));
+    // Seat the user-picked enemies. Falls back to 2× BigDummy if the
+    // user somehow cleared the list — the Start button guards against
+    // this, but defensive fallback keeps the UI from ever entering
+    // combat without an opponent.
+    if b.enemies.is_empty() {
+        for (slot, slot_label) in DEFAULT_SLOTS.iter().take(2).enumerate() {
+            cs.enemies.push(Creature::from_monster_spawn("BigDummy", slot_label));
+            let _ = slot;
+        }
+    } else {
+        for e in &b.enemies {
+            cs.enemies.push(Creature::from_monster_spawn(&e.monster_id, &e.slot_label));
+        }
+    }
+    // Fire `AfterAddedToRoom` spawn payloads (HardenedShellPower for
+    // SkulkingColony, AsleepPower for LagavulinMatriarch, etc.). This
+    // was skipped in the dummies-only build because BigDummy has no
+    // spawn body — now that real monsters can be seated, it's
+    // required for their AI to start in the correct state.
+    monster_dispatch::fire_monster_spawn_hooks(&mut cs);
 
     // Set potions on belt for use during combat.
     if let Some(ps) = cs.allies[0].player.as_mut() {
@@ -570,17 +716,28 @@ fn start_combat(b: Builder) -> Phase {
     // begin_turn for energy refresh + AfterPlayerTurnStart hooks.
     cs.begin_turn(CombatSide::Player);
 
-    let snapshot_enemy = [cs.enemies[0].current_hp, cs.enemies[1].current_hp];
+    let snapshot_enemy: Vec<i32> =
+        cs.enemies.iter().map(|c| c.current_hp).collect();
     let snapshot_hp = cs.allies[0].current_hp;
     let snapshot_block = cs.allies[0].block;
+    let enemy_summary = cs
+        .enemies
+        .iter()
+        .map(|c| c.model_id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
     let active = ActiveCombat {
         cs,
         target_enemy: 0,
-        log: vec!["Combat started. Player turn 1.".to_string()],
+        log: vec![
+            "Combat started. Player turn 1.".to_string(),
+            format!("Enemies: {}", enemy_summary),
+        ],
         last_enemy_hp: snapshot_enemy,
         last_player_hp: snapshot_hp,
         last_player_block: snapshot_block,
         pending_picks: Vec::new(),
+        enemy_turn_counter: 0,
     };
     Phase::Combat(b, active)
 }
@@ -649,6 +806,11 @@ fn render_combat(
 }
 
 fn render_enemies(ui: &mut egui::Ui, ac: &mut ActiveCombat) {
+    // Clamp target if the enemy roster shrank (corpses stay seated
+    // but we still defend against out-of-bounds access).
+    if ac.target_enemy >= ac.cs.enemies.len() && !ac.cs.enemies.is_empty() {
+        ac.target_enemy = 0;
+    }
     ui.horizontal(|ui| {
         ui.heading("Enemies");
         ui.label(format!("(target: enemy {})", ac.target_enemy));
@@ -686,9 +848,37 @@ fn render_enemies(ui: &mut egui::Ui, ac: &mut ActiveCombat) {
                             .map(|p| format!("{}({})", p.id, p.amount))
                             .collect::<Vec<_>>().join(", ")));
                     }
+                    // Show what was last played AND a preview of the
+                    // next move the AI would pick if we ended the turn
+                    // right now. Preview just calls pick_next_move with
+                    // a transient RNG — it's purely informational, the
+                    // actual roll on EndTurn uses the combat RNG.
                     if let Some(m) = e.monster.as_ref() {
                         if let Some(intent) = m.intent_move.as_ref() {
-                            ui.label(format!("Intent: {}", intent));
+                            ui.label(format!("Last move: {}", intent));
+                        } else {
+                            ui.label("Last move: —");
+                        }
+                    }
+                    if let Some(ai) = monster_ai::ai_for(&e.model_id) {
+                        let last = e.monster.as_ref()
+                            .and_then(|m| m.intent_move.as_deref());
+                        let slot = e.slot.clone();
+                        let mut preview_rng = sts2_sim::rng::Rng::new(
+                            0xC0FFEE_u32.wrapping_add(i as u32),
+                            ac.cs.round_number,
+                        );
+                        let preview = monster_ai::pick_next_move(
+                            &ai.pattern,
+                            &ac.cs,
+                            i,
+                            last,
+                            &slot,
+                            &mut preview_rng,
+                        );
+                        if let Some(p) = preview {
+                            ui.label(egui::RichText::new(format!("Next: {}", p))
+                                .color(egui::Color32::from_rgb(255, 220, 120)));
                         }
                     }
                     if ui.button(if selected { "✓ Targeted" } else { "Target" }).clicked() {
@@ -972,18 +1162,31 @@ fn tick_end_turn(ac: &mut ActiveCombat) {
     // boundaries. The C# turn loop is:
     //   end_turn(Player)  →  fires BeforeTurnEnd / hand-flush / etc.
     //   begin_turn(Enemy) →  flips current_side + enemy intents
+    //   <each enemy runs its AI move via dispatch_enemy_turn>
     //   end_turn(Enemy)   →  fires tick_duration_debuffs (Vuln/Weak/Frail
     //                        on BOTH sides), tick_plating, tick_slumber,
     //                        tick_asleep, AfterEnemyTurnEnd hooks
     //   begin_turn(Player)→  refreshes energy, ticks Poison/DemonForm,
     //                        fires AfterPlayerTurnStart hooks
-    // Skipping the enemy half (as the previous UI did) means Vulnerable
-    // / Weak / Frail / Plating never tick down.
     ac.cs.end_turn();
     ac.cs.begin_turn(CombatSide::Enemy);
-    // No intent execution: BigDummy is the punching bag with no
-    // intent_move. If we later introduce a non-dummy enemy, this is
-    // where monster_dispatch::execute_intent(...) would go.
+    // Run each living enemy's AI intent. Picks the next move from the
+    // pattern, executes its effect body, writes intent_move back.
+    let enemy_count = ac.cs.enemies.len();
+    for i in 0..enemy_count {
+        if ac.cs.enemies.get(i).map(|e| e.current_hp <= 0).unwrap_or(true) {
+            continue;
+        }
+        let dispatched = monster_dispatch::dispatch_enemy_turn(&mut ac.cs, i, 0);
+        if !dispatched {
+            // No AI entry for this monster (shouldn't happen post-batch-5
+            // for any concrete MonsterModel, but log it loudly so it's
+            // visible if it ever recurs).
+            let id = ac.cs.enemies.get(i).map(|e| e.model_id.clone()).unwrap_or_default();
+            ac.log.push(format!("  enemy[{}] {} has no AI dispatch — skipped", i, id));
+        }
+        ac.enemy_turn_counter = ac.enemy_turn_counter.wrapping_add(1);
+    }
     ac.cs.end_turn();
     ac.cs.begin_turn(CombatSide::Player);
     let mut rng = sts2_sim::rng::Rng::new(0xC0FFEE, ac.cs.round_number);
@@ -1004,7 +1207,12 @@ fn summarize_diff(ac: &mut ActiveCombat) {
         ac.log.push(format!("  player Block {:+} → {}", d, player.block));
         ac.last_player_block = player.block;
     }
-    for i in 0..2.min(ac.cs.enemies.len()) {
+    // Resize the snapshot if the enemy roster grew (summons) or
+    // shrank (only theoretically — corpses stay seated).
+    if ac.last_enemy_hp.len() != ac.cs.enemies.len() {
+        ac.last_enemy_hp.resize(ac.cs.enemies.len(), 0);
+    }
+    for i in 0..ac.cs.enemies.len() {
         let cur = ac.cs.enemies[i].current_hp;
         if cur != ac.last_enemy_hp[i] {
             let d = cur - ac.last_enemy_hp[i];
