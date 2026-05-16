@@ -30,3 +30,4 @@ pub mod run_log;
 pub mod run_state;
 pub mod shuffle;
 pub mod standard_act_map;
+pub mod treasure;

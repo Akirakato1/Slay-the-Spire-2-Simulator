@@ -18,7 +18,7 @@
 use crate::act::{act_for, ActId, ActModel};
 use crate::map::{MapCoord, MapPointType};
 use crate::rng::Rng;
-use crate::rng_set::RunRngSet;
+use crate::rng_set::{PlayerRngSet, RunRngSet};
 use crate::run_log::{CardRef, NodeEntry, PotionEntry, RelicEntry, RunLog};
 use crate::standard_act_map::StandardActMap;
 
@@ -110,6 +110,12 @@ pub struct RunState {
     /// daily mutators). Kept as plain strings until the modifier module
     /// lands.
     modifiers: Vec<String>,
+    /// Per-player RNG sets (rewards / shops / transformations).
+    /// Mirrors C# `Player.PlayerRng`. Seeded from the run seed
+    /// XOR'd with the player index — deterministic but not yet
+    /// bit-exact to C# (which derives the seed from a separate
+    /// player-setup path). Single-player runs use index 0.
+    pub players_rng: Vec<PlayerRngSet>,
     /// When true, OfferX effects auto-pick the first option and apply
     /// immediately. RL training flips this to false so the agent can
     /// see and resolve each offer through `resolve_run_state_offer`.
@@ -163,9 +169,14 @@ impl RunState {
         modifiers: Vec<String>,
     ) -> Self {
         let n = acts.len();
+        let rng_set = RunRngSet::new(seed_string);
+        let seed_uint = rng_set.seed_uint();
+        let players_rng: Vec<PlayerRngSet> = (0..players.len())
+            .map(|i| PlayerRngSet::new(seed_uint ^ (i as u32)))
+            .collect();
         Self {
             seed_string: seed_string.to_owned(),
-            rng_set: RunRngSet::new(seed_string),
+            rng_set,
             ascension,
             acts,
             acts_have_second_boss: vec![false; n],
@@ -175,6 +186,7 @@ impl RunState {
             current_map: None,
             current_coord: None,
             modifiers,
+            players_rng,
             auto_resolve_offers: true,
             pending_offer: None,
         }
