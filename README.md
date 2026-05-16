@@ -58,7 +58,9 @@ reflectively.
 
 | Test suite | Count | Status |
 |---|---|---|
-| `sts2-sim` unit tests | 774 | ✅ |
+| `sts2-sim` unit tests | 958 | ✅ |
+| Game-flow integration (Neow → combat → reward, multi-character) | 10 | ✅ |
+| Mapgen parity (vs dashboard JS reference) | 1 | ✅ |
 | Card parity sweep (Ironclad vs 2× BigDummy) | 529 | ✅ 100% |
 | Relic parity sweep | 286 | ✅ 100% |
 | MadScience 9-variant (TinkerTimeType × Rider) | 9 | ✅ 9/9 |
@@ -67,7 +69,7 @@ reflectively.
 | Enchantment audit (all 22 non-deprecated wired) | 24 | ✅ |
 | Potion audit (incl. SoldiersStew replay-count) | 9 | ✅ |
 | Composition-architecture audit | 10 | ✅ |
-| **Total** | **1191** | **100% PASS** |
+| **Total** | **1386** | **100% PASS** |
 
 **RNG, map, shuffle, acts** — bit-exact vs C# DLL via oracle (~36 tests).
 
@@ -77,11 +79,45 @@ audit suite locks in expected behavior for every loose-compared item, so
 the relaxation can't hide a real regression.
 
 **Data-table coverage**: 529 cards, 286 relics (combat-side), 56 relics
-(run-state-side), 63 potions, 189 monster intents, **22/23 enchantments
-wired** (all non-deprecated — modifier pipeline + OnPlay + EnchantPlayCount
+(run-state-side), 63 potions, **120/120 monsters with data-driven AI**
+(`MovePattern` over `MonsterMove`+`Effect` primitives — `Cycle`,
+`WeightedRandom`, `FirstTurnOverride`, `BySlot`, `HpThresholdSwitch`,
+`Conditional`), **88 encounters with per-act pool assignment + IsWeak
++ tags**, **59 events with per-act pools**, **22/23 enchantments wired**
+(all non-deprecated — modifier pipeline + OnPlay + EnchantPlayCount
 loop + per-instance state + AfterCardDrawn + BeforeFlush +
 BeforePlayPhaseStart + ModifyShuffleOrder hooks), 30+ powers wired in
 modifier pipelines + Power VM.
+
+### End-to-end run flow
+
+`RunState::start_run` → `enter_act` builds map + per-act `RoomSet`
+(pre-shuffled weak / regular / elite / event pools with tag-avoidance,
+pre-selected boss) → cursor navigation through map nodes →
+`pick_encounter_for_current_node` modulo-cycles the appropriate pool →
+`build_combat_state` pipes the run's ascension + player loadout into
+combat → `auto_play_combat` drives the env → `extract_outcome` +
+`apply_combat_outcome` fold rewards back to RunState.
+
+**Room-generation rules baked in:** weak vs regular hallway split (first
+3 hallway fights = weak pool), per-act encounter pools, tag-based no-
+repeat (`AddWithoutRepeatingTags`), modulo cycle on pool exhaustion,
+boss pre-selected at act gen, 15 pre-generated elites, per-act event
+pools (act-specific + 18 shared) with visited-event tracking, and `?`-
+room resolution (10% Monster / 2% Treasure / 3% Shop / ~85% Event with
+odds-bump for unrolled types).
+
+### Ascension
+
+`CombatState.ascension` is piped from `RunState.ascension`. `Creature::
+from_monster_spawn_at` reads `min_hp_ascended` / `max_hp_ascended` at
+A1+ (ToughEnemies threshold). `AmountSpec::AscensionScaled { base,
+ascended, threshold }` mirrors C# `GetValueIfAscension` for damage and
+similar scaled values; `MonsterMove::attack_a` is the convenience
+builder. Bulk-port of per-move damage values from C# `GetValueIfAscension`
+getters is in progress (~100 monster classes). Reward modifiers
+(Poverty), run-state init scaling, and event-pool filtering are
+deferred.
 
 ### Choice infrastructure (RL-relevant)
 
@@ -124,7 +160,7 @@ sim/
 ```powershell
 # Rust
 cargo check
-cargo test                                          # 774 unit tests
+cargo test                                          # 958 unit + 11 integration
 
 # Oracle host + parity sweeps (needs sts2.dll)
 dotnet build oracle-host -c Release
@@ -156,51 +192,42 @@ print(json.loads(env.observation()))
 `.run` corpus and aggregates `victory` / `defeat` / `step-cap` /
 `dispatch coverage`.
 
+## Sandbox UI
+
+`crates/sts2-sim-ui` (binary `sts2-ui`) is an egui-based interactive
+sandbox for testing combat behavior. Build a deck with any cards / relics
+/ potions / enchantments, pick any subset of the 120 monsters as enemies
+(defaults to 2× BigDummy), and play through real combat — every enemy
+runs its AI intent through `monster_dispatch::dispatch_enemy_turn`. Useful
+for hand-validating card behavior, monster move patterns, and unusual
+interactions before committing to a parity test.
+
+```powershell
+cargo run -p sts2-sim-ui --release
+```
+
 ## What's next
 
-**Combat side is feature-complete for cards / relics / enchantments /
-potions** (modulo deprecated entries). What remains is out-of-combat:
+**Combat side feature-complete** for cards / relics / enchantments /
+potions / monster AI. **Run side feature-complete** for map generation,
+room pools, ?-resolution, encounter selection, event pools. Open work:
 
-1. **Reward-offer primitives** (`Effect::OfferCardReward` /
+1. **Ascension bulk-port** — extract per-move ascended damage from C#
+   `GetValueIfAscension` getters into `MonsterMove::attack_a` calls
+   across all 120 monsters (infrastructure landed; ~100 classes to
+   bulk-process).
+2. **Ascension reward / run-state / event modifiers** — Poverty 0.75×
+   gold, WearyTraveler HP reduction, NoBeneficialEvents pool filter.
+3. **Reward-offer primitives** (`Effect::OfferCardReward` /
    `OfferRelicReward` / `OfferPotionReward`) — foundation for treasure
    rooms, post-combat rewards, and event branches.
-2. **Forge runtime resolution** — `Effect::Forge` writes `pending_forge`
-   today; the campfire-Smith / event-upgrade flow that consumes it
-   is the post-combat consumer.
-3. **Map / route choice / shop / event-branch** primitives — all
-   reuse the same `AwaitPlayerChoice` shape (variants for `EventChoice`,
-   `ShopPurchase`, `RoomEntry`).
-4. **Power-VM expansion** (refactor, not correctness): hardcoded
-   power behavior — Strength / Dex / Weak / Vulnerable / Frail /
-   Poison / DemonForm / Ritual / Barricade / VoidForm — all currently
-   correct in the modifier pipelines but should migrate to
-   `power_effects` data table.
+4. **Power-VM expansion** (refactor, not correctness): migrate
+   hardcoded power behavior to the `power_effects` data table.
 5. **Modifier-hook layer** (refactor): generalize `ModifyHandDraw`,
-   `ModifyMaxEnergy`, `ModifyDamage*` chains beyond the round-1
-   special case.
-6. **Hook dispatcher (#70)** (correctness-adjacent): canonical
-   iteration order from C# `IterateHookListeners.MoveNext` —
-   compiler-stripped from current decompile; current order works in
-   practice but isn't formally validated.
-
-**Recently landed** (see `enchantment_audit.rs` / `potion_audit.rs`):
-- All 22 non-deprecated enchantments wired: modifier pipeline (Sharp,
-  Corrupted, Instinct, Nimble, Vigorous), OnPlay (Sown, Swift, Adroit,
-  Inky), EnchantPlayCount (Glam, Spiral), per-instance state (Momentum,
-  Goopy), AfterCardDrawn (Slither), BeforeFlush (SlumberingEssence),
-  BeforePlayPhaseStart (Imbued), ModifyShuffleOrder (PerfectFit),
-  no-op marker (Clone), keyword-only (Steady, TezcatarasEmber,
-  SoulsPower, RoyallyApproved).
-- VoidFormPower zero-cost first N cards/turn; X-cost takeover bypasses
-  VoidForm zeroing but still ticks the counter; SneckoOil → VoidForm
-  composition order locked in by test.
-- Void status card drains 1 energy per copy at end of turn.
-- IceCream relic carries unused energy into the next turn.
-- Choice continuation (`AwaitPlayerChoice.follow_up` +
-  `AmountSpec::LastChoicePickCount`) — GamblersBrew's "draw what you
-  discarded" works in both auto-resolve and RL-deferred paths.
-- `BumpCardStateOnAllPiles` primitive + `BaseReplayCount` consumption
-  in `play_card` — SoldiersStew bumps `replay_count` on every
-  Strike-tagged card; HiddenGem's bump now actually fires per-replay.
+   `ModifyMaxEnergy`, `ModifyDamage*` chains.
+6. **Hook dispatcher iteration order** (correctness-adjacent):
+   canonical order from C# `IterateHookListeners.MoveNext` — compiler-
+   stripped from decompile; current order works in practice but isn't
+   formally validated.
 
 See `tools/coverage_audit.txt` for per-id gap status.
