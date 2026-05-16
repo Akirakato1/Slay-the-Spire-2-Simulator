@@ -15,6 +15,7 @@ pub mod enchantment;
 pub mod encounter;
 pub mod env;
 pub mod event;
+pub mod event_room;
 pub mod features;
 pub mod hash;
 pub mod map;

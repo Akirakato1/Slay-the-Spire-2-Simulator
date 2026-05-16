@@ -129,6 +129,12 @@ pub struct RunState {
     /// player already owns). Distinct from `pending_offer` because
     /// the picks index into the master deck, not an external pool.
     pub pending_deck_action: Option<PendingDeckAction>,
+    /// One in-flight event awaiting an A/B/C-style choice resolution.
+    /// Distinct from the offer / deck-action slots because event
+    /// choices map to arbitrary effect chains, not a uniform
+    /// "add to deck/relics/potions" or "upgrade/remove a card"
+    /// operation. Resolved via `event_room::resolve_event_choice`.
+    pub pending_event: Option<crate::event_room::PendingEvent>,
 }
 
 /// What kind of reward is being offered. The resolver dispatches on
@@ -223,6 +229,7 @@ impl RunState {
             auto_resolve_offers: true,
             pending_offer: None,
             pending_deck_action: None,
+            pending_event: None,
         }
     }
 
