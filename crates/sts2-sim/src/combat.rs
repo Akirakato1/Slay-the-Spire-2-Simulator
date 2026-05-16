@@ -432,6 +432,64 @@ pub struct CombatState {
     /// against a real .run already requires deeper RngSet plumbing
     /// (deferred until corpus combat-replay integration in #72 lands).
     pub rng: Rng,
+    /// When true (default), `Selector::PlayerChoice` resolves via the
+    /// auto-pick path (top-N of the candidate pool) so non-RL callers
+    /// — parity sweeps, replay validation, smoke harnesses — don't
+    /// have to thread choice resolutions through their drivers. When
+    /// false, encountering a PlayerChoice during effect dispatch sets
+    /// `pending_choice` and halts the effect list; the caller resumes
+    /// via `env.step(Action::ResolveChoice { picks })`.
+    pub auto_resolve_choices: bool,
+    /// One in-flight player choice. When `Some`, combat is paused
+    /// waiting for the agent to pick cards from `pile` matching
+    /// `filter`. The selection drives `action` against `pile`, then
+    /// `queued_effects` resume from where the dispatcher left off.
+    pub pending_choice: Option<PendingChoice>,
+}
+
+/// One pending player-choice request. The agent reads this to know
+/// what's on offer; the simulator resolves it via the upcoming
+/// ResolveChoice flow. RL training needs to learn the policy for
+/// these choice points, so the simulator must NOT auto-resolve them.
+#[derive(Clone, Debug)]
+pub struct PendingChoice {
+    /// Card whose OnPlay opened the choice (for context / replay).
+    pub source_card_id: String,
+    pub player_idx: usize,
+    /// Pile to pick from.
+    pub pile: PileType,
+    /// Minimum picks the agent must make (0 = "skip" allowed).
+    pub n_min: i32,
+    /// Maximum picks the agent may make.
+    pub n_max: i32,
+    /// Which cards in the pile are eligible (None = any).
+    pub filter: Option<crate::effects::CardFilter>,
+    /// What to do with the picked cards after the agent commits.
+    pub action: ChoiceAction,
+    /// Effects to execute after the action resolves. The dispatcher
+    /// snapshotted these when it hit the choice point.
+    pub queued_effects: Vec<crate::effects::Effect>,
+    /// EffectContext bits we need to resume the queued_effects:
+    /// player_idx is on PendingChoice; target / x_value / upgrade_level
+    /// / source_card_id are captured here.
+    pub resume_target: Option<(CombatSide, usize)>,
+    pub resume_upgrade_level: i32,
+    pub resume_x_value: i32,
+}
+
+/// What the simulator does with the cards the agent picks during a
+/// ResolveChoice action. One of the four "atomic actions" a choice
+/// card can apply to its selection.
+#[derive(Clone, Debug)]
+pub enum ChoiceAction {
+    /// Move the picked cards to `to_pile` at `position`.
+    Move { to_pile: PileType, position: crate::effects::PilePosition },
+    /// Exhaust the picked cards.
+    Exhaust,
+    /// Discard the picked cards.
+    Discard,
+    /// Upgrade the picked cards in place.
+    Upgrade,
 }
 
 impl CombatState {
@@ -449,6 +507,8 @@ impl CombatState {
             combat_log: Vec::new(),
             log_enabled: false,
             rng: Rng::new(0, 0),
+            auto_resolve_choices: true,
+            pending_choice: None,
         }
     }
 
@@ -494,6 +554,8 @@ impl CombatState {
             combat_log: Vec::new(),
             log_enabled: false,
             rng: Rng::new(0, 0),
+            auto_resolve_choices: true,
+            pending_choice: None,
         }
     }
 

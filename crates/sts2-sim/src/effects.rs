@@ -464,6 +464,22 @@ pub enum Selector {
     PlayerInteractiveFiltered { n: i32, filter: CardFilter },
 }
 
+/// What `Effect::AwaitPlayerChoice` does with the cards the agent
+/// picks. Mirrors `combat::ChoiceAction` but uses spec types so it
+/// can be serialized in card data. Resolution copies the picked
+/// indices into the combat-side ChoiceAction variant.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ChoiceActionSpec {
+    /// Move the picks to `to_pile` at `position`.
+    Move { to_pile: Pile, position: PilePosition },
+    /// Exhaust the picks.
+    Exhaust,
+    /// Discard the picks.
+    Discard,
+    /// Upgrade the picks in-place.
+    Upgrade,
+}
+
 /// Predicate over cards. Closed set tracks the C# pile-filter idioms.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CardFilter {
@@ -602,6 +618,25 @@ pub enum Effect {
     /// summon cards use a `Summon` canonical var for this; pass None
     /// to fall back to a default (6 HP) for cards that omit it.
     SummonOsty { osty_id: String, max_hp: Option<AmountSpec> },
+    /// Open a player-choice request: pick `n_min..=n_max` cards from
+    /// `pile` matching `filter`, then apply `action` to the picks.
+    /// Mirrors C# `CardSelectCmd.FromHand/FromDeck/...` interactive
+    /// flow. When `CombatState.auto_resolve_choices == true` (the
+    /// default), behaves like `Selector::PlayerInteractive` — picks
+    /// the top-N candidates and continues. When false, sets
+    /// `CombatState.pending_choice` and aborts the current effect
+    /// list; the caller (`env.step`) returns a choice-pending step
+    /// outcome and waits for an `Action::ResolveChoice { picks }`.
+    /// This is the primitive RL training uses to expose card-pick
+    /// decisions as part of the action space.
+    AwaitPlayerChoice {
+        pile: Pile,
+        n_min: i32,
+        n_max: AmountSpec,
+        filter: CardFilter,
+        action: ChoiceActionSpec,
+    },
+
     /// Add `delta` to the player's round-1 initial-hand-draw count.
     /// Mirrors C# `RelicModel.ModifyHandDraw` for relics that bump
     /// the opening hand size (BagOfPreparation, RingOfTheSnake,
@@ -7552,7 +7587,24 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ]),
         "TrueGrit" => Some(vec![
         Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },
-        Effect::ExhaustRandomInHand { amount: AmountSpec::Fixed(1) },
+        // C# TrueGrit splits on upgrade: unupgraded uses RNG
+        // (RunState.Rng.CombatCardSelection.NextItem) to pick the
+        // exhaust target; upgraded calls CardSelectCmd.FromHand for
+        // a player CHOICE. Encode both branches via Conditional so
+        // RL training sees the choice point on +.
+        Effect::Conditional {
+            condition: Condition::IsUpgraded,
+            then_branch: vec![Effect::AwaitPlayerChoice {
+                pile: Pile::Hand,
+                n_min: 0,
+                n_max: AmountSpec::Fixed(1),
+                filter: CardFilter::Any,
+                action: ChoiceActionSpec::Exhaust,
+            }],
+            else_branch: vec![Effect::ExhaustRandomInHand {
+                amount: AmountSpec::Fixed(1),
+            }],
+        },
         ]),
         "PommelStrike" => Some(vec![
         Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 },
@@ -8264,6 +8316,47 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         Effect::ChangeOrbSlots { delta } => {
             let d = delta.resolve(ctx, cs);
             cs.change_orb_slots(ctx.player_idx, d);
+        }
+        Effect::AwaitPlayerChoice { pile, n_min, n_max, filter, action } => {
+            let n_max_val = n_max.resolve(ctx, cs).max(0);
+            let n_min_val = (*n_min).max(0).min(n_max_val);
+            // Translate spec action to combat-side ChoiceAction.
+            use crate::combat::ChoiceAction as CA;
+            let combat_action = match action {
+                ChoiceActionSpec::Move { to_pile, position } =>
+                    CA::Move { to_pile: to_pile.as_pile_type(), position: *position },
+                ChoiceActionSpec::Exhaust => CA::Exhaust,
+                ChoiceActionSpec::Discard => CA::Discard,
+                ChoiceActionSpec::Upgrade => CA::Upgrade,
+            };
+            if cs.auto_resolve_choices {
+                // Backward-compat path: auto-pick top-N candidates and
+                // apply the action immediately, then continue effects.
+                let stub = Selector::PlayerInteractiveFiltered {
+                    n: n_max_val,
+                    filter: filter.clone(),
+                };
+                let picks = select_card_indices(cs, ctx.player_idx, *pile, &stub);
+                apply_choice_action(cs, ctx.player_idx, *pile, &picks, &combat_action);
+            } else {
+                // Pause execution; the caller (env.step) returns a
+                // choice-pending outcome. resolve_pending_choice will
+                // apply the picks + run queued_effects.
+                let resume_card_id = ctx.source_card_id.unwrap_or("").to_string();
+                cs.pending_choice = Some(crate::combat::PendingChoice {
+                    source_card_id: resume_card_id,
+                    player_idx: ctx.player_idx,
+                    pile: pile.as_pile_type(),
+                    n_min: n_min_val,
+                    n_max: n_max_val,
+                    filter: Some(filter.clone()),
+                    action: combat_action,
+                    queued_effects: Vec::new(),
+                    resume_target: ctx.target,
+                    resume_upgrade_level: ctx.upgrade_level,
+                    resume_x_value: ctx.x_value,
+                });
+            }
         }
         Effect::ModifyRound1HandDraw { delta } => {
             let d = delta.resolve(ctx, cs);
@@ -9609,6 +9702,165 @@ fn auto_play_card(
             }
         }
     }
+}
+
+/// Apply a `ChoiceAction` to the picked indices in `pile`. Indices
+/// are sorted descending before mutation to keep them valid as we
+/// remove. Mirrors the per-action branch in card OnPlay handlers.
+fn apply_choice_action(
+    cs: &mut CombatState,
+    player_idx: usize,
+    pile: Pile,
+    picks: &[usize],
+    action: &crate::combat::ChoiceAction,
+) {
+    use crate::combat::ChoiceAction as CA;
+    let mut sorted = picks.to_vec();
+    sorted.sort_unstable_by(|a, b| b.cmp(a));
+    match action {
+        CA::Move { to_pile, position } => {
+            let to_pile_v = match to_pile {
+                crate::combat::PileType::Hand => Pile::Hand,
+                crate::combat::PileType::Draw => Pile::Draw,
+                crate::combat::PileType::Discard => Pile::Discard,
+                crate::combat::PileType::Exhaust => Pile::Exhaust,
+                _ => Pile::Discard,
+            };
+            for idx in sorted {
+                if let Some(card) = remove_card_from_pile(cs, player_idx, pile, idx) {
+                    // Position handling: Top inserts at index 0; Bottom
+                    // appends; Random picks via combat RNG.
+                    match position {
+                        PilePosition::Top => {
+                            if let Some(ps) = player_state_mut(cs, player_idx) {
+                                if let Some(p) = pile_mut(ps, to_pile_v) {
+                                    p.cards.insert(0, card);
+                                }
+                            }
+                        }
+                        PilePosition::Bottom => {
+                            push_card_to_pile(cs, player_idx, to_pile_v, card);
+                        }
+                    }
+                }
+            }
+        }
+        CA::Exhaust => {
+            for idx in sorted {
+                if let Some(card) = remove_card_from_pile(cs, player_idx, pile, idx) {
+                    if let Some(ps) = player_state_mut(cs, player_idx) {
+                        ps.exhaust.cards.push(card);
+                    }
+                }
+            }
+        }
+        CA::Discard => {
+            for idx in sorted {
+                if let Some(card) = remove_card_from_pile(cs, player_idx, pile, idx) {
+                    if let Some(ps) = player_state_mut(cs, player_idx) {
+                        ps.discard.cards.push(card);
+                    }
+                }
+            }
+        }
+        CA::Upgrade => {
+            if let Some(ps) = player_state_mut(cs, player_idx) {
+                if let Some(p) = pile_mut(ps, pile) {
+                    for idx in sorted {
+                        if let Some(card) = p.cards.get_mut(idx) {
+                            let data = crate::card::by_id(&card.id);
+                            let max = data.map(|d| d.max_upgrade_level).unwrap_or(1);
+                            if card.upgrade_level < max {
+                                card.upgrade_level += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Resolve a `pending_choice` with the agent's picks. Validates that
+/// each picked index points to a card matching the filter; applies
+/// the action; clears `pending_choice`. Returns Err with a message
+/// if validation fails (`picks` out of range, wrong count, filter
+/// mismatch). RL callers route their `Action::ResolveChoice` here.
+pub fn resolve_pending_choice(
+    cs: &mut CombatState,
+    picks: &[usize],
+) -> Result<(), String> {
+    let Some(pc) = cs.pending_choice.take() else {
+        return Err("no pending choice".to_string());
+    };
+    // Validate count.
+    let count = picks.len() as i32;
+    if count < pc.n_min || count > pc.n_max {
+        // Restore the choice so the caller can retry with a valid pick.
+        cs.pending_choice = Some(pc);
+        return Err(format!(
+            "pick count {} outside [{}, {}]",
+            count, /* */ 0, 0
+        ).replace("0, 0",
+            &format!("{}, {}",
+                cs.pending_choice.as_ref().unwrap().n_min,
+                cs.pending_choice.as_ref().unwrap().n_max)));
+    }
+    // Convert PileType back to Pile for the helper.
+    let pile = match pc.pile {
+        crate::combat::PileType::Hand => Pile::Hand,
+        crate::combat::PileType::Draw => Pile::Draw,
+        crate::combat::PileType::Discard => Pile::Discard,
+        crate::combat::PileType::Exhaust => Pile::Exhaust,
+        _ => {
+            cs.pending_choice = Some(pc);
+            return Err("unsupported source pile for choice".to_string());
+        }
+    };
+    // Validate picks: in range, unique, match filter.
+    let pile_len = {
+        let Some(ps) = cs.allies.get(pc.player_idx).and_then(|c| c.player.as_ref()) else {
+            return Err("no player".to_string());
+        };
+        let p_opt = match pile {
+            Pile::Hand => Some(&ps.hand),
+            Pile::Draw => Some(&ps.draw),
+            Pile::Discard => Some(&ps.discard),
+            Pile::Exhaust => Some(&ps.exhaust),
+            _ => None,
+        };
+        let Some(p) = p_opt else {
+            return Err("invalid pile".to_string());
+        };
+        p.cards.len()
+    };
+    let mut seen = std::collections::HashSet::new();
+    for &idx in picks {
+        if idx >= pile_len {
+            cs.pending_choice = Some(pc);
+            return Err(format!("pick index {} out of range (pile size {})", idx, pile_len));
+        }
+        if !seen.insert(idx) {
+            cs.pending_choice = Some(pc);
+            return Err(format!("duplicate pick index {}", idx));
+        }
+        if let Some(filter) = &pc.filter {
+            let card = cs.allies[pc.player_idx].player.as_ref().unwrap();
+            let card = match pile {
+                Pile::Hand => &card.hand.cards[idx],
+                Pile::Draw => &card.draw.cards[idx],
+                Pile::Discard => &card.discard.cards[idx],
+                Pile::Exhaust => &card.exhaust.cards[idx],
+                _ => unreachable!(),
+            };
+            if !matches_filter(card, filter) {
+                cs.pending_choice = Some(pc);
+                return Err(format!("pick index {} doesn't match filter", idx));
+            }
+        }
+    }
+    apply_choice_action(cs, pc.player_idx, pile, picks, &pc.action);
+    Ok(())
 }
 
 fn matches_filter(card: &crate::combat::CardInstance, filter: &CardFilter) -> bool {
