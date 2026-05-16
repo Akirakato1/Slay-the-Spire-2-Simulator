@@ -69,21 +69,37 @@ struct Builder {
 }
 
 impl Builder {
-    fn new_ironclad() -> Self {
-        let cd = character::by_id("Ironclad").expect("Ironclad");
-        let deck: Vec<DeckEntry> = cd
-            .starting_deck
-            .iter()
-            .map(|id| DeckEntry { card_id: id.clone(), upgrade: 0, enchantment: None })
-            .collect();
+    /// Empty-slate starter. No starting deck, no relics, no potions —
+    /// every card / relic / potion that ends up in the loadout is
+    /// explicitly added through the UI. Use the buttons in the side
+    /// panels to add items, the X button to remove them.
+    fn new_empty(character_id: &str) -> Self {
+        let cd = character::by_id(character_id);
+        let max_hp = cd.and_then(|c| c.starting_hp).unwrap_or(80);
         Self {
-            character_id: "Ironclad".to_string(),
-            max_hp: 80,
-            starting_hp: 80,
-            deck,
-            relics: cd.starting_relics.clone(),
+            character_id: character_id.to_string(),
+            max_hp,
+            starting_hp: max_hp,
+            deck: Vec::new(),
+            relics: Vec::new(),
             potions: Vec::new(),
             ..Default::default()
+        }
+    }
+
+    /// Populate the deck and relics from the character's starter set.
+    /// Wired to the "Load starter deck" button so users who want a
+    /// realistic combat can opt in.
+    fn load_starter(&mut self) {
+        if let Some(cd) = character::by_id(&self.character_id) {
+            self.deck = cd
+                .starting_deck
+                .iter()
+                .map(|id| DeckEntry { card_id: id.clone(), upgrade: 0, enchantment: None })
+                .collect();
+            self.relics = cd.starting_relics.clone();
+            self.max_hp = cd.starting_hp.unwrap_or(80);
+            self.starting_hp = self.max_hp;
         }
     }
 }
@@ -120,7 +136,7 @@ struct App {
 
 impl Default for App {
     fn default() -> Self {
-        Self { phase: Phase::Setup(Builder::new_ironclad()) }
+        Self { phase: Phase::Setup(Builder::new_empty("Ironclad")) }
     }
 }
 
@@ -158,16 +174,30 @@ fn render_setup(ctx: &egui::Context, b: &mut Builder) -> Option<Phase> {
             ui.label("Character:");
             for ch in ["Ironclad", "Silent", "Defect", "Regent", "Necrobinder"] {
                 if ui.selectable_label(b.character_id == ch, ch).clicked() {
+                    // Character switch only updates id + max HP; deck /
+                    // relics are NOT auto-replaced. The user is in
+                    // control of what lands in the loadout.
                     if let Some(cd) = character::by_id(ch) {
                         b.character_id = ch.to_string();
-                        b.deck = cd.starting_deck.iter().map(|id| DeckEntry {
-                            card_id: id.clone(), upgrade: 0, enchantment: None,
-                        }).collect();
-                        b.relics = cd.starting_relics.clone();
                         b.max_hp = cd.starting_hp.unwrap_or(80);
                         b.starting_hp = b.max_hp;
                     }
                 }
+            }
+            ui.separator();
+            if ui.button("⟲ Load starter deck").on_hover_text(
+                "Replace the current loadout with the character's starting \
+                deck + starter relics + 80/80 HP. Use this if you want a \
+                realistic combat as a baseline.").clicked()
+            {
+                b.load_starter();
+            }
+            if ui.button("⌫ Clear all").on_hover_text(
+                "Empty the deck, relics, and potions.").clicked()
+            {
+                b.deck.clear();
+                b.relics.clear();
+                b.potions.clear();
             }
             ui.separator();
             ui.label("HP:");
@@ -263,28 +293,35 @@ fn render_setup(ctx: &egui::Context, b: &mut Builder) -> Option<Phase> {
     egui::CentralPanel::default().show(ctx, |ui| {
         ui.heading(format!("Deck ({} cards) · Relics ({}) · Potions ({}/3)",
             b.deck.len(), b.relics.len(), b.potions.len()));
-        ui.label("Click a deck card to attach an enchantment. Click a relic/potion to remove it.");
+        ui.label("Click a deck card to attach an enchantment. Use ✕ to remove.");
         ui.separator();
-        // Relics + potions row.
+        // Relics + potions row. Item label shows the id; the ✕ button
+        // next to it removes the entry from the loadout.
         ui.horizontal_wrapped(|ui| {
-            for i in (0..b.relics.len()).rev() {
-                let resp = ui.add(egui::Button::new(
-                    egui::RichText::new(format!("◆ {}", &b.relics[i]))
-                        .color(egui::Color32::from_rgb(255, 200, 80))));
-                if resp.clicked() {
-                    b.relics.remove(i);
+            let mut remove_relic: Option<usize> = None;
+            for i in 0..b.relics.len() {
+                ui.label(egui::RichText::new(format!("◆ {}", &b.relics[i]))
+                    .color(egui::Color32::from_rgb(255, 200, 80)));
+                if ui.small_button(
+                    egui::RichText::new("✕").color(egui::Color32::from_rgb(255, 110, 110))
+                ).clicked() {
+                    remove_relic = Some(i);
                 }
             }
+            if let Some(i) = remove_relic { b.relics.remove(i); }
         });
         ui.horizontal_wrapped(|ui| {
-            for i in (0..b.potions.len()).rev() {
-                let resp = ui.add(egui::Button::new(
-                    egui::RichText::new(format!("🧪 {}", &b.potions[i]))
-                        .color(egui::Color32::from_rgb(120, 200, 255))));
-                if resp.clicked() {
-                    b.potions.remove(i);
+            let mut remove_potion: Option<usize> = None;
+            for i in 0..b.potions.len() {
+                ui.label(egui::RichText::new(format!("🧪 {}", &b.potions[i]))
+                    .color(egui::Color32::from_rgb(120, 200, 255)));
+                if ui.small_button(
+                    egui::RichText::new("✕").color(egui::Color32::from_rgb(255, 110, 110))
+                ).clicked() {
+                    remove_potion = Some(i);
                 }
             }
+            if let Some(i) = remove_potion { b.potions.remove(i); }
         });
         ui.separator();
         let avail = ui.available_height() - 30.0;
@@ -320,7 +357,9 @@ fn render_setup(ctx: &egui::Context, b: &mut Builder) -> Option<Phase> {
                         } else {
                             ui.label("(no enchantment)");
                         }
-                        if ui.button("✕").clicked() {
+                        if ui.button(
+                            egui::RichText::new("✕").color(egui::Color32::from_rgb(255, 110, 110))
+                        ).clicked() {
                             to_delete = Some(i);
                         }
                     });
