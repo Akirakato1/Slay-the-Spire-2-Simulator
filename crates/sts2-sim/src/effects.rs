@@ -4861,6 +4861,82 @@ pub fn fire_relic_hooks_after_card_changed_piles(
 /// Walk each player's relics and fire any matching hook bodies through
 /// the Effect VM. Call sites are in `CombatState::{begin_turn, end_turn,
 /// fire_before_combat_start_hooks, fire_after_combat_victory_hooks}`.
+/// Generic `Hook.ModifyHandDraw` dispatcher. Walks every owned relic
+/// and every active power on the active player, asks each for its
+/// hand-draw delta, and returns `(base + summed_deltas).max(0)`.
+/// Mirrors C# `Hook.ModifyHandDraw(state, player, baseCount)`.
+///
+/// Subscribers (kept centralized here as the single source of truth):
+///
+/// **Relics (C# `RelicModel.ModifyHandDraw` overrides):**
+///   - `SneckoEye`     → +CanonicalVars.Cards (=2/turn)
+///   - `BigMushroom`   → +CanonicalVars.Cards (=1/turn)
+///
+/// **Powers (C# `PowerModel.ModifyHandDraw` overrides):**
+///   - Subscribers documented in C# `AbstractModel.ModifyHandDraw`:
+///     ClarityPower, DemesnePower, DrawCardsNextTurnPower,
+///     MachineLearningPower, MindRotPower, PaleBlueDotPower,
+///     ToolsOfTheTradePower, TyrannyPower. Wired incrementally —
+///     unwired powers default to 0 delta.
+///
+/// `BagOfPreparation` / `BoomingConch` / `RingOfTheSnake` are
+/// handled separately via the existing `Effect::ModifyRound1HandDraw`
+/// → `hand_draw_round1_delta` round-1 special case. C# folds them
+/// through this same hook, but the rust port already gated those at
+/// BeforeCombatStart for replay parity, so we keep that split.
+pub fn fire_modify_hand_draw_hooks(
+    cs: &CombatState,
+    player_idx: usize,
+    base: i32,
+) -> i32 {
+    let Some(ally) = cs.allies.get(player_idx) else { return base; };
+    let mut count = base;
+    if let Some(ps) = ally.player.as_ref() {
+        for relic_id in &ps.relics {
+            count += relic_modify_hand_draw_delta(relic_id);
+        }
+    }
+    for p in &ally.powers {
+        count += power_modify_hand_draw_delta(&p.id, p.amount);
+    }
+    count.max(0)
+}
+
+/// Per-relic hand-draw delta. Centralized so a new subscriber is
+/// one match arm. Returns 0 for unknown ids (default-zero policy).
+fn relic_modify_hand_draw_delta(relic_id: &str) -> i32 {
+    // CanonicalVars amounts are constants for these relics, so we
+    // can inline the magic numbers here instead of reaching into the
+    // relic table. If the data table starts using varying base values
+    // (events tweaking a relic's CanonicalVars on grant), revisit.
+    match relic_id {
+        "SneckoEye" => 2,
+        "BigMushroom" => 1,
+        _ => 0,
+    }
+}
+
+/// Per-power hand-draw delta. The `amount` parameter is the power's
+/// current stack count (most powers' delta is their stack value;
+/// some always return 1 regardless of stacks — refine per-power as
+/// each lands).
+fn power_modify_hand_draw_delta(power_id: &str, amount: i32) -> i32 {
+    // Wired incrementally. Most subscribers add their stack count
+    // directly; MindRotPower subtracts. Powers not yet wired return
+    // zero so the dispatcher is a no-op for them.
+    match power_id {
+        "DemesnePower" => amount,
+        "TyrannyPower" => amount,
+        "ToolsOfTheTradePower" => amount,
+        "MachineLearningPower" => amount,
+        "PaleBlueDotPower" => amount,
+        "ClarityPower" => amount,
+        "DrawCardsNextTurnPower" => amount,
+        "MindRotPower" => -amount,
+        _ => 0,
+    }
+}
+
 pub fn fire_relic_hooks(
     cs: &mut CombatState,
     kind: RelicHookKind,

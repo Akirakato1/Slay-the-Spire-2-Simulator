@@ -12866,6 +12866,69 @@ mod tests {
         assert_eq!(cs.allies[0].player.as_ref().unwrap().pending_forge, 8);
     }
 
+    /// SneckoEye relic adds +2 to per-turn hand-draw via C#
+    /// `Hook.ModifyHandDraw`. Verifies the rust dispatcher walks the
+    /// owned relics + sums their deltas correctly.
+    #[test]
+    fn modify_hand_draw_hook_picks_up_snecko_eye() {
+        use crate::effects::fire_modify_hand_draw_hooks;
+
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80, max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: vec!["BurningBlood".to_string(), "SneckoEye".to_string()],
+        };
+        let cs = CombatState::start(encounter, vec![setup], Vec::new());
+        let modified = fire_modify_hand_draw_hooks(&cs, 0, 5);
+        assert_eq!(modified, 7,
+            "SneckoEye should add +2 to base hand draw (5 + 2 = 7)");
+    }
+
+    /// Without subscribers, the dispatcher returns base unchanged.
+    #[test]
+    fn modify_hand_draw_hook_no_subscribers_returns_base() {
+        use crate::effects::fire_modify_hand_draw_hooks;
+
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80, max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: vec!["BurningBlood".to_string()],
+        };
+        let cs = CombatState::start(encounter, vec![setup], Vec::new());
+        assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 5);
+    }
+
+    /// Power subscriber: DemesnePower stack count adds to hand draw.
+    #[test]
+    fn modify_hand_draw_hook_picks_up_demesne_power() {
+        use crate::effects::fire_modify_hand_draw_hooks;
+        use crate::combat::PowerInstance;
+
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80, max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(encounter, vec![setup], Vec::new());
+        cs.allies[0].powers.push(PowerInstance {
+            id: "DemesnePower".to_string(),
+            amount: 3,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 8,
+            "Demesne(3) → +3 → 5 + 3 = 8");
+    }
+
     fn sovereign_count(cs: &CombatState) -> usize {
         use crate::effects::FORGE_TARGET_CARD;
         let p = cs.allies[0].player.as_ref().unwrap();

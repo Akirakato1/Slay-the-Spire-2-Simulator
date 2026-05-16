@@ -229,20 +229,24 @@ impl CombatEnv {
                 }
                 self.state.end_turn();
                 self.state.begin_turn(CombatSide::Player);
-                // Per-turn 5-card draw at the start of the player's
+                // Per-turn N-card draw at the start of the player's
                 // turn. C# CombatManager triggers this via the
-                // Hook.ModifyDraw pipeline; without it the player
-                // can't refill their hand between turns. Run after
-                // begin_turn so block clears + start-of-turn power
-                // ticks (DemonForm/Poison) sequence first.
+                // Hook.ModifyHandDraw pipeline (CombatManager.cs:642):
+                //   handDraw = Hook.ModifyHandDraw(state, player, 5m, …)
+                // Subscribers (SneckoEye, BigMushroom, ConfusedPower,
+                // DemesnePower, etc.) each contribute a delta.
+                // Run after begin_turn so block clears + start-of-turn
+                // power ticks (DemonForm/Poison) sequence first.
                 let n_players = self.state.allies.len();
                 for player_idx in 0..n_players {
+                    let n = crate::effects::fire_modify_hand_draw_hooks(
+                        &self.state, player_idx, INITIAL_HAND_SIZE,
+                    );
                     let mut rng_taken = std::mem::replace(
                         &mut self.state.rng,
                         Rng::new(0, 0),
                     );
-                    self.state
-                        .draw_cards(player_idx, INITIAL_HAND_SIZE, &mut rng_taken);
+                    self.state.draw_cards(player_idx, n, &mut rng_taken);
                     self.state.rng = rng_taken;
                 }
                 let mut outcome = StepOutcome::default();
