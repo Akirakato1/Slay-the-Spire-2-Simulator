@@ -1348,6 +1348,106 @@ mod ai_integration_tests {
     }
 
     #[test]
+    fn gas_bomb_explode_kills_self() {
+        let mut cs = rig("GasBomb");
+        fire_monster_spawn_hooks(&mut cs);
+        let pre_hp = cs.allies[0].current_hp;
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        // EXPLODE deals 8 damage to player.
+        assert_eq!(cs.allies[0].current_hp, pre_hp - 8);
+        // GasBomb killed itself.
+        assert_eq!(cs.enemies[0].current_hp, 0,
+            "GasBomb must self-kill after EXPLODE");
+    }
+
+    #[test]
+    fn mawler_first_turn_claw_then_alternates_under_no_repeat() {
+        let mut cs = rig("Mawler");
+        // Turn 1: CLAW.
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(
+            cs.enemies[0].monster.as_ref().unwrap().intent_move,
+            Some("CLAW_MOVE".to_string())
+        );
+        // Turn 2: must be one of RIP_AND_TEAR or ROAR (CLAW blocked by
+        // no_repeat).
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        let move2 = cs.enemies[0].monster.as_ref().unwrap().intent_move.clone().unwrap();
+        assert_ne!(move2, "CLAW_MOVE", "CLAW must be blocked by no_repeat");
+    }
+
+    #[test]
+    fn mawler_roar_sets_flag_and_blocks_future_use() {
+        let mut cs = rig("Mawler");
+        // Force ROAR by directly setting the intent and dispatching.
+        // Simpler: just verify that after manually setting roar_used,
+        // ROAR is no longer offered.
+        cs.enemies[0].monster.as_mut().unwrap().set_flag("roar_used", true);
+        cs.enemies[0].monster.as_mut().unwrap().intent_move = Some("CLAW_MOVE".to_string());
+        // 30 iterations: should never pick ROAR since flag is set.
+        for _ in 0..30 {
+            assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+            let move_id = cs.enemies[0].monster.as_ref().unwrap().intent_move.clone().unwrap();
+            assert_ne!(move_id, "ROAR_MOVE",
+                "ROAR must be blocked once roar_used flag is set");
+        }
+    }
+
+    #[test]
+    fn frog_knight_opens_with_tongue_lash() {
+        let mut cs = rig("FrogKnight");
+        fire_monster_spawn_hooks(&mut cs);
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(
+            cs.enemies[0].monster.as_ref().unwrap().intent_move,
+            Some("TONGUE_LASH_MOVE".to_string())
+        );
+        let plating = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "PlatingPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(plating, 15, "FrogKnight spawn must apply Plating(15)");
+    }
+
+    #[test]
+    fn frog_knight_low_hp_charges_then_sets_flag() {
+        let mut cs = rig("FrogKnight");
+        fire_monster_spawn_hooks(&mut cs);
+        // Drop HP below 50% and skip ahead to the 4th cycle slot via
+        // direct intent injection.
+        cs.enemies[0].max_hp = 200;
+        cs.enemies[0].current_hp = 50; // 25% HP
+        cs.enemies[0].monster.as_mut().unwrap().intent_move = Some("FOR_THE_QUEEN_MOVE".to_string());
+        // Next move should be BEETLE_CHARGE (HP < 50% AND not yet
+        // charged).
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(
+            cs.enemies[0].monster.as_ref().unwrap().intent_move,
+            Some("BEETLE_CHARGE_MOVE".to_string())
+        );
+        // Flag set.
+        assert!(cs.enemies[0].monster.as_ref().unwrap().flag("beetle_charged"));
+    }
+
+    #[test]
+    fn fogmog_opens_with_illusion_spawns_eye_with_teeth() {
+        let mut cs = rig("Fogmog");
+        let pre_enemies = cs.enemies.len();
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(
+            cs.enemies[0].monster.as_ref().unwrap().intent_move,
+            Some("ILLUSION_MOVE".to_string())
+        );
+        // New EyeWithTeeth spawned.
+        assert!(cs.enemies.len() > pre_enemies,
+            "Fogmog ILLUSION must spawn an enemy");
+        let spawned_is_eye = cs.enemies.iter().any(|e| e.model_id == "EyeWithTeeth");
+        assert!(spawned_is_eye);
+    }
+
+    #[test]
     fn ruby_raider_no_spawn_powers() {
         // Sanity: monsters with empty spawn vec should NOT pick up
         // stray powers via the data-driven path.

@@ -131,6 +131,9 @@ pub enum AiCondition {
     FirstTurn,
     /// Last move played has this id.
     LastMoveWas(&'static str),
+    /// Last move was NOT this id (covers Fogmog's CannotRepeat
+    /// semantics where a move can't immediately repeat itself).
+    LastMoveWasNot(&'static str),
     /// Living-enemy count matches.
     LivingEnemyCountEquals(i32),
     /// Living-enemy count < N (used by "alone" checks).
@@ -143,6 +146,8 @@ pub enum AiCondition {
     Not(Box<AiCondition>),
     /// Logical AND.
     And(Box<AiCondition>, Box<AiCondition>),
+    /// Logical OR — FrogKnight's `HasCharged || HP >= 50%`.
+    Or(Box<AiCondition>, Box<AiCondition>),
 }
 
 /// Full per-monster AI table. Owns the move list + the state-machine
@@ -306,9 +311,13 @@ fn evaluate_condition(
             let max_hp = cs.enemies.get(enemy_idx).map(|c| c.max_hp).unwrap_or(1).max(1);
             (hp * 100 / max_hp) < *pct
         }
+        AiCondition::LastMoveWasNot(id) => last.map(|p| p != *id).unwrap_or(true),
         AiCondition::Not(inner) => !evaluate_condition(inner, cs, enemy_idx, last),
         AiCondition::And(a, b) => {
             evaluate_condition(a, cs, enemy_idx, last) && evaluate_condition(b, cs, enemy_idx, last)
+        }
+        AiCondition::Or(a, b) => {
+            evaluate_condition(a, cs, enemy_idx, last) || evaluate_condition(b, cs, enemy_idx, last)
         }
     }
 }
@@ -352,6 +361,7 @@ pub static MONSTER_AI_REGISTRY: LazyLock<HashMap<&'static str, MonsterAi>> = Laz
     register_two_move_cycles(&mut m);
     register_three_move_cycles(&mut m);
     register_weighted_random_monsters(&mut m);
+    register_flag_state_monsters(&mut m);
     m
 });
 
@@ -1434,6 +1444,287 @@ fn register_weighted_random_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
     );
 }
 
+/// Monsters whose state machine tracks a persistent flag (UseOnce
+/// gates, one-shot HP thresholds, self-kill on play). The flag is
+/// stored on the MonsterState and flipped via `Effect::SetMonsterFlag`
+/// inside the move body. Predicates that read it use
+/// `AiCondition::HasFlag`.
+fn register_flag_state_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
+    use crate::effects::AmountSpec;
+    // GasBomb: EXPLODE deals 8 damage, kills self. Single move,
+    // single use. Spawn: MinionPower(1).
+    m.insert(
+        "GasBomb",
+        MonsterAi {
+            model_id: "GasBomb",
+            moves: vec![MonsterMove {
+                id: "EXPLODE_MOVE",
+                kind: IntentKind::Attack { hits: 1 },
+                body: vec![
+                    Effect::DealDamage {
+                        amount: AmountSpec::Fixed(8),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    },
+                    Effect::KillSelf,
+                ],
+            }],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "MinionPower".to_string(),
+                amount: AmountSpec::Fixed(1),
+                target: Target::SelfActor,
+            }],
+            pattern: MovePattern::Cycle { moves: vec!["EXPLODE_MOVE"] },
+        },
+    );
+
+    // Mawler: weighted random {CLAW:1 no_repeat, RIP_AND_TEAR:1
+    // no_repeat, ROAR:1 use-once}. The `roar_used` flag gates ROAR
+    // out after its first play. First turn: CLAW.
+    //
+    // Encoded as a Conditional: if `roar_used` flag is set, pick from
+    // CLAW + RIP_AND_TEAR only; else include ROAR. ROAR's body sets
+    // the flag so subsequent rolls skip it.
+    m.insert(
+        "Mawler",
+        MonsterAi {
+            model_id: "Mawler",
+            moves: vec![
+                MonsterMove {
+                    id: "CLAW_MOVE",
+                    kind: IntentKind::Attack { hits: 2 },
+                    body: vec![Effect::DealDamage {
+                        amount: AmountSpec::Fixed(4),
+                        target: Target::ChosenEnemy,
+                        hits: 2,
+                    }],
+                },
+                MonsterMove {
+                    id: "RIP_AND_TEAR_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: AmountSpec::Fixed(14),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+                MonsterMove {
+                    id: "ROAR_MOVE",
+                    kind: IntentKind::Debuff,
+                    body: vec![
+                        Effect::ApplyPower {
+                            power_id: "VulnerablePower".to_string(),
+                            amount: AmountSpec::Fixed(3),
+                            target: Target::ChosenEnemy,
+                        },
+                        Effect::SetMonsterFlag {
+                            flag: "roar_used".to_string(),
+                            value: true,
+                        },
+                    ],
+                },
+            ],
+            spawn: vec![],
+            pattern: MovePattern::FirstTurnOverride {
+                first_move: "CLAW_MOVE",
+                then: Box::new(MovePattern::Conditional {
+                    predicate: AiCondition::HasFlag("roar_used"),
+                    // ROAR already used → only CLAW + RIP_AND_TEAR.
+                    then_branch: Box::new(MovePattern::WeightedRandom {
+                        weights: vec![("CLAW_MOVE", 1), ("RIP_AND_TEAR_MOVE", 1)],
+                        no_repeat: vec!["CLAW_MOVE", "RIP_AND_TEAR_MOVE"],
+                    }),
+                    // ROAR still available → full 3-option weighted.
+                    else_branch: Box::new(MovePattern::WeightedRandom {
+                        weights: vec![
+                            ("CLAW_MOVE", 1),
+                            ("RIP_AND_TEAR_MOVE", 1),
+                            ("ROAR_MOVE", 1),
+                        ],
+                        no_repeat: vec!["CLAW_MOVE", "RIP_AND_TEAR_MOVE"],
+                    }),
+                }),
+            },
+        },
+    );
+
+    // FrogKnight: cycle TONGUE_LASH → STRIKE_DOWN_EVIL → FOR_THE_QUEEN
+    // → HALF_HEALTH-conditional → ... Spawn: Plating(15) + clears
+    // beetle_charged flag implicitly (default false).
+    //
+    // HALF_HEALTH branch:
+    //   if HasCharged || HP >= 50%   → play TONGUE_LASH
+    //   else                          → play BEETLE_CHARGE (sets HasCharged)
+    //
+    // Encoded as a 4-position cycle where the 4th slot is a Conditional.
+    // We approximate the "4th position" semantics by using LastMoveWas
+    // FOR_THE_QUEEN as the gate for the conditional branch.
+    m.insert(
+        "FrogKnight",
+        MonsterAi {
+            model_id: "FrogKnight",
+            moves: vec![
+                MonsterMove {
+                    id: "TONGUE_LASH_MOVE",
+                    kind: IntentKind::AttackDebuff { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: AmountSpec::Fixed(13),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "FrailPower".to_string(),
+                            amount: AmountSpec::Fixed(2),
+                            target: Target::ChosenEnemy,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "STRIKE_DOWN_EVIL_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: AmountSpec::Fixed(21),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+                MonsterMove {
+                    id: "FOR_THE_QUEEN_MOVE",
+                    kind: IntentKind::Buff,
+                    body: vec![Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(5),
+                        target: Target::SelfActor,
+                    }],
+                },
+                MonsterMove {
+                    id: "BEETLE_CHARGE_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: AmountSpec::Fixed(35),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::SetMonsterFlag {
+                            flag: "beetle_charged".to_string(),
+                            value: true,
+                        },
+                    ],
+                },
+            ],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "PlatingPower".to_string(),
+                amount: AmountSpec::Fixed(15),
+                target: Target::SelfActor,
+            }],
+            // First-turn override: TONGUE_LASH. Then 4-position cycle
+            // with the 4th slot being conditional.
+            pattern: MovePattern::FirstTurnOverride {
+                first_move: "TONGUE_LASH_MOVE",
+                then: Box::new(MovePattern::Conditional {
+                    // After TONGUE_LASH → STRIKE_DOWN_EVIL.
+                    predicate: AiCondition::LastMoveWas("TONGUE_LASH_MOVE"),
+                    then_branch: Box::new(MovePattern::Cycle {
+                        moves: vec!["STRIKE_DOWN_EVIL_MOVE"],
+                    }),
+                    else_branch: Box::new(MovePattern::Conditional {
+                        // After STRIKE_DOWN_EVIL → FOR_THE_QUEEN.
+                        predicate: AiCondition::LastMoveWas("STRIKE_DOWN_EVIL_MOVE"),
+                        then_branch: Box::new(MovePattern::Cycle {
+                            moves: vec!["FOR_THE_QUEEN_MOVE"],
+                        }),
+                        else_branch: Box::new(MovePattern::Conditional {
+                            // After FOR_THE_QUEEN → HALF_HEALTH branch.
+                            //   If HasCharged || HP >= 50% → TONGUE_LASH (loop)
+                            //   Else                       → BEETLE_CHARGE
+                            predicate: AiCondition::LastMoveWas("FOR_THE_QUEEN_MOVE"),
+                            then_branch: Box::new(MovePattern::Conditional {
+                                predicate: AiCondition::Or(
+                                    Box::new(AiCondition::HasFlag("beetle_charged")),
+                                    Box::new(AiCondition::Not(Box::new(AiCondition::HpBelowPct(50)))),
+                                ),
+                                then_branch: Box::new(MovePattern::Cycle {
+                                    moves: vec!["TONGUE_LASH_MOVE"],
+                                }),
+                                else_branch: Box::new(MovePattern::Cycle {
+                                    moves: vec!["BEETLE_CHARGE_MOVE"],
+                                }),
+                            }),
+                            // Anything else (BEETLE_CHARGE just fired) → TONGUE_LASH (resume cycle).
+                            else_branch: Box::new(MovePattern::Cycle {
+                                moves: vec!["TONGUE_LASH_MOVE"],
+                            }),
+                        }),
+                    }),
+                }),
+            },
+        },
+    );
+
+    // Fogmog: ILLUSION → SWIPE → weighted{SWIPE:0.4, HEADBUTT:0.6
+    // cannot_repeat} → ... ILLUSION spawns an EyeWithTeeth.
+    m.insert(
+        "Fogmog",
+        MonsterAi {
+            model_id: "Fogmog",
+            moves: vec![
+                MonsterMove {
+                    id: "ILLUSION_MOVE",
+                    kind: IntentKind::Summon,
+                    body: vec![Effect::SummonMonster {
+                        monster_id: "EyeWithTeeth".to_string(),
+                        slot: "illusion".to_string(),
+                    }],
+                },
+                MonsterMove {
+                    id: "SWIPE_MOVE",
+                    kind: IntentKind::AttackBuff { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: AmountSpec::Fixed(8),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "StrengthPower".to_string(),
+                            amount: AmountSpec::Fixed(1),
+                            target: Target::SelfActor,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "HEADBUTT_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: AmountSpec::Fixed(14),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+            ],
+            spawn: vec![],
+            pattern: MovePattern::FirstTurnOverride {
+                first_move: "ILLUSION_MOVE",
+                then: Box::new(MovePattern::Conditional {
+                    // After ILLUSION → SWIPE.
+                    predicate: AiCondition::LastMoveWas("ILLUSION_MOVE"),
+                    then_branch: Box::new(MovePattern::Cycle {
+                        moves: vec!["SWIPE_MOVE"],
+                    }),
+                    // After SWIPE or HEADBUTT → weighted random
+                    // {SWIPE:0.4, HEADBUTT:0.6}, no_repeat on both.
+                    else_branch: Box::new(MovePattern::WeightedRandom {
+                        weights: vec![("SWIPE_MOVE", 4), ("HEADBUTT_MOVE", 6)],
+                        no_repeat: vec!["SWIPE_MOVE", "HEADBUTT_MOVE"],
+                    }),
+                }),
+            },
+        },
+    );
+}
+
 // ---------------------------------------------------------------- Tests
 
 #[cfg(test)]
@@ -1539,7 +1830,7 @@ mod tests {
     #[test]
     fn ai_registry_covers_new_monsters() {
         // 5 RubyRaiders + 2 test + 3 gremlins + 7 single + 3 two-move
-        // + 4 three-move + 4 weighted = 28 monsters total.
+        // + 4 three-move + 4 weighted + 4 flag-state = 32 monsters.
         let expected = [
             "AxeRubyRaider", "CrossbowRubyRaider", "BruteRubyRaider",
             "AssassinRubyRaider", "TrackerRubyRaider",
@@ -1550,6 +1841,7 @@ mod tests {
             "DampCultist", "SewerClam", "ToughEgg",
             "VineShambler", "KinFollower", "KinPriest", "PunchConstruct",
             "FossilStalker", "HunterKiller", "Flyconid", "Inklet",
+            "GasBomb", "Mawler", "FrogKnight", "Fogmog",
         ];
         for id in expected {
             assert!(ai_for(id).is_some(), "Missing AI for {}", id);

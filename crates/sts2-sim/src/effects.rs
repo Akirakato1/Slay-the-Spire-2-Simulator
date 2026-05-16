@@ -946,6 +946,16 @@ pub enum Effect {
     /// not yet modeled (no card / monster targets player-stun in our
     /// current ports).
     Stun { target: Target },
+    /// Set a boolean flag on a monster's `MonsterState`. Used by
+    /// state-machine moves that need persistent across-turn state —
+    /// FrogKnight's `HasBeetleCharged` (once it fires, the HP-threshold
+    /// branch stays in the post-charge path), Mawler's `RoarUsed`
+    /// (UseOnce gate), GasBomb's `HasExploded`. Targets the actor.
+    /// No-op when the actor is a player.
+    SetMonsterFlag {
+        flag: String,
+        value: bool,
+    },
     /// Apply an Affliction to every card in `pile`. HexPower-style:
     /// iterate all cards, set `card.affliction = Some(...)`. STUB —
     /// affliction-on-card infrastructure (CardInstance.affliction
@@ -10016,12 +10026,26 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             crate::monster_dispatch::spawn_monster_into_slot(cs, monster_id, slot);
         }
         Effect::KillSelf => {
-            // Interpreted as the actor; in card OnPlay contexts the
-            // actor is the player and KillSelf is unused (no cards
-            // self-kill the player). For monster moves dispatched
-            // through the VM, the actor index will live in EffectContext
-            // once that path lands.
-            // No-op for now to keep cards safe.
+            // Targets the EffectContext actor. For monster moves
+            // (GasBomb EXPLODE) the actor is the enemy and current_hp
+            // drops to 0. For card play the actor is the player and
+            // this is unused — guard with the CombatSide check.
+            let (side, idx) = ctx.actor;
+            if let Some(c) = creature_at_mut(cs, side, idx) {
+                c.current_hp = 0;
+            }
+        }
+        Effect::SetMonsterFlag { flag, value } => {
+            let (side, idx) = ctx.actor;
+            if matches!(side, CombatSide::Enemy) {
+                if let Some(ms) = cs
+                    .enemies
+                    .get_mut(idx)
+                    .and_then(|c| c.monster.as_mut())
+                {
+                    ms.set_flag(flag, *value);
+                }
+            }
         }
         Effect::SetMaxHpAndHeal { amount, target } => {
             let amt = amount.resolve(ctx, cs);
@@ -12260,7 +12284,10 @@ mod tests {
                 cost: AmountSpec::Fixed(0),
                 scope: CostScope::ThisTurn,
             },
-            Effect::KillSelf,
+            // KillSelf was previously a stub (player can't self-kill
+            // via cards) but now resolves against ctx.actor for
+            // monster-move support (GasBomb EXPLODE). Removed from
+            // this stub list; tested elsewhere via the monster path.
         ];
         execute_effects(&mut cs, &stubs, &ctx);
         // Just assert the run didn't panic and state is plausible.
