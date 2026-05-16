@@ -262,11 +262,13 @@ fn enchantment_coverage_report() {
     // This is a documentation test that prints status; doesn't fail.
     let wired_modifier_pipeline = ["Sharp", "Corrupted", "Nimble", "Vigorous"];
     let wired_onplay = ["Sown", "Swift", "Adroit", "Inky"];
+    let wired_play_count = ["Glam", "Spiral"];
+    let wired_self_state = ["Momentum", "Goopy"];
+    let wired_after_drawn = ["Slither"];
     let keyword_only = ["Steady", "TezcatarasEmber", "SoulsPower",
-                        "RoyallyApproved", "Goopy"];
-    let needs_play_count_hook = ["Glam", "Spiral"];
+                        "RoyallyApproved"];
     let needs_other_infra = ["Imbued", "PerfectFit", "SlumberingEssence",
-                             "Slither", "Clone", "Momentum"];
+                             "Clone"];
 
     let all = ["Adroit","Clone","Corrupted","DeprecatedEnchantment","Glam",
                "Goopy","Imbued","Inky","Instinct","Momentum","Nimble",
@@ -275,18 +277,25 @@ fn enchantment_coverage_report() {
                "Swift","TezcatarasEmber","Vigorous"];
     let total_wired = wired_modifier_pipeline.len()
         + wired_onplay.len()
+        + wired_play_count.len()
+        + wired_self_state.len()
+        + wired_after_drawn.len()
         + keyword_only.len();
     eprintln!("\n========= ENCHANTMENT COVERAGE =========");
-    eprintln!("Total enchantments in data:  {}", all.len());
-    eprintln!("Wired (modifier pipeline):   {} {:?}",
+    eprintln!("Total enchantments in data:    {}", all.len());
+    eprintln!("Wired (modifier pipeline):     {} {:?}",
         wired_modifier_pipeline.len(), wired_modifier_pipeline);
-    eprintln!("Wired (OnPlay hook):         {} {:?}",
+    eprintln!("Wired (OnPlay hook):           {} {:?}",
         wired_onplay.len(), wired_onplay);
+    eprintln!("Wired (EnchantPlayCount loop): {} {:?}",
+        wired_play_count.len(), wired_play_count);
+    eprintln!("Wired (per-instance state):    {} {:?}",
+        wired_self_state.len(), wired_self_state);
+    eprintln!("Wired (AfterCardDrawn hook):   {} {:?}",
+        wired_after_drawn.len(), wired_after_drawn);
     eprintln!("Wired (keyword-only at attach time): {} {:?}",
         keyword_only.len(), keyword_only);
-    eprintln!("Not wired — play-count hook: {} {:?}",
-        needs_play_count_hook.len(), needs_play_count_hook);
-    eprintln!("Not wired — other infra:     {} {:?}",
+    eprintln!("Not wired — other infra:       {} {:?}",
         needs_other_infra.len(), needs_other_infra);
     eprintln!("Effectively wired: {}/{}", total_wired, all.len());
 }
@@ -421,6 +430,37 @@ fn gamblers_brew_draws_picked_count_via_follow_up() {
         "Auto-resolved GamblersBrew with 0 picks: hand unchanged");
     assert_eq!(cs.last_choice_pick_count, 0,
         "LastChoicePickCount must be wired through auto-resolve");
+}
+
+// ----------------------------------------------------------------------
+// Section H': AfterCardDrawn — Slither cost override on draw.
+// ----------------------------------------------------------------------
+
+#[test]
+fn slither_sets_cost_override_when_drawn() {
+    // Stash a Slither-enchanted Strike at the top of the draw pile,
+    // then call draw_cards. The drawn instance must have
+    // cost_override_until_played = Some(0).
+    let mut cs = ironclad_combat();
+    let mut inst = CardInstance::from_card(
+        card::by_id("StrikeIronclad").unwrap(), 0);
+    inst.enchantment = Some(EnchantmentInstance {
+        id: "Slither".to_string(),
+        amount: 0,
+        consumed_this_combat: false,
+        state: Default::default(),
+    });
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    ps.draw.cards.insert(0, inst); // top-of-deck (drawn next)
+    let mut rng = sts2_sim::rng::Rng::new(0, 0);
+    cs.draw_cards(0, 1, &mut rng);
+    let hand = &cs.allies[0].player.as_ref().unwrap().hand.cards;
+    let slithered = hand.iter()
+        .find(|c| c.enchantment.as_ref()
+            .map(|e| e.id == "Slither").unwrap_or(false))
+        .expect("Slither-enchanted card landed in hand");
+    assert_eq!(slithered.cost_override_until_played, Some(0),
+        "Slither's AfterCardDrawn must set cost_override_until_played=0");
 }
 
 #[test]

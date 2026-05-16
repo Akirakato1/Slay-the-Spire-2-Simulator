@@ -1775,7 +1775,13 @@ impl CombatState {
                 // Rust's CardPile.cards is ordered with the next-to-draw
                 // at index 0; end-of-Vec is the bottom of the pile.
                 if !ps.draw.cards.is_empty() {
-                    let card = ps.draw.cards.remove(0);
+                    let mut card = ps.draw.cards.remove(0);
+                    // Per-card AfterCardDrawn enchantment hook —
+                    // Slither sets cost_override_until_played=0 on
+                    // the freshly-drawn instance so the next play is
+                    // free. Hook receives the live card and mutates
+                    // it in place before it lands in hand.
+                    enchantment_after_card_drawn(&mut card);
                     drawn_ids.push(card.id.clone());
                     ps.hand.cards.push(card);
                 }
@@ -5527,6 +5533,24 @@ pub fn enchantment_modify_play_count(
         "Glam" if !e.consumed_this_combat => 1 + times,
         "Spiral" => 1 + times,
         _ => 1,
+    }
+}
+
+/// AfterCardDrawn enchantment hook — mutates a card in-place when
+/// it lands in hand. Slither's C# body sets `cost_override_until_played`
+/// to 0 (next play is free; the override clears after the play, so
+/// the cost resets if re-drawn). Pure: takes the card and returns
+/// it mutated; caller is `draw_cards` which applies the override on
+/// the freshly-drawn instance before pushing to hand.
+pub fn enchantment_after_card_drawn(card: &mut CardInstance) {
+    let Some(ench) = card.enchantment.as_ref() else { return };
+    match ench.id.as_str() {
+        "Slither" => {
+            // C# Slither.AfterCardDrawn:
+            // base.Card.CostOverrideUntilPlayed = 0.
+            card.cost_override_until_played = Some(0);
+        }
+        _ => {}
     }
 }
 
