@@ -125,6 +125,10 @@ pub struct RunState {
     /// the run is paused waiting for the agent to commit. Resolution
     /// applies the picked indices to the player's deck / relics / potions.
     pub pending_offer: Option<PendingRunStateOffer>,
+    /// One in-flight deck-action choice (upgrade / remove a card the
+    /// player already owns). Distinct from `pending_offer` because
+    /// the picks index into the master deck, not an external pool.
+    pub pending_deck_action: Option<PendingDeckAction>,
 }
 
 /// What kind of reward is being offered. The resolver dispatches on
@@ -138,6 +142,35 @@ pub enum OfferKind {
     /// Potion to add to the player's potion belt (capped at
     /// max_potion_slot_count).
     Potion,
+}
+
+/// Per-deck action that targets an existing card in the player's
+/// master deck. Distinct from `OfferKind` because the picks reference
+/// `eligible_indices` slots (positions in the player's `deck` vec),
+/// not external pool options. Smith / Toke / Dig / event-driven
+/// transforms all share this shape.
+#[derive(Debug, Clone)]
+pub struct PendingDeckAction {
+    pub action: DeckActionKind,
+    pub player_idx: usize,
+    /// Indices into `players[player_idx].deck` that the agent may
+    /// pick from. Built at offer-emit time so the agent never picks
+    /// an ineligible card (e.g., a non-upgradable card for Smith).
+    pub eligible_indices: Vec<usize>,
+    pub n_min: i32,
+    pub n_max: i32,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeckActionKind {
+    /// Increment `current_upgrade_level` by 1. Smith at campfire,
+    /// AfterRoomEntered upgrades from events. C# `CardCmd.Upgrade`.
+    Upgrade,
+    /// Remove the card from the master deck. Toke at campfire,
+    /// "remove a card" event branches, shop card-remove. C#
+    /// `CardCmd.RemoveFromDeck`.
+    Remove,
 }
 
 /// One in-flight reward offer. Mirrors `CombatState.PendingChoice`
@@ -189,6 +222,7 @@ impl RunState {
             players_rng,
             auto_resolve_offers: true,
             pending_offer: None,
+            pending_deck_action: None,
         }
     }
 
