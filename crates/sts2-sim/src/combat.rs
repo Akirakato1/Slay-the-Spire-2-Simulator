@@ -465,6 +465,12 @@ pub struct CombatState {
     /// `filter`. The selection drives `action` against `pile`, then
     /// `queued_effects` resume from where the dispatcher left off.
     pub pending_choice: Option<PendingChoice>,
+    /// Count of cards picked in the most recently resolved
+    /// `AwaitPlayerChoice`. Read via `AmountSpec::LastChoicePickCount`
+    /// from a choice's `follow_up` Effect chain (GamblersBrew's
+    /// "draw what you discarded"). Reset on each new choice firing
+    /// — not durable past the follow-up vector.
+    pub last_choice_pick_count: i32,
 }
 
 /// One pending player-choice request. The agent reads this to know
@@ -529,6 +535,7 @@ impl CombatState {
             rng: Rng::new(0, 0),
             auto_resolve_choices: true,
             pending_choice: None,
+            last_choice_pick_count: 0,
         }
     }
 
@@ -576,6 +583,7 @@ impl CombatState {
             rng: Rng::new(0, 0),
             auto_resolve_choices: true,
             pending_choice: None,
+            last_choice_pick_count: 0,
         }
     }
 
@@ -3767,15 +3775,28 @@ impl CombatState {
         // 5. Dispatch OnPlay. The handler may mutate cs freely. The
         //    played card's enchantment (if any) is forwarded for damage
         //    modifier participation.
-        let handled = dispatch_on_play(
-            self,
-            &card_id,
-            upgrade_level,
+        //
+        //    Play-count modifier chain (C# `OnPlayWrapper` loops
+        //    `playCount2 = ModifyCardPlayCount(...)` times). Enchantments
+        //    can bump the play count: Glam (+Times once-per-combat),
+        //    Spiral (+Times always). Each iteration re-runs the
+        //    OnPlay body — Bash with Glam(+1) deals 8+8 damage and
+        //    applies Vulnerable twice. We loop `play_count` times.
+        let play_count = enchantment_modify_play_count(
             played_card.enchantment.as_ref(),
-            player_idx,
-            target,
-            x_value,
-        );
+        ).max(1);
+        let mut handled = false;
+        for _ in 0..play_count {
+            handled |= dispatch_on_play(
+                self,
+                &card_id,
+                upgrade_level,
+                played_card.enchantment.as_ref(),
+                player_idx,
+                target,
+                x_value,
+            );
+        }
 
         // 5b. Enchantment OnPlay hooks. Fired AFTER the card's own
         //     OnPlay body so additive effects (Sown's GainEnergy,
@@ -5488,12 +5509,33 @@ pub fn apply_enchantment_on_play(
     }
 }
 
+/// Per-enchantment `EnchantPlayCount` modifier. Returns the play
+/// count after this enchantment's contribution. The caller starts at
+/// `originalPlayCount = 1` and walks all listeners (enchantments,
+/// powers, relics) — today we only have enchantments. Mirrors C#
+/// `EnchantmentModel.EnchantPlayCount(originalPlayCount)`.
+///
+/// Glam (once-per-combat): `+Times` if `consumed_this_combat` is
+/// false. The `consumed_this_combat` flag flips after dispatch.
+/// Spiral (no gate): `+Times` every play.
+pub fn enchantment_modify_play_count(
+    ench: Option<&EnchantmentInstance>,
+) -> i32 {
+    let Some(e) = ench else { return 1 };
+    let times = e.amount.max(0);
+    match e.id.as_str() {
+        "Glam" if !e.consumed_this_combat => 1 + times,
+        "Spiral" => 1 + times,
+        _ => 1,
+    }
+}
+
 /// Returns the post-play `state` mutation an enchantment makes to its
-/// own per-instance state on OnPlay. Caller applies the delta to
-/// `played_card.enchantment.state` BEFORE routing the card. Mirrors
-/// C# enchantment OnPlay methods that mutate private fields
-/// (Momentum.ExtraDamage += Amount, Goopy.Amount++ via
-/// AfterCardPlayed, etc.).
+/// own per-instance state on OnPlay (own card just played). Caller
+/// applies the delta to `played_card.enchantment.state` BEFORE
+/// routing the card. Mirrors C# enchantment OnPlay methods that
+/// mutate private fields (Momentum.ExtraDamage += Amount,
+/// Goopy.Amount++ via AfterCardPlayed-when-played-is-host).
 pub fn enchantment_self_state_delta(ench: &EnchantmentInstance) -> Vec<(String, i32)> {
     match ench.id.as_str() {
         "Momentum" => {
@@ -5501,10 +5543,11 @@ pub fn enchantment_self_state_delta(ench: &EnchantmentInstance) -> Vec<(String, 
             vec![("ExtraDamage".to_string(), ench.amount)]
         }
         "Goopy" => {
-            // C# Goopy.AfterCardPlayed: Amount++. We track via a
-            // separate state key so the additive isn't read from the
-            // base Amount field (which gates other enchantment
-            // behavior — keep them separated).
+            // C# Goopy.AfterCardPlayed (filtered to host card only):
+            // Amount++. We track in state["StackCount"] so the base
+            // amount field stays at its initial value. Semantically
+            // equivalent to "Amount++ on each play of this card" since
+            // C# guards `cardPlay.Card != base.Card → return`.
             vec![("StackCount".to_string(), 1)]
         }
         _ => Vec::new(),

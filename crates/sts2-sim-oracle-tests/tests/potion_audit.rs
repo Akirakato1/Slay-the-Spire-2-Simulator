@@ -31,11 +31,13 @@ fn ironclad_combat() -> CombatState {
 
 /// Execute a potion's effect list against `cs` with the player as
 /// the source. Mirrors how UsePotion routes via potion_effects.
+/// Uses `for_potion_use` so AmountSpec::Canonical resolves through
+/// the potion's canonical_vars table (kind="Damage"/"Cards"/etc.).
 fn use_potion(cs: &mut CombatState, potion_id: &str, target_enemy_idx: Option<usize>) {
     let effects_list = effects::potion_effects(potion_id)
         .unwrap_or_else(|| panic!("no encoding for {}", potion_id));
     let target = target_enemy_idx.map(|i| (CombatSide::Enemy, i));
-    let ctx = EffectContext::for_card(0, target, potion_id, 0, None, 0);
+    let ctx = EffectContext::for_potion_use(0, target, potion_id);
     effects::execute_effects(cs, &effects_list, &ctx);
 }
 

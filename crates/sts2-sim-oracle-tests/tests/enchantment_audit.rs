@@ -324,3 +324,144 @@ fn apply_enchantment_on_play_sown_skips_when_consumed() {
     assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 3,
         "Sown with consumed=true should be a no-op");
 }
+
+// ----------------------------------------------------------------------
+// Section F: Play-count enchantments (Glam / Spiral) — loop dispatch.
+// ----------------------------------------------------------------------
+
+#[test]
+fn glam_doubles_strike_damage_on_first_play() {
+    // Glam(+1): play count = 1 + 1 = 2 → Strike dispatches twice.
+    // Once-per-combat: only the first play loops; subsequent plays
+    // dispatch once.
+    let mut cs = ironclad_combat();
+    force_enchanted(&mut cs, "StrikeIronclad", "Glam", 1);
+    let hp_before = cs.enemies[0].current_hp;
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    ps.energy = 3;
+    cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+    let dmg = hp_before - cs.enemies[0].current_hp;
+    assert_eq!(dmg, 12,
+        "Glam(+1) on Strike should fire OnPlay twice → 6+6=12 (dealt {})",
+        dmg);
+    // consumed_this_combat must flip on the played card's enchantment.
+    let card = cs.allies[0].player.as_ref().unwrap()
+        .discard.cards.iter()
+        .find(|c| c.id == "StrikeIronclad")
+        .expect("Strike in discard");
+    let ench = card.enchantment.as_ref().expect("enchantment preserved");
+    assert!(ench.consumed_this_combat,
+        "Glam's consumed_this_combat must flip after first play");
+}
+
+#[test]
+fn spiral_doubles_strike_damage_every_play() {
+    // Spiral(+1) is NOT once-per-combat — every play loops.
+    let mut cs = ironclad_combat();
+    force_enchanted(&mut cs, "StrikeIronclad", "Spiral", 1);
+    let hp_before = cs.enemies[0].current_hp;
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    ps.energy = 3;
+    cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+    let dmg = hp_before - cs.enemies[0].current_hp;
+    assert_eq!(dmg, 12,
+        "Spiral(+1) should make Strike dispatch twice (6+6=12, dealt {})",
+        dmg);
+    // Spiral does NOT consume.
+    let card = cs.allies[0].player.as_ref().unwrap()
+        .discard.cards.iter()
+        .find(|c| c.id == "StrikeIronclad")
+        .expect("Strike in discard");
+    let ench = card.enchantment.as_ref().expect("enchantment preserved");
+    assert!(!ench.consumed_this_combat,
+        "Spiral must NOT flip consumed_this_combat (always-on)");
+}
+
+// ----------------------------------------------------------------------
+// Section G: Goopy — stacks per host-card play via self_state_delta.
+// ----------------------------------------------------------------------
+
+#[test]
+fn goopy_increments_stack_count_on_each_play_of_host() {
+    let mut cs = ironclad_combat();
+    force_enchanted(&mut cs, "StrikeIronclad", "Goopy", 1);
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    ps.energy = 3;
+    cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+    let strike = cs.allies[0].player.as_ref().unwrap()
+        .discard.cards.iter()
+        .find(|c| c.id == "StrikeIronclad")
+        .expect("Strike in discard");
+    let ench = strike.enchantment.as_ref().expect("enchantment preserved");
+    let stack = ench.state.get("StackCount").copied().unwrap_or(0);
+    assert_eq!(stack, 1,
+        "Goopy.StackCount must be 1 after first play of host (was {})",
+        stack);
+}
+
+// ----------------------------------------------------------------------
+// Section H: Choice continuation — LastChoicePickCount via follow_up.
+// ----------------------------------------------------------------------
+
+#[test]
+fn gamblers_brew_draws_picked_count_via_follow_up() {
+    // Auto-resolve path: GamblersBrew's AwaitPlayerChoice picks 0 (the
+    // "any-number" Discard branch defaults to 0). The follow-up
+    // DrawCards { LastChoicePickCount } sees count=0 → no draw.
+    // The behavior we lock in: no panic + LastChoicePickCount wired.
+    let mut cs = ironclad_combat();
+    let hand_before = cs.allies[0].player.as_ref().unwrap().hand.cards.len();
+    let ctx = EffectContext::for_potion_use(
+        0, Some((CombatSide::Enemy, 0)), "GamblersBrew");
+    let body = effects::potion_effects("GamblersBrew").unwrap();
+    effects::execute_effects(&mut cs, &body, &ctx);
+    // Auto-pick was 0 → discard 0 → draw 0 → hand unchanged.
+    let hand_after = cs.allies[0].player.as_ref().unwrap().hand.cards.len();
+    assert_eq!(hand_after, hand_before,
+        "Auto-resolved GamblersBrew with 0 picks: hand unchanged");
+    assert_eq!(cs.last_choice_pick_count, 0,
+        "LastChoicePickCount must be wired through auto-resolve");
+}
+
+#[test]
+fn last_choice_pick_count_carries_to_follow_up_effects() {
+    // Build a synthetic Effect chain: AwaitPlayerChoice with
+    // n_max=2 follow_up=[DrawCards(LastChoicePickCount)]. Force
+    // hand has 2 cards, auto-resolve picks them, follow-up draws 2.
+    let mut cs = ironclad_combat();
+    // Use Exhaust action (not Discard) so the auto-resolve path picks
+    // n_max instead of 0 (Discard's any-min=0 short-circuit).
+    let strike = card::by_id("StrikeIronclad").unwrap();
+    let defend = card::by_id("DefendIronclad").unwrap();
+    let ps = cs.allies[0].player.as_mut().unwrap();
+    ps.hand.cards.push(CardInstance::from_card(strike, 0));
+    ps.hand.cards.push(CardInstance::from_card(defend, 0));
+    ps.energy = 3;
+    let hand_before = ps.hand.cards.len();
+    let draw_before = ps.draw.cards.len();
+    let body = vec![Effect::AwaitPlayerChoice {
+        pile: Pile::Hand,
+        n_min: 0,
+        n_max: AmountSpec::Fixed(2),
+        filter: effects::CardFilter::Any,
+        action: effects::ChoiceActionSpec::Exhaust,
+        follow_up: vec![Effect::DrawCards {
+            amount: AmountSpec::LastChoicePickCount,
+        }],
+    }];
+    let ctx = EffectContext::for_card(
+        0, Some((CombatSide::Enemy, 0)), "StrikeIronclad", 0, None, 0);
+    effects::execute_effects(&mut cs, &body, &ctx);
+    // Auto-resolve picks 2; exhaust 2 then draw 2.
+    let ps2 = cs.allies[0].player.as_ref().unwrap();
+    assert_eq!(cs.last_choice_pick_count, 2,
+        "LastChoicePickCount should be set to the auto-pick count");
+    // Hand stays the same size: -2 exhausted, +2 drawn.
+    assert_eq!(ps2.hand.cards.len(), hand_before,
+        "hand size: -2 exhaust +2 draw == net zero (was {}, now {})",
+        hand_before, ps2.hand.cards.len());
+    // Draw pile decreased by 2.
+    assert_eq!(ps2.draw.cards.len(), draw_before - 2,
+        "draw pile should shrink by 2 (was {}, now {})",
+        draw_before, ps2.draw.cards.len());
+}

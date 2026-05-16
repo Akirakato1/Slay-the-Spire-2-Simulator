@@ -192,6 +192,13 @@ pub enum AmountSpec {
     ExhaustPileCardCount { filter: CardFilter },
     /// Sum of positive stars-deltas this turn (Radiate hit count).
     StarsGainedThisTurnPositive,
+    /// Count of cards the player just picked in the most recently
+    /// resolved `Effect::AwaitPlayerChoice`. Used by GamblersBrew's
+    /// follow-up `DrawCards { amount: LastChoicePickCount }` to mirror
+    /// "discard any number, draw that many". Set by both the
+    /// auto-resolve fallback and `resolve_pending_choice`; falls back
+    /// to 0 outside a choice continuation.
+    LastChoicePickCount,
     /// `max(a, b)`. Mirrors C# `Math.Max(a, b)` — Hang's
     /// `Apply<HangPower>(Max(2, target.HangPower))`.
     Max { left: Box<AmountSpec>, right: Box<AmountSpec> },
@@ -635,6 +642,14 @@ pub enum Effect {
         n_max: AmountSpec,
         filter: CardFilter,
         action: ChoiceActionSpec,
+        /// Effects to execute after the chosen action resolves. The
+        /// just-resolved pick count is available via
+        /// `AmountSpec::LastChoicePickCount`. Empty Vec ≈ no follow-up
+        /// (the common case for plain Discovery / Exhaust picks).
+        /// GamblersBrew uses `follow_up: [DrawCards { LastChoicePickCount }]`
+        /// to draw the same number it discarded.
+        #[serde(default)]
+        follow_up: Vec<Effect>,
     },
 
     /// Add `delta` to the player's round-1 initial-hand-draw count.
@@ -1419,6 +1434,7 @@ impl AmountSpec {
             AmountSpec::StarsGainedThisTurnPositive => {
                 stars_gained_this_turn_positive(cs, ctx.player_idx)
             }
+            AmountSpec::LastChoicePickCount => cs.last_choice_pick_count,
             AmountSpec::OrbQueueSize => cs
                 .allies
                 .get(ctx.player_idx)
@@ -4260,45 +4276,42 @@ pub fn potion_effects(potion_id: &str) -> Option<Vec<Effect>> {
         }]),
 
         // C# FoulPotion: damages every non-pet Creature in combat
-        // (player + all enemies) for DamageVar(12, Unpowered). The
-        // Canonical resolver doesn't read potion canonical_vars yet,
-        // so use Fixed(12). Two effects: AllEnemies damage + self LoseHp.
+        // (player + all enemies) for DamageVar(Damage=12, Unpowered).
+        // Canonical("Damage") resolves through potion canonical_vars.
         "FoulPotion" => Some(vec![
             Effect::DealDamage {
-                amount: AmountSpec::Fixed(12),
+                amount: AmountSpec::Canonical("Damage".to_string()),
                 target: Target::AllEnemies,
                 hits: 1,
             },
             Effect::LoseHp {
-                amount: AmountSpec::Fixed(12),
+                amount: AmountSpec::Canonical("Damage".to_string()),
                 target: Target::SelfPlayer,
             },
         ]),
 
         // C# GamblersBrew: discard any cards from hand, then draw
         // that many. Encoded via AwaitPlayerChoice with action=Discard
-        // and a placeholder draw count (which today resolves to "draw
-        // up to the choice's n_max"). When the choice infrastructure
-        // grows continuations, this can resume into DrawCards(picked_n).
-        // For now we use the auto-resolve fallback: pick up to hand-
-        // size cards (typically 0 with PlayerInteractive top-N) and
-        // draw the same. Functional but not optimal.
+        // and a `follow_up` of DrawCards(LastChoicePickCount) so the
+        // discard count flows into the draw. Auto-resolve picks 0 by
+        // default (the "any number" branch, agent decides at play-
+        // time); deferred mode pauses on `pending_choice` and resumes
+        // through resolve_pending_choice.
         "GamblersBrew" => Some(vec![Effect::AwaitPlayerChoice {
             pile: Pile::Hand,
             n_min: 0,
             n_max: AmountSpec::Fixed(99),
             filter: CardFilter::Any,
             action: ChoiceActionSpec::Discard,
+            follow_up: vec![Effect::DrawCards {
+                amount: AmountSpec::LastChoicePickCount,
+            }],
         }]),
 
         // C# SneckoOil: draw N cards, then randomize the cost of
         // every non-X-cost card in hand to a uniform 0..MaxRandomized.
-        // The randomize step requires a per-card cost-override
-        // primitive that doesn't exist yet; for now we just draw.
         "SneckoOil" => Some(vec![
-            // Canonical("Cards") = 7 for this potion (no potion-
-            // canonical resolver yet, so literal 7).
-            Effect::DrawCards { amount: AmountSpec::Fixed(7) },
+            Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) },
             // C# Snecko randomizes to {0, 1, 2} per card. The C# game
             // uses NextEnergyCost() which picks uniformly in that
             // range. We use max_cost=2 → range 0..=2.
@@ -7743,6 +7756,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
                 n_max: AmountSpec::Fixed(1),
                 filter: CardFilter::Any,
                 action: ChoiceActionSpec::Exhaust,
+                follow_up: Vec::new(),
             }],
             else_branch: vec![Effect::ExhaustRandomInHand {
                 amount: AmountSpec::Fixed(1),
@@ -8462,7 +8476,7 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             let d = delta.resolve(ctx, cs);
             cs.change_orb_slots(ctx.player_idx, d);
         }
-        Effect::AwaitPlayerChoice { pile, n_min, n_max, filter, action } => {
+        Effect::AwaitPlayerChoice { pile, n_min, n_max, filter, action, follow_up } => {
             let n_max_val = n_max.resolve(ctx, cs).max(0);
             let n_min_val = (*n_min).max(0).min(n_max_val);
             // Translate spec action to combat-side ChoiceAction.
@@ -8477,12 +8491,31 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             if cs.auto_resolve_choices {
                 // Backward-compat path: auto-pick top-N candidates and
                 // apply the action immediately, then continue effects.
+                // For zero-min "any" choices (GamblersBrew) we pick 0
+                // so the agent's later policy sweep sees the action;
+                // otherwise pick top-n_max_val to maintain prior
+                // behavior of Discovery / Exhaust-pick cards.
+                let auto_n = if n_min_val == 0 && n_max_val > 0
+                    && matches!(combat_action, CA::Discard)
+                {
+                    0
+                } else {
+                    n_max_val
+                };
                 let stub = Selector::PlayerInteractiveFiltered {
-                    n: n_max_val,
+                    n: auto_n,
                     filter: filter.clone(),
                 };
                 let picks = select_card_indices(cs, ctx.player_idx, *pile, &stub);
+                let pick_count = picks.len() as i32;
                 apply_choice_action(cs, ctx.player_idx, *pile, &picks, &combat_action);
+                // Run the choice's follow_up with LastChoicePickCount
+                // bound to the just-applied pick count. Mirrors
+                // resolve_pending_choice's continuation flow.
+                cs.last_choice_pick_count = pick_count;
+                if !follow_up.is_empty() {
+                    execute_effects(cs, follow_up, ctx);
+                }
             } else {
                 // Pause execution; the caller (env.step) returns a
                 // choice-pending outcome. resolve_pending_choice will
@@ -8496,7 +8529,7 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                     n_max: n_max_val,
                     filter: Some(filter.clone()),
                     action: combat_action,
-                    queued_effects: Vec::new(),
+                    queued_effects: follow_up.clone(),
                     resume_target: ctx.target,
                     resume_upgrade_level: ctx.upgrade_level,
                     resume_x_value: ctx.x_value,
@@ -10056,6 +10089,33 @@ pub fn resolve_pending_choice(
         }
     }
     apply_choice_action(cs, pc.player_idx, pile, picks, &pc.action);
+    cs.last_choice_pick_count = picks.len() as i32;
+    // Run the choice continuation (Effects queued at AwaitPlayerChoice
+    // emit-time) with LastChoicePickCount bound. The continuation
+    // sees a context shaped by the resume_* fields captured when the
+    // choice was emitted. Source-card id (for Canonical) is preserved
+    // via the PendingChoice's `source_card_id`.
+    if !pc.queued_effects.is_empty() {
+        let resume_ctx = EffectContext {
+            player_idx: pc.player_idx,
+            target: pc.resume_target,
+            source_card_id: if pc.source_card_id.is_empty() {
+                None
+            } else {
+                Some(pc.source_card_id.as_str())
+            },
+            upgrade_level: pc.resume_upgrade_level,
+            enchantment: None,
+            x_value: pc.resume_x_value,
+            actor: (crate::combat::CombatSide::Player, pc.player_idx),
+            actor_amount: 0,
+            source_relic_id: None,
+            last_realized_damage: std::cell::Cell::new(0),
+            last_realized_block: std::cell::Cell::new(0),
+            hand_size_at_play_start: 0,
+        };
+        execute_effects(cs, &pc.queued_effects, &resume_ctx);
+    }
     Ok(())
 }
 

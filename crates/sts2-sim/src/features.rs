@@ -685,6 +685,7 @@ mod tests {
             amount: 2,
         
             consumed_this_combat: false,
+            state: std::collections::HashMap::new(),
         });
         let f = card_features(strike, Some(&inst));
         assert_eq!(f.values[IDX_HAS_ENCHANTMENT], 1.0);
