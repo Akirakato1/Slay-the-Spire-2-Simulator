@@ -6494,7 +6494,27 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
             else_branch: vec![],
         }]),
         "Buffer" => Some(vec![Effect::ApplyPower { power_id: "BufferPower".to_string(), amount: AmountSpec::Canonical("BufferPower".to_string()), target: Target::SelfPlayer }]),
-        "BulkUp" => Some(vec![Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "StrengthPower".to_string(), amount: AmountSpec::Canonical("StrengthPower".to_string()), target: Target::SelfPlayer }]),
+        // C# BulkUp: RemoveSlots(OrbSlots) + Apply<Strength>(Str) + Apply<Dexterity>(Dex).
+        // The "remove slots" operation is the existing `ChangeOrbSlots` primitive
+        // with a negative delta — no new primitive needed. Negate via Mul.
+        "BulkUp" => Some(vec![
+            Effect::ChangeOrbSlots {
+                delta: AmountSpec::Mul {
+                    left: Box::new(AmountSpec::Fixed(-1)),
+                    right: Box::new(AmountSpec::Canonical("OrbSlots".to_string())),
+                },
+            },
+            Effect::ApplyPower {
+                power_id: "DexterityPower".to_string(),
+                amount: AmountSpec::Canonical("DexterityPower".to_string()),
+                target: Target::SelfPlayer,
+            },
+            Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::Canonical("StrengthPower".to_string()),
+                target: Target::SelfPlayer,
+            },
+        ]),
         "Burn" => Some(vec![]),
         "BurningPact" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "Bury" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
