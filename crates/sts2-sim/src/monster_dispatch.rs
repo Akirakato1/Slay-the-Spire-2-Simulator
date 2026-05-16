@@ -144,6 +144,11 @@ pub fn all_enemies_have_dispatch(cs: &CombatState) -> bool {
 }
 
 pub fn monster_has_dispatch(model_id: &str) -> bool {
+    // Data-driven AIs go through the registry path; the hand-rolled
+    // matches!() list below covers the legacy monsters not yet migrated.
+    if crate::monster_ai::ai_for(model_id).is_some() {
+        return true;
+    }
     matches!(
         model_id,
         "Axebot"
@@ -299,6 +304,30 @@ pub fn dispatch_enemy_turn(
     let slot = cs.enemies[enemy_idx].slot.clone();
     let last_str = last_intent_str(cs, enemy_idx);
     let last_ref = last_str.as_deref();
+
+    // Try the data-driven AI registry first. Monsters whose state
+    // machine + per-move effect lists are encoded in `monster_ai.rs`
+    // resolve through one generic pick-and-execute pipeline rather
+    // than per-monster pick_*_intent / execute_*_move pairs.
+    if let Some(ai) = crate::monster_ai::ai_for(&model_id) {
+        let mut rng = take_rng(cs);
+        let next = crate::monster_ai::pick_next_move(
+            &ai.pattern,
+            cs,
+            enemy_idx,
+            last_ref,
+            &slot,
+            &mut rng,
+        );
+        put_rng(cs, rng);
+        if let Some(move_id) = next {
+            crate::monster_ai::execute_move(cs, ai, move_id, enemy_idx, player_idx);
+            if let Some(m) = cs.enemies.get_mut(enemy_idx).and_then(|c| c.monster.as_mut()) {
+                m.intent_move = Some(move_id.to_string());
+            }
+        }
+        return true;
+    }
 
     match model_id.as_str() {
         "Axebot" => {
@@ -1120,4 +1149,112 @@ pub fn dispatch_enemy_turn(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod ai_integration_tests {
+    use super::*;
+    use crate::combat::{CombatState, Creature, CreatureKind, MonsterState};
+
+    /// Build a minimal combat: one player (allies[0]) + one enemy.
+    fn rig(model_id: &str) -> CombatState {
+        let mut cs = CombatState::empty();
+        let player = Creature {
+            kind: CreatureKind::Player,
+            model_id: "Ironclad".to_string(),
+            slot: String::new(),
+            current_hp: 80,
+            max_hp: 80,
+            block: 0,
+            powers: Vec::new(),
+            afflictions: Vec::new(),
+            player: None,
+            monster: None,
+        };
+        cs.allies.push(player);
+        let mut enemy = Creature::from_monster_spawn(model_id, "front");
+        if enemy.monster.is_none() {
+            enemy.monster = Some(MonsterState::default());
+        }
+        cs.enemies.push(enemy);
+        cs.rng = crate::rng::Rng::new(0xDEADBEEF, 0);
+        cs
+    }
+
+    #[test]
+    fn axe_ruby_raider_slash_first_then_sharpen() {
+        let mut cs = rig("AxeRubyRaider");
+        let pre_hp = cs.allies[0].current_hp;
+        // Turn 1: SLASH (-7 HP).
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(
+            cs.enemies[0].monster.as_ref().unwrap().intent_move,
+            Some("SLASH_MOVE".to_string())
+        );
+        assert_eq!(cs.allies[0].current_hp, pre_hp - 7);
+        // Turn 2: SHARPEN (+2 Strength to enemy). HP unchanged.
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(
+            cs.enemies[0].monster.as_ref().unwrap().intent_move,
+            Some("SHARPEN_MOVE".to_string())
+        );
+        let str_amount = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "StrengthPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(str_amount, 2);
+    }
+
+    #[test]
+    fn crossbow_ruby_raider_shoot_first_then_reload() {
+        let mut cs = rig("CrossbowRubyRaider");
+        let pre_hp = cs.allies[0].current_hp;
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(cs.allies[0].current_hp, pre_hp - 5);
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        // After RELOAD the enemy has 6 block.
+        assert_eq!(cs.enemies[0].block, 6);
+    }
+
+    #[test]
+    fn single_attack_move_monster_attacks_every_turn() {
+        let mut cs = rig("SingleAttackMoveMonster");
+        let pre_hp = cs.allies[0].current_hp;
+        for _ in 0..3 {
+            assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        }
+        assert_eq!(cs.allies[0].current_hp, pre_hp - 30);
+    }
+
+    #[test]
+    fn stunned_monster_skips_turn_and_clears_flag() {
+        let mut cs = rig("AxeRubyRaider");
+        cs.enemies[0].monster.as_mut().unwrap().set_flag("stunned", true);
+        let pre_hp = cs.allies[0].current_hp;
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        // No damage dealt; flag cleared.
+        assert_eq!(cs.allies[0].current_hp, pre_hp);
+        assert!(!cs.enemies[0].monster.as_ref().unwrap().flag("stunned"));
+    }
+
+    #[test]
+    fn dead_enemy_does_not_dispatch() {
+        let mut cs = rig("AxeRubyRaider");
+        cs.enemies[0].current_hp = 0;
+        let pre_hp = cs.allies[0].current_hp;
+        assert!(!dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(cs.allies[0].current_hp, pre_hp);
+    }
+
+    #[test]
+    fn data_driven_dispatch_overrides_legacy_for_registered_monsters() {
+        // Smoke test that the dispatcher actually goes through the
+        // data-driven path: monster_has_dispatch returns true for an
+        // id we know is only in monster_ai (not the legacy match).
+        assert!(monster_has_dispatch("AxeRubyRaider"));
+        assert!(monster_has_dispatch("GremlinMerc"));
+        assert!(monster_has_dispatch("FatGremlin"));
+    }
 }
