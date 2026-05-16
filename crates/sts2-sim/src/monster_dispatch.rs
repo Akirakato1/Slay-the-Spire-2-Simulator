@@ -42,6 +42,12 @@ pub fn spawn_monster_into_slot(cs: &mut CombatState, monster_id: &str, slot: &st
 
 fn fire_one_monster_spawn(cs: &mut CombatState, i: usize) {
     let id = cs.enemies[i].model_id.clone();
+    // Data-driven AIs fire their spawn body first; legacy match
+    // arms below cover monsters with hand-rolled spawn hooks.
+    if let Some(ai) = crate::monster_ai::ai_for(&id) {
+        crate::monster_ai::execute_spawn(cs, ai, i);
+        return;
+    }
     match id.as_str() {
         "Exoskeleton" => exoskeleton_spawn(cs, i),
         "ThievingHopper" => thieving_hopper_spawn(cs, i),
@@ -85,6 +91,11 @@ pub fn fire_monster_spawn_hooks(cs: &mut CombatState) {
     let n = cs.enemies.len();
     for i in 0..n {
         let id = cs.enemies[i].model_id.clone();
+        // Data-driven AIs fire their spawn body via the registry.
+        if let Some(ai) = crate::monster_ai::ai_for(&id) {
+            crate::monster_ai::execute_spawn(cs, ai, i);
+            continue;
+        }
         match id.as_str() {
             "Exoskeleton" => exoskeleton_spawn(cs, i),
             "ThievingHopper" => thieving_hopper_spawn(cs, i),
@@ -1256,5 +1267,95 @@ mod ai_integration_tests {
         assert!(monster_has_dispatch("AxeRubyRaider"));
         assert!(monster_has_dispatch("GremlinMerc"));
         assert!(monster_has_dispatch("FatGremlin"));
+    }
+
+    #[test]
+    fn zapbot_spawn_applies_high_voltage() {
+        let mut cs = rig("Zapbot");
+        fire_monster_spawn_hooks(&mut cs);
+        let hv = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "HighVoltagePower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(hv, 2, "Zapbot must spawn with HighVoltage(2)");
+    }
+
+    #[test]
+    fn sewer_clam_spawn_applies_plating() {
+        let mut cs = rig("SewerClam");
+        fire_monster_spawn_hooks(&mut cs);
+        let plating = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "PlatingPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(plating, 8);
+    }
+
+    #[test]
+    fn punch_construct_spawn_applies_artifact() {
+        let mut cs = rig("PunchConstruct");
+        fire_monster_spawn_hooks(&mut cs);
+        let artifact = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "ArtifactPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(artifact, 1);
+    }
+
+    #[test]
+    fn parafright_spawn_applies_illusion() {
+        let mut cs = rig("Parafright");
+        fire_monster_spawn_hooks(&mut cs);
+        let illusion = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "IllusionPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(illusion, 1);
+    }
+
+    #[test]
+    fn fossil_stalker_spawn_applies_suck() {
+        let mut cs = rig("FossilStalker");
+        fire_monster_spawn_hooks(&mut cs);
+        let suck = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "SuckPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(suck, 3);
+    }
+
+    #[test]
+    fn tough_egg_spawn_applies_hatch_countdown() {
+        let mut cs = rig("ToughEgg");
+        fire_monster_spawn_hooks(&mut cs);
+        let hatch = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "HatchPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(hatch, 1);
+    }
+
+    #[test]
+    fn ruby_raider_no_spawn_powers() {
+        // Sanity: monsters with empty spawn vec should NOT pick up
+        // stray powers via the data-driven path.
+        let mut cs = rig("AxeRubyRaider");
+        fire_monster_spawn_hooks(&mut cs);
+        assert!(
+            cs.enemies[0].powers.is_empty(),
+            "AxeRubyRaider has no spawn body — must spawn clean"
+        );
     }
 }

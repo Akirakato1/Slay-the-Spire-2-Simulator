@@ -146,12 +146,18 @@ pub enum AiCondition {
 }
 
 /// Full per-monster AI table. Owns the move list + the state-machine
-/// pattern. Stored in `MONSTER_AI_REGISTRY` keyed by model_id.
+/// pattern. Optional `spawn` is the effect body fired by
+/// `AfterAddedToRoom` (preset powers like HighVoltage, Plating, etc).
+/// Stored in `MONSTER_AI_REGISTRY` keyed by model_id.
 #[derive(Clone, Debug)]
 pub struct MonsterAi {
     pub model_id: &'static str,
     pub moves: Vec<MonsterMove>,
     pub pattern: MovePattern,
+    /// Effects fired once when the monster enters combat. Empty = no
+    /// preset powers / pre-combat setup.
+    #[allow(dead_code)]
+    pub spawn: Vec<Effect>,
 }
 
 impl MonsterAi {
@@ -159,6 +165,18 @@ impl MonsterAi {
     pub fn get_move(&self, id: &str) -> Option<&MonsterMove> {
         self.moves.iter().find(|m| m.id == id)
     }
+}
+
+/// Execute a monster's spawn payload through the Effect VM. Called
+/// from `fire_one_monster_spawn` for monsters in the registry.
+/// Idempotent if `spawn` is empty.
+pub fn execute_spawn(cs: &mut CombatState, ai: &MonsterAi, enemy_idx: usize) {
+    if ai.spawn.is_empty() {
+        return;
+    }
+    let body = ai.spawn.clone();
+    let ctx = EffectContext::for_monster_move(enemy_idx, None);
+    crate::effects::execute_effects(cs, &body, &ctx);
 }
 
 // ---------------------------------------------------------------- Evaluation
@@ -373,6 +391,7 @@ fn register_ruby_raiders(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["SLASH_MOVE", "SHARPEN_MOVE"],
             },
@@ -402,6 +421,7 @@ fn register_ruby_raiders(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["SHOOT_MOVE", "RELOAD_MOVE"],
             },
@@ -439,6 +459,7 @@ fn register_ruby_raiders(m: &mut HashMap<&'static str, MonsterAi>) {
                     ],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::WeightedRandom {
                 weights: vec![("SLAM_MOVE", 1), ("STOMP_MOVE", 1)],
                 no_repeat: vec!["SLAM_MOVE", "STOMP_MOVE"],
@@ -469,6 +490,7 @@ fn register_ruby_raiders(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["BACKSTAB_MOVE", "HIDE_MOVE"],
             },
@@ -499,6 +521,7 @@ fn register_ruby_raiders(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["TRACK_MOVE", "FIRE_MOVE"],
             },
@@ -525,6 +548,7 @@ fn register_simple_test_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     hits: 1,
                 }],
             }],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["ATTACK_MOVE"],
             },
@@ -555,6 +579,7 @@ fn register_simple_test_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["ATTACK_MOVE_A", "ATTACK_MOVE_B"],
             },
@@ -589,6 +614,7 @@ fn register_basic_gremlins(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["SMASH_MOVE", "PUMMEL_MOVE"],
             },
@@ -626,6 +652,7 @@ fn register_basic_gremlins(m: &mut HashMap<&'static str, MonsterAi>) {
                     ],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["STRIKE_MOVE", "STAB_MOVE"],
             },
@@ -658,6 +685,7 @@ fn register_basic_gremlins(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::WeightedRandom {
                 weights: vec![("SLICE_MOVE", 2), ("ENCOURAGE_MOVE", 1)],
                 no_repeat: vec!["ENCOURAGE_MOVE"],
@@ -682,6 +710,7 @@ fn register_single_move_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                 kind: IntentKind::Sleep,
                 body: vec![],
             }],
+            spawn: vec![],
             pattern: MovePattern::Cycle { moves: vec!["NOTHING_MOVE"] },
         },
     );
@@ -706,11 +735,11 @@ fn register_single_move_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     },
                 ],
             }],
+            spawn: vec![],
             pattern: MovePattern::Cycle { moves: vec!["STAB_MOVE"] },
         },
     );
-    // Zapbot: ZAP 14 damage every turn. (HighVoltage(2) preset is
-    // applied via spawn hook, not here.)
+    // Zapbot: ZAP 14 damage every turn. Spawn applies HighVoltage(2).
     m.insert(
         "Zapbot",
         MonsterAi {
@@ -723,6 +752,11 @@ fn register_single_move_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     target: Target::ChosenEnemy,
                     hits: 1,
                 }],
+            }],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "HighVoltagePower".to_string(),
+                amount: crate::effects::AmountSpec::Fixed(2),
+                target: Target::SelfActor,
             }],
             pattern: MovePattern::Cycle { moves: vec!["ZAP_MOVE"] },
         },
@@ -748,11 +782,12 @@ fn register_single_move_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     },
                 ],
             }],
+            spawn: vec![],
             pattern: MovePattern::Cycle { moves: vec!["NOISE_MOVE"] },
         },
     );
     // EyeWithTeeth: DISTRACT adds 3 Dazed to player discard.
-    // (Spawned only by Fogmog ILLUSION; preset Illusion power.)
+    // Spawn: Illusion(1) — any damage kills the illusion.
     m.insert(
         "EyeWithTeeth",
         MonsterAi {
@@ -778,10 +813,15 @@ fn register_single_move_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     },
                 ],
             }],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "IllusionPower".to_string(),
+                amount: crate::effects::AmountSpec::Fixed(1),
+                target: Target::SelfActor,
+            }],
             pattern: MovePattern::Cycle { moves: vec!["DISTRACT_MOVE"] },
         },
     );
-    // Parafright: SLAM 16 damage every turn. Hologram (Illusion preset).
+    // Parafright: SLAM 16 damage every turn. Spawn: Illusion(1).
     m.insert(
         "Parafright",
         MonsterAi {
@@ -794,6 +834,11 @@ fn register_single_move_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     target: Target::ChosenEnemy,
                     hits: 1,
                 }],
+            }],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "IllusionPower".to_string(),
+                amount: crate::effects::AmountSpec::Fixed(1),
+                target: Target::SelfActor,
             }],
             pattern: MovePattern::Cycle { moves: vec!["SLAM_MOVE"] },
         },
@@ -819,6 +864,7 @@ fn register_single_move_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     },
                 ],
             }],
+            spawn: vec![],
             pattern: MovePattern::Cycle { moves: vec!["ENERGY_ORB_MOVE"] },
         },
     );
@@ -853,13 +899,14 @@ fn register_two_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["INCANTATION_MOVE", "DARK_STRIKE_MOVE"],
             },
         },
     );
     // SewerClam: PRESSURIZE (self +4 Strength) ↔ JET (10 damage).
-    // First turn: JET.
+    // First turn: JET. Spawn: Plating(8) — block-on-hit preset.
     m.insert(
         "SewerClam",
         MonsterAi {
@@ -884,6 +931,11 @@ fn register_two_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "PlatingPower".to_string(),
+                amount: crate::effects::AmountSpec::Fixed(8),
+                target: Target::SelfActor,
+            }],
             pattern: MovePattern::FirstTurnOverride {
                 first_move: "JET_MOVE",
                 then: Box::new(MovePattern::Cycle {
@@ -893,7 +945,9 @@ fn register_two_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
         },
     );
     // ToughEgg: HATCH → NIBBLE (4 damage) → HATCH again.
-    // First turn: HATCH unless already hatched.
+    // Spawn: HatchPower(1) — countdown that resolves on enemy turn end.
+    // Summon mechanics for HATCH not yet wired through this path; the
+    // body is a no-op so the cycle still ticks the intent correctly.
     m.insert(
         "ToughEgg",
         MonsterAi {
@@ -902,8 +956,6 @@ fn register_two_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
                 MonsterMove {
                     id: "HATCH_MOVE",
                     kind: IntentKind::Summon,
-                    // Summon mechanics not yet wired through this path;
-                    // body is a no-op for now.
                     body: vec![],
                 },
                 MonsterMove {
@@ -916,6 +968,11 @@ fn register_two_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "HatchPower".to_string(),
+                amount: crate::effects::AmountSpec::Fixed(1),
+                target: Target::SelfActor,
+            }],
             pattern: MovePattern::Cycle {
                 moves: vec!["HATCH_MOVE", "NIBBLE_MOVE"],
             },
@@ -951,8 +1008,14 @@ fn register_three_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
                             target: Target::ChosenEnemy,
                             hits: 1,
                         },
+                        // TangledPower (debuff Counter) — applies to
+                        // target; per C#, afflicts every Attack card
+                        // with Entangled at apply time. Behavior body
+                        // not yet wired through the power VM, but
+                        // applying the stack at least surfaces the
+                        // correct power on the feature vector.
                         Effect::ApplyPower {
-                            power_id: "WeakPower".to_string(),
+                            power_id: "TangledPower".to_string(),
                             amount: crate::effects::AmountSpec::Fixed(1),
                             target: Target::ChosenEnemy,
                         },
@@ -968,6 +1031,7 @@ fn register_three_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["SWIPE_MOVE", "GRASPING_VINES_MOVE", "CHOMP_MOVE"],
             },
@@ -1007,6 +1071,7 @@ fn register_three_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec!["QUICK_SLASH_MOVE", "BOOMERANG_MOVE", "POWER_DANCE_MOVE"],
             },
@@ -1069,6 +1134,7 @@ fn register_three_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Cycle {
                 moves: vec![
                     "ORB_OF_FRAILTY_MOVE",
@@ -1080,7 +1146,7 @@ fn register_three_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
         },
     );
     // PunchConstruct: READY (10 block) → STRONG_PUNCH (14) → FAST_PUNCH (5×2 + Weak).
-    // Some encounter variants start on STRONG_PUNCH.
+    // Spawn: Artifact(1) — blocks the first debuff applied.
     m.insert(
         "PunchConstruct",
         MonsterAi {
@@ -1120,6 +1186,11 @@ fn register_three_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
                     ],
                 },
             ],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "ArtifactPower".to_string(),
+                amount: crate::effects::AmountSpec::Fixed(1),
+                target: Target::SelfActor,
+            }],
             pattern: MovePattern::Cycle {
                 moves: vec!["READY_MOVE", "STRONG_PUNCH_MOVE", "FAST_PUNCH_MOVE"],
             },
@@ -1130,7 +1201,7 @@ fn register_three_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
 /// Monsters with weighted-random patterns.
 fn register_weighted_random_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
     // FossilStalker: weighted random {LATCH:2, TACKLE:2, LASH:2}.
-    // First turn: LATCH. (Spawn preset: Suck 3 — applied separately.)
+    // First turn: LATCH. Spawn: Suck(3).
     m.insert(
         "FossilStalker",
         MonsterAi {
@@ -1171,6 +1242,11 @@ fn register_weighted_random_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "SuckPower".to_string(),
+                amount: crate::effects::AmountSpec::Fixed(3),
+                target: Target::SelfActor,
+            }],
             pattern: MovePattern::FirstTurnOverride {
                 first_move: "LATCH_MOVE",
                 then: Box::new(MovePattern::WeightedRandom {
@@ -1194,9 +1270,12 @@ fn register_weighted_random_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                 MonsterMove {
                     id: "TENDERIZING_GOOP_MOVE",
                     kind: IntentKind::Debuff,
-                    // Tender power not yet wired; approximate with Weak.
+                    // TenderPower (debuff Counter) — per C#, tracks
+                    // CardsPlayedThisTurn and scales damage. Body not
+                    // yet wired; apply by real name so the feature
+                    // vector sees the right power.
                     body: vec![Effect::ApplyPower {
-                        power_id: "WeakPower".to_string(),
+                        power_id: "TenderPower".to_string(),
                         amount: crate::effects::AmountSpec::Fixed(1),
                         target: Target::ChosenEnemy,
                     }],
@@ -1220,6 +1299,7 @@ fn register_weighted_random_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::FirstTurnOverride {
                 first_move: "TENDERIZING_GOOP_MOVE",
                 then: Box::new(MovePattern::WeightedRandom {
@@ -1271,6 +1351,7 @@ fn register_weighted_random_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::Conditional {
                 predicate: AiCondition::FirstTurn,
                 then_branch: Box::new(MovePattern::WeightedRandom {
@@ -1324,6 +1405,7 @@ fn register_weighted_random_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
                     }],
                 },
             ],
+            spawn: vec![],
             pattern: MovePattern::BySlot {
                 branches: vec![(
                     "second",
