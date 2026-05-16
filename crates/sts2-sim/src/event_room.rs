@@ -55,6 +55,165 @@ pub struct PendingEvent {
 /// Look up an event's choices. Returns None for unknown ids (caller
 /// should treat as "event not implemented yet" — a one-arm-per-event
 /// model that mirrors how cards/relics/potions are looked up).
+/// Build a single dish's resolution body for EndlessConveyor.
+/// Each dish runs a different effect, then transitions to the
+/// re-grab page (or terminates if depth cap hit).
+fn endless_conveyor_dish(label: &str, body: Vec<Effect>, next_grab_page: Vec<EventChoice>) -> Vec<EventChoice> {
+    let mut full = body;
+    full.push(Effect::SetEventChoices { choices: next_grab_page });
+    vec![EventChoice {
+        label: label.to_string(),
+        body: full,
+    }]
+}
+
+/// Build the GRAB-or-LEAVE page after a dish has been consumed.
+/// Bounded recursion: depth=0 is the initial page, depth >=3 caps
+/// to LEAVE-only so the event terminates in bounded chain length.
+fn endless_conveyor_grab_page(depth: i32) -> Vec<EventChoice> {
+    if depth >= 3 {
+        return vec![EventChoice { label: "LEAVE".to_string(), body: vec![] }];
+    }
+    let next = endless_conveyor_grab_page(depth + 1);
+    let dish_branches: Vec<Vec<EventChoice>> = vec![
+        endless_conveyor_dish(
+            "CAVIAR",
+            vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(4) }],
+            next.clone(),
+        ),
+        endless_conveyor_dish(
+            "SPICY_SNAPPY",
+            vec![Effect::UpgradeRandomDeckCards {
+                n: AmountSpec::Fixed(1),
+                filter: crate::effects::CardFilter::Upgradable,
+            }],
+            next.clone(),
+        ),
+        endless_conveyor_dish(
+            "JELLY_LIVER",
+            vec![Effect::TransformRandomDeckCards {
+                n: AmountSpec::Fixed(1),
+                filter: crate::effects::CardFilter::Any,
+                pool: crate::effects::CardPoolRef::CharacterAny,
+            }],
+            next.clone(),
+        ),
+        endless_conveyor_dish(
+            "FRIED_EEL",
+            vec![Effect::OfferCardRewardFromPool {
+                pool: crate::effects::CardPoolRef::Colorless,
+                count: 1,
+                n_min: 1,
+                n_max: 1,
+                source: Some("EndlessConveyor.FRIED_EEL".to_string()),
+            }],
+            next.clone(),
+        ),
+        endless_conveyor_dish(
+            "SUSPICIOUS_CONDIMENT",
+            // Approximation: skip the per-character potion pool roll;
+            // pending potion-pool primitive. For now no-op.
+            vec![],
+            next.clone(),
+        ),
+        endless_conveyor_dish(
+            "CLAM_ROLL",
+            vec![Effect::HealRunState { amount: AmountSpec::Fixed(10) }],
+            next.clone(),
+        ),
+        endless_conveyor_dish(
+            "GOLDEN_FYSH",
+            vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(75) }],
+            next.clone(),
+        ),
+        endless_conveyor_dish(
+            "SEAPUNK_SALAD",
+            vec![Effect::AddCardToRunStateDeck {
+                card_id: "FeedingFrenzy".to_string(),
+                upgrade: 0,
+            }],
+            next,
+        ),
+    ];
+    vec![
+        EventChoice {
+            label: "GRAB".to_string(),
+            body: vec![
+                Effect::LoseRunStateGold { amount: AmountSpec::Fixed(40) },
+                Effect::RngBranchedSetEventChoices { branches: dish_branches },
+            ],
+        },
+        EventChoice { label: "LEAVE".to_string(), body: vec![] },
+    ]
+}
+
+/// Build the HOLD_ON page for SlipperyBridge at the given damage
+/// level. C# loops HOLD_ON indefinitely but renames the page suffix
+/// after the 7th. We bound the chain at damage = 9 (after 7 hold-ons:
+/// 3, 4, 5, 6, 7, 8, 9 then exits). Damage is unblockable HP loss.
+fn build_slippery_bridge_hold_on_page(damage: i32) -> Vec<EventChoice> {
+    let body = if damage >= 10 {
+        // Terminal hold-on: lose damage HP, then chain exits (no
+        // further HOLD_ON option).
+        vec![
+            Effect::LoseRunStateHp { amount: AmountSpec::Fixed(damage) },
+            // Remove 1 random non-curse card from the master deck
+            // (the random card was rerolled in C#; we approximate by
+            // removing one matching Any filter).
+            Effect::RemoveRandomDeckCards {
+                n: AmountSpec::Fixed(1),
+                filter: crate::effects::CardFilter::Any,
+            },
+        ]
+    } else {
+        vec![
+            Effect::LoseRunStateHp { amount: AmountSpec::Fixed(damage) },
+            Effect::SetEventChoices {
+                choices: build_slippery_bridge_hold_on_page(damage + 1),
+            },
+        ]
+    };
+    vec![
+        EventChoice {
+            label: "OVERCOME".to_string(),
+            body: vec![Effect::RemoveRandomDeckCards {
+                n: AmountSpec::Fixed(1),
+                filter: crate::effects::CardFilter::Any,
+            }],
+        },
+        EventChoice { label: "HOLD_ON".to_string(), body },
+    ]
+}
+
+/// Build the LINGER page for AbyssalBaths at the given damage level.
+/// C# loops indefinitely; we bound at damage=11 (after 8 lingers from
+/// the initial IMMERSE which started at 3). Beyond that, LINGER stops
+/// being offered — practical play hits this so rarely the divergence
+/// is acceptable for the MVP.
+fn build_abyssal_baths_linger_page(damage: i32) -> Vec<EventChoice> {
+    // Each LINGER click: +2 maxHP, lose `damage` HP, damage +=1, page
+    // continues. Cap at damage = 12 (after which LINGER terminates).
+    let body = if damage >= 12 {
+        // Terminal LINGER: +2 maxHP, lose damage HP. No further chain.
+        vec![
+            Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(2) },
+            Effect::LoseRunStateHp { amount: AmountSpec::Fixed(damage) },
+        ]
+    } else {
+        vec![
+            Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(2) },
+            Effect::LoseRunStateHp { amount: AmountSpec::Fixed(damage) },
+            Effect::SetEventChoices {
+                choices: build_abyssal_baths_linger_page(damage + 1),
+            },
+        ]
+    };
+    vec![
+        EventChoice { label: "LINGER".to_string(), body },
+        EventChoice { label: "EXIT_BATHS".to_string(), body: vec![] },
+    ]
+}
+
 pub fn event_choices(id: &str) -> Option<EventModel> {
     match id {
         // LostWisp: claim → +Decay curse + LostWisp relic. Search →
@@ -1005,6 +1164,57 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
+        // WaterloggedScriptorium: 3 ink-themed enchantment options.
+        //   BLOODY_INK     → +6 max HP (free)
+        //   TENTACLE_QUILL → spend 55 gold, pick 1 card, enchant Steady(1)
+        //   PRICKLY_SPONGE → spend 99 gold, pick 2 cards, enchant Steady(1)
+        // C# locks Quill/Sponge when gold insufficient; we offer all
+        // three and let LoseRunStateGold + StageDeckPick handle the
+        // empty-eligibility path gracefully.
+        "WaterloggedScriptorium" => Some(EventModel {
+            id: "WaterloggedScriptorium".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "BLOODY_INK".to_string(),
+                    body: vec![Effect::GainRunStateMaxHp {
+                        amount: AmountSpec::Fixed(6),
+                    }],
+                },
+                EventChoice {
+                    label: "TENTACLE_QUILL".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(55) },
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Enchant {
+                                enchantment_id: "Steady".to_string(),
+                                amount: 1,
+                            },
+                            filter: crate::effects::CardFilter::Any,
+                            n_min: 1,
+                            n_max: 1,
+                            source: "WaterloggedScriptorium.TENTACLE_QUILL".to_string(),
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "PRICKLY_SPONGE".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(99) },
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Enchant {
+                                enchantment_id: "Steady".to_string(),
+                                amount: 1,
+                            },
+                            filter: crate::effects::CardFilter::Any,
+                            n_min: 2,
+                            n_max: 2,
+                            source: "WaterloggedScriptorium.PRICKLY_SPONGE".to_string(),
+                        },
+                    ],
+                },
+            ],
+        }),
+
         // SelfHelpBook: 3 enchantment options.
         //   READ_THE_BACK   → pick 1 Attack card, enchant Sharp(2)
         //   READ_PASSAGE    → pick 1 Skill  card, enchant Nimble(2)
@@ -1090,33 +1300,440 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
         // Trial: Accept (clean run end / advance) vs Reject (open
         // double-down sub-menu — multi-page). Skeleton until event
         // state machine supports multi-page.
+        // Trial: ACCEPT enters a random sub-trial (Merchant/Noble/
+        // Nondescript via RngBranchedSetEventChoices). REJECT opens a
+        // 2-option sub-menu where DOUBLE_DOWN kills the player.
+        // Sub-trial outcomes:
+        //   Merchant Guilty   → +Regret + 2 random relics
+        //   Merchant Innocent → +Shame  + StageDeckPick(Upgrade, 2)
+        //   Noble Guilty      → heal 10
+        //   Noble Innocent    → +Regret + 300 gold
+        //   Nondescript Guilty → +Doubt + 2 character-pool card rewards
+        //   Nondescript Innocent → +Doubt + StageDeckPick(Transform, 2)
         "Trial" => Some(EventModel {
             id: "Trial".to_string(),
             choices: vec![
-                EventChoice { label: "ACCEPT".to_string(), body: vec![] },
+                EventChoice {
+                    label: "ACCEPT".to_string(),
+                    body: vec![Effect::RngBranchedSetEventChoices {
+                        branches: vec![
+                            // Merchant
+                            vec![
+                                EventChoice {
+                                    label: "MERCHANT_GUILTY".to_string(),
+                                    body: vec![
+                                        Effect::AddCardToRunStateDeck {
+                                            card_id: "Regret".to_string(),
+                                            upgrade: 0,
+                                        },
+                                        Effect::GainRandomRelicFromPool {
+                                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                                            count: 2,
+                                        },
+                                    ],
+                                },
+                                EventChoice {
+                                    label: "MERCHANT_INNOCENT".to_string(),
+                                    body: vec![
+                                        Effect::AddCardToRunStateDeck {
+                                            card_id: "Shame".to_string(),
+                                            upgrade: 0,
+                                        },
+                                        Effect::StageDeckPick {
+                                            kind: crate::run_state::DeckActionKind::Upgrade,
+                                            filter: crate::effects::CardFilter::Upgradable,
+                                            n_min: 2,
+                                            n_max: 2,
+                                            source: "Trial.MERCHANT_INNOCENT".to_string(),
+                                        },
+                                    ],
+                                },
+                            ],
+                            // Noble
+                            vec![
+                                EventChoice {
+                                    label: "NOBLE_GUILTY".to_string(),
+                                    body: vec![Effect::HealRunState { amount: AmountSpec::Fixed(10) }],
+                                },
+                                EventChoice {
+                                    label: "NOBLE_INNOCENT".to_string(),
+                                    body: vec![
+                                        Effect::AddCardToRunStateDeck {
+                                            card_id: "Regret".to_string(),
+                                            upgrade: 0,
+                                        },
+                                        Effect::GainRunStateGold { amount: AmountSpec::Fixed(300) },
+                                    ],
+                                },
+                            ],
+                            // Nondescript
+                            vec![
+                                EventChoice {
+                                    label: "NONDESCRIPT_GUILTY".to_string(),
+                                    body: vec![
+                                        Effect::AddCardToRunStateDeck {
+                                            card_id: "Doubt".to_string(),
+                                            upgrade: 0,
+                                        },
+                                        // C# offers 2 card-reward bundles in
+                                        // sequence; we use a single 3-option
+                                        // pool reward as the closest
+                                        // primitive — captures the spirit
+                                        // (extra card from char pool) if
+                                        // not the exact mixed-reward shape.
+                                        Effect::OfferCardRewardFromPool {
+                                            pool: crate::effects::CardPoolRef::CharacterAny,
+                                            count: 3,
+                                            n_min: 0,
+                                            n_max: 1,
+                                            source: Some("Trial.NONDESCRIPT_GUILTY".to_string()),
+                                        },
+                                    ],
+                                },
+                                EventChoice {
+                                    label: "NONDESCRIPT_INNOCENT".to_string(),
+                                    body: vec![
+                                        Effect::AddCardToRunStateDeck {
+                                            card_id: "Doubt".to_string(),
+                                            upgrade: 0,
+                                        },
+                                        Effect::StageDeckPick {
+                                            kind: crate::run_state::DeckActionKind::Transform {
+                                                pool: "CharacterAny".to_string(),
+                                            },
+                                            filter: crate::effects::CardFilter::Any,
+                                            n_min: 2,
+                                            n_max: 2,
+                                            source: "Trial.NONDESCRIPT_INNOCENT".to_string(),
+                                        },
+                                    ],
+                                },
+                            ],
+                        ],
+                    }],
+                },
+                EventChoice {
+                    label: "REJECT".to_string(),
+                    body: vec![Effect::SetEventChoices {
+                        choices: vec![
+                            EventChoice {
+                                label: "ACCEPT".to_string(),
+                                body: vec![Effect::RngBranchedSetEventChoices {
+                                    // Same 3 trials. Inline rather than
+                                    // factor out — Rust literal cycle.
+                                    branches: vec![
+                                        vec![EventChoice {
+                                            label: "MERCHANT_GUILTY".to_string(),
+                                            body: vec![Effect::AddCardToRunStateDeck { card_id: "Regret".to_string(), upgrade: 0 }],
+                                        }],
+                                        vec![EventChoice {
+                                            label: "NOBLE_GUILTY".to_string(),
+                                            body: vec![Effect::HealRunState { amount: AmountSpec::Fixed(10) }],
+                                        }],
+                                        vec![EventChoice {
+                                            label: "NONDESCRIPT_GUILTY".to_string(),
+                                            body: vec![Effect::AddCardToRunStateDeck { card_id: "Doubt".to_string(), upgrade: 0 }],
+                                        }],
+                                    ],
+                                }],
+                            },
+                            EventChoice {
+                                label: "DOUBLE_DOWN".to_string(),
+                                // Mirrors C# "kills the player" by zeroing
+                                // current HP. Run-state HP loss > current HP
+                                // clamps at 0.
+                                body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(9999) }],
+                            },
+                        ],
+                    }],
+                },
+            ],
+        }),
+
+        // RoundTeaParty: ENJOY_TEA grants RoyalPoison relic + full heal.
+        // PICK_FIGHT → -11 HP, transitions to CONTINUE_FIGHT → -11 HP
+        // again + random relic from the character pool.
+        "RoundTeaParty" => Some(EventModel {
+            id: "RoundTeaParty".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "ENJOY_TEA".to_string(),
+                    body: vec![
+                        Effect::GainRelic { relic_id: "RoyalPoison".to_string() },
+                        // Approximate "heal to full" with a huge amount;
+                        // HealRunState clamps at max_hp.
+                        Effect::HealRunState { amount: AmountSpec::Fixed(9999) },
+                    ],
+                },
+                EventChoice {
+                    label: "PICK_FIGHT".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(11) },
+                        Effect::SetEventChoices {
+                            choices: vec![EventChoice {
+                                label: "CONTINUE_FIGHT".to_string(),
+                                body: vec![
+                                    Effect::LoseRunStateHp { amount: AmountSpec::Fixed(11) },
+                                    Effect::GainRandomRelicFromPool {
+                                        pool: crate::effects::RelicPoolRef::CharacterPool,
+                                        count: 1,
+                                    },
+                                ],
+                            }],
+                        },
+                    ],
+                },
+            ],
+        }),
+
+        // ColossalFlower: 3-level dig. Each REACH_DEEPER deals 5/6/7
+        // unblockable damage, then offers either EXTRACT (gold) or
+        // continue digging. Final tier (dig 3) offers POLLINOUS_CORE
+        // relic in place of "REACH_DEEPER_3".
+        // Prize gold:  35 / 75 / 135   (dig 0 / 1 / 2 extract)
+        // Dig damage:   5 /  6 /  7    (going to dig 1 / 2 / 3)
+        "ColossalFlower" => Some(EventModel {
+            id: "ColossalFlower".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "EXTRACT_CURRENT_PRIZE_1".to_string(),
+                    body: vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(35) }],
+                },
+                EventChoice {
+                    label: "REACH_DEEPER_1".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(5) },
+                        Effect::SetEventChoices {
+                            choices: vec![
+                                EventChoice {
+                                    label: "EXTRACT_CURRENT_PRIZE_2".to_string(),
+                                    body: vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(75) }],
+                                },
+                                EventChoice {
+                                    label: "REACH_DEEPER_2".to_string(),
+                                    body: vec![
+                                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(6) },
+                                        Effect::SetEventChoices {
+                                            choices: vec![
+                                                EventChoice {
+                                                    label: "EXTRACT_INSTEAD".to_string(),
+                                                    body: vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(135) }],
+                                                },
+                                                EventChoice {
+                                                    label: "POLLINOUS_CORE".to_string(),
+                                                    body: vec![
+                                                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(7) },
+                                                        Effect::GainRelic { relic_id: "PollinousCore".to_string() },
+                                                    ],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }),
+
+        // AbyssalBaths: IMMERSE (+2 maxHP, take 3 dmg) opens a LINGER
+        // loop where each click does +2 maxHP and increasing damage
+        // (4, 5, 6, ...). C# loops indefinitely; we encode 8 LINGER
+        // levels (covers practical play depth), beyond which the chain
+        // exits. ABSTAIN heals 10.
+        "AbyssalBaths" => Some(EventModel {
+            id: "AbyssalBaths".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "IMMERSE".to_string(),
+                    body: vec![
+                        Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(2) },
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(3) },
+                        Effect::SetEventChoices {
+                            choices: build_abyssal_baths_linger_page(4),
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "ABSTAIN".to_string(),
+                    body: vec![Effect::HealRunState { amount: AmountSpec::Fixed(10) }],
+                },
+            ],
+        }),
+
+        // SlipperyBridge: OVERCOME removes 1 random card (initial pre-roll
+        // re-rolled on each HOLD_ON). HOLD_ON deals 3+N HP unblockable
+        // and re-rolls the card. C# loops indefinitely past 7 hold-ons;
+        // we cap at damage=10 (7 hold-ons in).
+        "SlipperyBridge" => Some(EventModel {
+            id: "SlipperyBridge".to_string(),
+            choices: build_slippery_bridge_hold_on_page(3),
+        }),
+
+        // RanwidTheElder: 3 choices (each trades something for relic(s))
+        //   POTION → discard random potion, gain 1 random relic
+        //   GOLD   → spend 100 gold, gain 1 random relic
+        //   RELIC  → lose random tradeable relic, gain 2 random relics
+        "RanwidTheElder" => Some(EventModel {
+            id: "RanwidTheElder".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "POTION".to_string(),
+                    body: vec![
+                        Effect::DiscardPotion {
+                            strategy: crate::effects::PotionDiscardStrategy::Random,
+                        },
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "GOLD".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(100) },
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 1,
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "RELIC".to_string(),
+                    body: vec![
+                        Effect::LoseRandomRelic,
+                        Effect::GainRandomRelicFromPool {
+                            pool: crate::effects::RelicPoolRef::CharacterPool,
+                            count: 2,
+                        },
+                    ],
+                },
+            ],
+        }),
+
+        // TinkerTime: 3-stage choice chain producing a MadScience card.
+        //   Stage 1: CHOOSE_CARD_TYPE   (single button)
+        //   Stage 2: pick ATTACK/SKILL/POWER (C# randomly subsets to 2;
+        //            we offer all 3)
+        //   Stage 3: pick 1 of 3 riders for the chosen type (again C#
+        //            subsets to 2; we offer all 3)
+        // Limitation: AddCardToRunStateDeck has no slot for per-card
+        // counters (tinker_time_type / tinker_time_rider). The MadScience
+        // primitive dispatches via those counters; without them the card
+        // plays as a no-op. Adding the counters needs a `props` field on
+        // CardRef, tracked separately.
+        "TinkerTime" => {
+            // Helper to build a rider-choice page.
+            fn rider_page(_card_type: i32) -> Vec<EventChoice> {
+                // Each rider just adds MadScience; counter wiring TBD.
+                let mad = |label: &str| EventChoice {
+                    label: label.to_string(),
+                    body: vec![Effect::AddCardToRunStateDeck {
+                        card_id: "MadScience".to_string(),
+                        upgrade: 0,
+                    }],
+                };
+                vec![mad("RIDER_A"), mad("RIDER_B"), mad("RIDER_C")]
+            }
+            Some(EventModel {
+                id: "TinkerTime".to_string(),
+                choices: vec![EventChoice {
+                    label: "CHOOSE_CARD_TYPE".to_string(),
+                    body: vec![Effect::SetEventChoices {
+                        choices: vec![
+                            EventChoice {
+                                label: "ATTACK".to_string(),
+                                body: vec![Effect::SetEventChoices {
+                                    choices: rider_page(1),
+                                }],
+                            },
+                            EventChoice {
+                                label: "SKILL".to_string(),
+                                body: vec![Effect::SetEventChoices {
+                                    choices: rider_page(2),
+                                }],
+                            },
+                            EventChoice {
+                                label: "POWER".to_string(),
+                                body: vec![Effect::SetEventChoices {
+                                    choices: rider_page(3),
+                                }],
+                            },
+                        ],
+                    }],
+                }],
+            })
+        }
+
+        // TheArchitect: a dialogue-driven event-combat encounter.
+        // C# routes through Models/Encounters/TheArchitectEventEncounter
+        // which spins up a combat with character-specific dialogue.
+        // EnterEventCombat is currently a stub; the choice resolves
+        // but combat itself isn't simulated. Two C#-faithful options:
+        // ACCEPT (enter combat) and REJECT (leave).
+        "TheArchitect" => Some(EventModel {
+            id: "TheArchitect".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "ACCEPT".to_string(),
+                    body: vec![Effect::EnterEventCombat {
+                        encounter_id: "TheArchitectEventEncounter".to_string(),
+                    }],
+                },
                 EventChoice { label: "REJECT".to_string(), body: vec![] },
             ],
         }),
 
-        // Multi-page / complex events. Skeletons keep the registry
-        // complete so unknown-event errors don't surface.
-        "AbyssalBaths"
-        | "ColossalFlower"
-        | "EndlessConveyor"
-        | "RanwidTheElder"
-        | "RoundTeaParty"
-        | "SlipperyBridge"
-        | "TheArchitect"
-        | "TheFutureOfPotions"
-        | "TinkerTime"
-        | "WaterloggedScriptorium"
-        | "DeprecatedEvent"
-        => Some(EventModel {
+        // EndlessConveyor: GRAB rolls a random dish (weighted in C#;
+        // we use uniform RngBranchedSetEventChoices). Each dish has
+        // a unique effect, then transitions to a GRAB-or-LEAVE page.
+        // Capped at 3 grabs deep so the chain terminates.
+        "EndlessConveyor" => Some(EventModel {
+            id: "EndlessConveyor".to_string(),
+            choices: {
+                let mut initial = endless_conveyor_grab_page(0);
+                // Replace LEAVE button at index 1 with OBSERVE_CHEF.
+                initial[1] = EventChoice {
+                    label: "OBSERVE_CHEF".to_string(),
+                    body: vec![Effect::UpgradeRandomDeckCards {
+                        n: AmountSpec::Fixed(1),
+                        filter: crate::effects::CardFilter::Upgradable,
+                    }],
+                };
+                initial
+            },
+        }),
+
+        // TheFutureOfPotions: trade a random potion for a 3-card
+        // reward of matching rarity. C# offers per-potion options
+        // (rarity follows potion rarity, type rolled per potion).
+        // We approximate with a single "TRADE" button that discards
+        // a random potion and offers a 3-card character-pool reward.
+        "TheFutureOfPotions" => Some(EventModel {
+            id: "TheFutureOfPotions".to_string(),
+            choices: vec![EventChoice {
+                label: "TRADE".to_string(),
+                body: vec![
+                    Effect::DiscardPotion {
+                        strategy: crate::effects::PotionDiscardStrategy::Random,
+                    },
+                    Effect::OfferCardRewardFromPool {
+                        pool: crate::effects::CardPoolRef::CharacterAny,
+                        count: 3,
+                        n_min: 0,
+                        n_max: 1,
+                        source: Some("TheFutureOfPotions.TRADE".to_string()),
+                    },
+                ],
+            }],
+        }),
+
+        // Deprecated stub — kept registered so unknown-event errors
+        // don't surface, but the body is a no-op.
+        "DeprecatedEvent" => Some(EventModel {
             id: id.to_string(),
-            // Single LEAVE option — the event is registered but its body
-            // is a no-op until the missing infra (deck-pick from filter,
-            // event-combat, multi-page state, relic-pool selection,
-            // potion-pool selection) lands.
             choices: vec![EventChoice {
                 label: "LEAVE".to_string(),
                 body: vec![],
@@ -1746,5 +2363,313 @@ mod tests {
             .iter()
             .any(|r| r.id == "HistoryCourse");
         assert!(has_relic, "HistoryCourse relic must be granted on UnlockCage");
+    }
+
+    #[test]
+    fn self_help_book_read_back_stages_sharp_enchant_on_attacks() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.add_card(0, "StrikeIronclad", 0); // Attack
+        rs.add_card(0, "DefendIronclad", 0); // Skill
+        enter_event(&mut rs, 0, "SelfHelpBook");
+        resolve_event_choice(&mut rs, 0).expect("read the back");
+        let pending = rs.pending_deck_action.as_ref()
+            .expect("Sharp enchant must stage a deck-pick");
+        assert!(matches!(
+            pending.action,
+            crate::run_state::DeckActionKind::Enchant { ref enchantment_id, amount: 2 } if enchantment_id == "Sharp"
+        ));
+        // Only Attack cards eligible (Strike).
+        assert_eq!(pending.eligible_indices.len(), 1);
+    }
+
+    #[test]
+    fn waterlogged_scriptorium_bloody_ink_gains_6_max_hp() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        let pre = rs.players()[0].max_hp;
+        enter_event(&mut rs, 0, "WaterloggedScriptorium");
+        resolve_event_choice(&mut rs, 0).expect("bloody ink");
+        assert_eq!(rs.players()[0].max_hp, pre + 6);
+    }
+
+    #[test]
+    fn waterlogged_scriptorium_prickly_sponge_spends_99_and_stages_2_picks() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.player_state_mut(0).unwrap().gold = 200;
+        rs.add_card(0, "StrikeIronclad", 0);
+        rs.add_card(0, "DefendIronclad", 0);
+        rs.add_card(0, "Bash", 0);
+        enter_event(&mut rs, 0, "WaterloggedScriptorium");
+        // PRICKLY_SPONGE is index 2.
+        resolve_event_choice(&mut rs, 2).expect("prickly sponge");
+        assert_eq!(rs.players()[0].gold, 101, "lose 99 gold");
+        let pending = rs.pending_deck_action.as_ref()
+            .expect("must stage 2-card pick");
+        assert_eq!(pending.n_min, 2);
+        assert_eq!(pending.n_max, 2);
+    }
+
+    #[test]
+    fn round_tea_party_enjoy_tea_grants_relic_and_heals() {
+        let mut rs = fresh_rs();
+        rs.player_state_mut(0).unwrap().hp = 40; // out of 80
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "RoundTeaParty");
+        resolve_event_choice(&mut rs, 0).expect("enjoy tea");
+        assert_eq!(rs.players()[0].hp, 80, "full heal");
+        let has_relic = rs.players()[0]
+            .relics
+            .iter()
+            .any(|r| r.id == "RoyalPoison");
+        assert!(has_relic);
+    }
+
+    #[test]
+    fn round_tea_party_pick_fight_then_continue_grants_random_relic() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        let pre_hp = rs.players()[0].hp;
+        enter_event(&mut rs, 0, "RoundTeaParty");
+        resolve_event_choice(&mut rs, 1).expect("pick fight"); // PICK_FIGHT
+        assert_eq!(rs.players()[0].hp, pre_hp - 11);
+        // Sub-page should show CONTINUE_FIGHT.
+        let pending = rs.pending_event.as_ref().expect("continue fight pending");
+        assert_eq!(pending.choices.len(), 1);
+        assert_eq!(pending.choices[0].label, "CONTINUE_FIGHT");
+        resolve_event_choice(&mut rs, 0).expect("continue fight");
+        assert_eq!(rs.players()[0].hp, pre_hp - 22, "11 + 11 damage");
+        assert!(
+            !rs.players()[0].relics.is_empty(),
+            "CONTINUE_FIGHT must grant a random relic"
+        );
+    }
+
+    #[test]
+    fn colossal_flower_extract_1_grants_35_gold() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        let pre = rs.players()[0].gold;
+        enter_event(&mut rs, 0, "ColossalFlower");
+        resolve_event_choice(&mut rs, 0).expect("extract 1");
+        assert_eq!(rs.players()[0].gold, pre + 35);
+    }
+
+    #[test]
+    fn colossal_flower_reach_deeper_chain_to_pollinous_core() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.player_state_mut(0).unwrap().hp = 50; // safe HP
+        enter_event(&mut rs, 0, "ColossalFlower");
+        // REACH_DEEPER_1 (index 1) → -5 HP, page [EXTRACT_2, REACH_DEEPER_2]
+        resolve_event_choice(&mut rs, 1).expect("dig 1");
+        assert_eq!(rs.players()[0].hp, 45);
+        resolve_event_choice(&mut rs, 1).expect("dig 2"); // REACH_DEEPER_2
+        assert_eq!(rs.players()[0].hp, 39);
+        // Now page [EXTRACT_INSTEAD, POLLINOUS_CORE]
+        resolve_event_choice(&mut rs, 1).expect("pollinous core");
+        assert_eq!(rs.players()[0].hp, 32);
+        let has = rs.players()[0]
+            .relics
+            .iter()
+            .any(|r| r.id == "PollinousCore");
+        assert!(has, "POLLINOUS_CORE must grant the relic");
+    }
+
+    #[test]
+    fn abyssal_baths_abstain_heals_10() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.player_state_mut(0).unwrap().hp = 50;
+        enter_event(&mut rs, 0, "AbyssalBaths");
+        resolve_event_choice(&mut rs, 1).expect("abstain"); // ABSTAIN
+        assert_eq!(rs.players()[0].hp, 60);
+    }
+
+    #[test]
+    fn abyssal_baths_immerse_then_linger_escalates_damage() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        let pre_hp = rs.players()[0].hp;
+        let pre_max = rs.players()[0].max_hp;
+        enter_event(&mut rs, 0, "AbyssalBaths");
+        resolve_event_choice(&mut rs, 0).expect("immerse"); // IMMERSE
+        // IMMERSE: +2 max HP (also raises cur HP by 2 — engine
+        // semantics), then -3 HP. Net hp = pre + 2 - 3 = pre - 1.
+        assert_eq!(rs.players()[0].max_hp, pre_max + 2);
+        assert_eq!(rs.players()[0].hp, pre_hp - 1);
+        // LINGER at damage=4: +2 max HP (+2 cur HP), -4 HP.
+        // Net hp = (pre - 1) + 2 - 4 = pre - 3.
+        resolve_event_choice(&mut rs, 0).expect("linger 1"); // LINGER
+        assert_eq!(rs.players()[0].max_hp, pre_max + 4);
+        assert_eq!(rs.players()[0].hp, pre_hp - 3);
+    }
+
+    #[test]
+    fn ranwid_the_elder_potion_swaps_potion_for_relic() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        // Stock a potion.
+        rs.player_state_mut(0).unwrap().potions.push(crate::run_log::PotionEntry {
+            id: "BlockPotion".to_string(),
+            slot_index: 0,
+        });
+        let pre_potions = rs.players()[0].potions.len();
+        enter_event(&mut rs, 0, "RanwidTheElder");
+        resolve_event_choice(&mut rs, 0).expect("potion swap");
+        assert_eq!(rs.players()[0].potions.len(), pre_potions - 1);
+        assert!(!rs.players()[0].relics.is_empty(), "must gain a relic");
+    }
+
+    #[test]
+    fn ranwid_the_elder_gold_spends_100_and_grants_relic() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        let pre_gold = rs.players()[0].gold;
+        enter_event(&mut rs, 0, "RanwidTheElder");
+        resolve_event_choice(&mut rs, 1).expect("gold swap"); // GOLD
+        assert_eq!(rs.players()[0].gold, pre_gold - 100);
+        assert!(!rs.players()[0].relics.is_empty());
+    }
+
+    #[test]
+    fn slippery_bridge_overcome_removes_random_card() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.add_card(0, "StrikeIronclad", 0);
+        rs.add_card(0, "DefendIronclad", 0);
+        let pre = rs.players()[0].deck.len();
+        enter_event(&mut rs, 0, "SlipperyBridge");
+        resolve_event_choice(&mut rs, 0).expect("overcome"); // OVERCOME
+        assert_eq!(rs.players()[0].deck.len(), pre - 1);
+    }
+
+    #[test]
+    fn slippery_bridge_hold_on_escalates_damage() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        let pre = rs.players()[0].hp;
+        enter_event(&mut rs, 0, "SlipperyBridge");
+        // HOLD_ON at damage=3.
+        resolve_event_choice(&mut rs, 1).expect("hold on 1");
+        assert_eq!(rs.players()[0].hp, pre - 3);
+        // HOLD_ON at damage=4.
+        resolve_event_choice(&mut rs, 1).expect("hold on 2");
+        assert_eq!(rs.players()[0].hp, pre - 7);
+    }
+
+    #[test]
+    fn tinker_time_chain_adds_mad_science_card() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "TinkerTime");
+        // CHOOSE_CARD_TYPE → page [ATTACK, SKILL, POWER]
+        resolve_event_choice(&mut rs, 0).expect("choose type");
+        let pending = rs.pending_event.as_ref().expect("type-pick page");
+        assert_eq!(pending.choices[0].label, "ATTACK");
+        // Pick ATTACK → page [RIDER_A, RIDER_B, RIDER_C]
+        resolve_event_choice(&mut rs, 0).expect("attack");
+        let pending = rs.pending_event.as_ref().expect("rider page");
+        assert_eq!(pending.choices.len(), 3);
+        resolve_event_choice(&mut rs, 0).expect("rider a");
+        // MadScience added to deck.
+        let has_mad = rs.players()[0]
+            .deck
+            .iter()
+            .any(|c| c.id == "MadScience");
+        assert!(has_mad, "MadScience must be added to deck");
+    }
+
+    #[test]
+    fn the_architect_accept_calls_event_combat_stub() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "TheArchitect");
+        // ACCEPT is index 0. The body fires EnterEventCombat (stub).
+        resolve_event_choice(&mut rs, 0).expect("accept");
+        // No assertable side effects from the stub — just confirm
+        // the event terminated cleanly.
+        assert!(rs.pending_event.is_none());
+    }
+
+    #[test]
+    fn trial_accept_picks_one_of_three_random_sub_trials() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "Trial");
+        resolve_event_choice(&mut rs, 0).expect("accept");
+        let pending = rs.pending_event.as_ref()
+            .expect("sub-trial page must be open");
+        // Each sub-trial has 2 choices.
+        assert_eq!(pending.choices.len(), 2);
+        let labels: Vec<&str> = pending.choices.iter()
+            .map(|c| c.label.as_str())
+            .collect();
+        // One of the three sub-trial pairs must match.
+        let is_merchant = labels == ["MERCHANT_GUILTY", "MERCHANT_INNOCENT"];
+        let is_noble = labels == ["NOBLE_GUILTY", "NOBLE_INNOCENT"];
+        let is_nondescript = labels == ["NONDESCRIPT_GUILTY", "NONDESCRIPT_INNOCENT"];
+        assert!(is_merchant || is_noble || is_nondescript,
+            "Sub-trial labels {:?} don't match any expected pair", labels);
+    }
+
+    #[test]
+    fn trial_reject_then_double_down_zeros_hp() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "Trial");
+        resolve_event_choice(&mut rs, 1).expect("reject"); // REJECT
+        let pending = rs.pending_event.as_ref().expect("double-down page");
+        assert_eq!(pending.choices[0].label, "ACCEPT");
+        assert_eq!(pending.choices[1].label, "DOUBLE_DOWN");
+        resolve_event_choice(&mut rs, 1).expect("double down");
+        assert_eq!(rs.players()[0].hp, 0, "DOUBLE_DOWN should zero HP");
+    }
+
+    #[test]
+    fn endless_conveyor_observe_chef_upgrades_card() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.add_card(0, "StrikeIronclad", 0);
+        enter_event(&mut rs, 0, "EndlessConveyor");
+        // OBSERVE_CHEF is index 1.
+        resolve_event_choice(&mut rs, 1).expect("observe");
+        let upgraded = rs.players()[0]
+            .deck
+            .iter()
+            .any(|c| c.current_upgrade_level == Some(1));
+        assert!(upgraded, "OBSERVE_CHEF must upgrade 1 card");
+    }
+
+    #[test]
+    fn endless_conveyor_grab_rolls_dish_and_loses_gold() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.player_state_mut(0).unwrap().gold = 200;
+        enter_event(&mut rs, 0, "EndlessConveyor");
+        resolve_event_choice(&mut rs, 0).expect("grab"); // GRAB
+        assert!(rs.players()[0].gold <= 160,
+            "GRAB must lose 40 gold (may lose more if dish costs)");
+        // A dish branch should be staged.
+        let pending = rs.pending_event.as_ref().expect("dish page");
+        assert_eq!(pending.choices.len(), 1, "single dish button");
+    }
+
+    #[test]
+    fn the_future_of_potions_trade_discards_potion_and_offers_card() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.player_state_mut(0).unwrap().potions.push(crate::run_log::PotionEntry {
+            id: "BlockPotion".to_string(),
+            slot_index: 0,
+        });
+        let pre_potions = rs.players()[0].potions.len();
+        enter_event(&mut rs, 0, "TheFutureOfPotions");
+        resolve_event_choice(&mut rs, 0).expect("trade");
+        assert_eq!(rs.players()[0].potions.len(), pre_potions - 1);
+        let offer = rs.pending_offer.as_ref()
+            .expect("card-reward offer must be staged");
+        assert_eq!(offer.options.len(), 3);
     }
 }

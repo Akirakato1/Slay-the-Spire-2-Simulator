@@ -261,6 +261,33 @@ pub enum AmountSpec {
     HandSizeAtPlayStart,
 }
 
+/// Strategy for choosing which potion to discard in
+/// `Effect::DiscardPotion`. C# events use "random" (Ranwid) or
+/// "specific picked potion" (Future of Potions). For RL the random
+/// path matches; specific picks need a follow-up pending choice.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PotionDiscardStrategy {
+    /// Pick uniformly via up_front RNG.
+    Random,
+    /// Discard the first (slot 0) potion. Stable for deterministic
+    /// testing.
+    First,
+}
+
+/// Named relic pool reference for `Effect::GainRandomRelicFromPool`.
+/// Resolves to a list of unowned relic ids the runtime picks from.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RelicPoolRef {
+    /// Player's character-specific pool (Ironclad/Silent/etc).
+    /// Mirrors C# `RelicFactory.PullNextRelicFromFront(player)` which
+    /// pulls from the player's prepared relic bag.
+    CharacterPool,
+    /// Cross-character Shared pool.
+    Shared,
+    /// Event-tagged relics only.
+    Event,
+}
+
 /// Named card pool reference for `Effect::AddRandomCardFromPool`.
 /// Pools resolve to a list of card ids the runtime picks from.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1084,6 +1111,43 @@ pub enum Effect {
     /// after the body finishes and re-park the `pending_event`.
     SetEventChoices {
         choices: Vec<crate::event_room::EventChoice>,
+    },
+    /// Same as SetEventChoices but picks 1 of N branches uniformly
+    /// via up_front RNG. Mirrors C# events like Trial ACCEPT
+    /// (Merchant/Noble/Nondescript random pick) and EndlessConveyor
+    /// GRAB (random dish roll). The chosen branch becomes the new
+    /// pending event's choices.
+    RngBranchedSetEventChoices {
+        branches: Vec<Vec<crate::event_room::EventChoice>>,
+    },
+    /// Grant `count` random unowned relics rolled from `pool`.
+    /// Mirrors C# `RelicFactory.PullNextRelicFromFront`. Roll RNG is
+    /// `up_front` (shared with deck transforms). Duplicates avoided
+    /// via the existing owned-relic exclusion set.
+    GainRandomRelicFromPool {
+        pool: RelicPoolRef,
+        count: i32,
+    },
+    /// Discard one potion from the player's belt. `slot` chooses
+    /// strategy: Random picks via up_front RNG, First picks index 0.
+    /// Used by TheFutureOfPotions (trade potion for card reward) and
+    /// RanwidTheElder (random potion eaten by Ranwid).
+    DiscardPotion {
+        strategy: PotionDiscardStrategy,
+    },
+    /// Remove a random relic from the player. Mirrors C#
+    /// `r.IsTradable` filter — starter / quest relics are excluded.
+    /// Used by RanwidTheElder RELIC and other events that demand a
+    /// relic sacrifice. Single-pick (no agent choice for now); RNG
+    /// from up_front.
+    LoseRandomRelic,
+    /// Start a combat encounter from inside an event body. Mirrors
+    /// C# `EventCombatRoomCmd`. STUB until full event-combat infra
+    /// lands; for now sets a pending flag on RunState. The combat
+    /// itself isn't yet simulated — events that depend on this resolve
+    /// to a no-op besides the pending flag.
+    EnterEventCombat {
+        encounter_id: String,
     },
     /// Lose max HP outside combat. DistinguishedCape, LeafyPoultice
     /// (`CreatureCmd.LoseMaxHp(N)`).
@@ -3658,6 +3722,148 @@ fn execute_run_state_effect(
             // Multi-page transition. resolve_event_choice picks this
             // up after the body finishes and re-parks pending_event.
             rs.next_event_choices = Some(choices.clone());
+        }
+        Effect::RngBranchedSetEventChoices { branches } => {
+            if branches.is_empty() {
+                return;
+            }
+            let pick = rs
+                .rng_set_mut()
+                .up_front
+                .next_int_range(0, branches.len() as i32) as usize;
+            rs.next_event_choices = Some(branches[pick].clone());
+        }
+        Effect::GainRandomRelicFromPool { pool, count } => {
+            let count = (*count).max(0) as usize;
+            if count == 0 {
+                return;
+            }
+            let character = rs
+                .players()
+                .get(player_idx)
+                .map(|ps| ps.character_id.clone())
+                .unwrap_or_default();
+            let owned: std::collections::HashSet<String> = rs
+                .players()
+                .get(player_idx)
+                .map(|ps| ps.relics.iter().map(|r| r.id.clone()).collect())
+                .unwrap_or_default();
+            let target_pool: &str = match pool {
+                RelicPoolRef::CharacterPool => character.as_str(),
+                RelicPoolRef::Shared => "Shared",
+                RelicPoolRef::Event => "Event",
+            };
+            for _ in 0..count {
+                // Re-collect candidates each iteration so a relic
+                // granted this loop doesn't reroll.
+                let cur_owned: std::collections::HashSet<String> = rs
+                    .players()
+                    .get(player_idx)
+                    .map(|ps| ps.relics.iter().map(|r| r.id.clone()).collect())
+                    .unwrap_or_else(|| owned.clone());
+                let candidates: Vec<&'static str> = crate::relic::ALL_RELICS
+                    .iter()
+                    .filter(|r| r.pools.iter().any(|p| p == target_pool))
+                    .filter(|r| !cur_owned.contains(&r.id))
+                    // Starter relics aren't part of the obtainable pool.
+                    .filter(|r| r.rarity != crate::relic::RelicRarity::Starter)
+                    .map(|r| r.id.as_str())
+                    .collect();
+                if candidates.is_empty() {
+                    return;
+                }
+                let pick = rs
+                    .rng_set_mut()
+                    .up_front
+                    .next_int_range(0, candidates.len() as i32) as usize;
+                let relic_id = candidates[pick].to_string();
+                if let Some(ps) = rs.player_state_mut(player_idx) {
+                    ps.relics.push(crate::run_log::RelicEntry {
+                        id: relic_id,
+                        floor_added_to_deck: 0,
+                        props: None,
+                    });
+                }
+            }
+        }
+        Effect::DiscardPotion { strategy } => {
+            // C# `PotionCmd.Discard` removes from the belt by slot.
+            let slot_to_remove: Option<usize> = match strategy {
+                PotionDiscardStrategy::First => {
+                    let has_any = rs
+                        .players()
+                        .get(player_idx)
+                        .map(|ps| !ps.potions.is_empty())
+                        .unwrap_or(false);
+                    if has_any { Some(0) } else { None }
+                }
+                PotionDiscardStrategy::Random => {
+                    let belt_size = rs
+                        .players()
+                        .get(player_idx)
+                        .map(|ps| ps.potions.len())
+                        .unwrap_or(0);
+                    if belt_size == 0 {
+                        None
+                    } else {
+                        let pick = rs
+                            .rng_set_mut()
+                            .up_front
+                            .next_int_range(0, belt_size as i32) as usize;
+                        Some(pick)
+                    }
+                }
+            };
+            if let Some(slot) = slot_to_remove {
+                if let Some(ps) = rs.player_state_mut(player_idx) {
+                    if slot < ps.potions.len() {
+                        ps.potions.remove(slot);
+                    }
+                }
+            }
+        }
+        Effect::LoseRandomRelic => {
+            // Approximation: filter out Starter rarity (the closest
+            // proxy for the C# IsTradable flag). Pick uniformly via
+            // up_front. Quest relics share Starter pool semantics in
+            // our data — they get excluded too.
+            let eligible: Vec<usize> = rs
+                .players()
+                .get(player_idx)
+                .map(|ps| {
+                    ps.relics
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, r)| {
+                            crate::relic::by_id(&r.id)
+                                .map(|d| d.rarity != crate::relic::RelicRarity::Starter)
+                                .unwrap_or(false)
+                        })
+                        .map(|(i, _)| i)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if eligible.is_empty() {
+                return;
+            }
+            let pick = rs
+                .rng_set_mut()
+                .up_front
+                .next_int_range(0, eligible.len() as i32) as usize;
+            let remove_idx = eligible[pick];
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                if remove_idx < ps.relics.len() {
+                    ps.relics.remove(remove_idx);
+                }
+            }
+        }
+        Effect::EnterEventCombat { encounter_id: _ } => {
+            // STUB: full event-combat init isn't yet wired through
+            // the run-state event flow. The event-combat enter path
+            // expects to spin up a combat encounter and pause the
+            // event until combat resolves. For now this is a no-op;
+            // events that use it (TheArchitect, FakeMerchant, etc.)
+            // record the choice but skip the combat portion.
         }
         Effect::OfferRelicReward { options, n_min, n_max, source } => {
             handle_offer(rs, player_idx,
@@ -9850,7 +10056,12 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::RemoveAllCardsOfType { .. }
         | Effect::StageDeckPick { .. }
         | Effect::OfferCardRewardFromPool { .. }
-        | Effect::SetEventChoices { .. } => {
+        | Effect::SetEventChoices { .. }
+        | Effect::RngBranchedSetEventChoices { .. }
+        | Effect::GainRandomRelicFromPool { .. }
+        | Effect::DiscardPotion { .. }
+        | Effect::LoseRandomRelic
+        | Effect::EnterEventCombat { .. } => {
             // STUB: see Pile::Deck rationale. Mutates RunState; combat
             // VM has no handle. Routes through run_state_effects path.
         }
