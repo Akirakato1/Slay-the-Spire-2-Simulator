@@ -135,6 +135,12 @@ pub struct RunState {
     /// "add to deck/relics/potions" or "upgrade/remove a card"
     /// operation. Resolved via `event_room::resolve_event_choice`.
     pub pending_event: Option<crate::event_room::PendingEvent>,
+    /// Side-channel for multi-page event transitions. The
+    /// `Effect::SetEventChoices` handler stashes the new choices
+    /// here; `resolve_event_choice` consumes the value at the end of
+    /// its run and re-parks `pending_event` with the new page.
+    /// Cleared whenever a fresh event starts.
+    pub next_event_choices: Option<Vec<crate::event_room::EventChoice>>,
 }
 
 /// What kind of reward is being offered. The resolver dispatches on
@@ -247,6 +253,7 @@ impl RunState {
             pending_offer: None,
             pending_deck_action: None,
             pending_event: None,
+            next_event_choices: None,
         }
     }
 

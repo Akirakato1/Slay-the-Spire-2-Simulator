@@ -20,13 +20,15 @@ use crate::effects::{AmountSpec, Effect};
 use crate::run_state::RunState;
 
 /// One choice within an event. C# `EventOption`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
 pub struct EventChoice {
     /// Short identifier (matches the C# enum-like option keys, e.g.
     /// "CLAIM", "SEARCH", "CONFRONT", "ACCEPT"). Used for replay /
     /// feature extraction; not displayed in-engine.
     pub label: String,
     /// Effects fired in order when this choice is resolved.
+    /// Multi-page events end their body with an `Effect::SetEventChoices`
+    /// to transition to a sub-menu instead of finishing the event.
     pub body: Vec<Effect>,
 }
 
@@ -40,7 +42,9 @@ pub struct EventModel {
 
 /// One in-flight event awaiting resolution. RL agent reads this to
 /// know what options are on offer; calls `resolve_event_choice` to
-/// commit.
+/// commit. Multi-page events keep `pending_event` alive across
+/// choices: the body of a transition choice ends with
+/// `Effect::SetEventChoices` which mutates `choices` in place.
 #[derive(Debug, Clone)]
 pub struct PendingEvent {
     pub event_id: String,
@@ -454,24 +458,110 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
-        // TabletOfTruth: 3 choices, multi-step (Decipher loops 5 times).
-        // For MVP encode Smash + GiveUp; Decipher's loop semantics needs
-        // a multi-page event surface that doesn't exist yet.
+        // TabletOfTruth: 5-step Decipher chain (loses escalating max HP
+        // per step + upgrades a random card; final step upgrades all)
+        // vs Smash (heal 20). C# order: [DECIPHER_1, SMASH] initial.
+        // Decipher cost schedule (LoseMaxHpAndUpgrade arg per step):
+        //   Decipher 1 → lose 3 max HP, +1 random upgrade. Next cost 6.
+        //   Decipher 2 → lose 6 max HP, +1 random upgrade. Next cost 12.
+        //   Decipher 3 → lose 12 max HP, +1 random upgrade. Next cost 24.
+        //   Decipher 4 → lose 24 max HP, +1 random upgrade. Next cost ≈ all.
+        //   Decipher 5 → lose (max_hp-1) max HP, upgrade ALL upgradable.
+        // Mid-chain choices: [DECIPHER_N, GIVE_UP]. Encoded via
+        // SetEventChoices side-channel (Phase 4 multi-page surface).
         "TabletOfTruth" => Some(EventModel {
             id: "TabletOfTruth".to_string(),
             choices: vec![
                 EventChoice {
+                    label: "DECIPHER_1".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(3) },
+                        Effect::UpgradeRandomDeckCards {
+                            n: AmountSpec::Fixed(1),
+                            filter: crate::effects::CardFilter::Upgradable,
+                        },
+                        Effect::SetEventChoices {
+                            choices: vec![
+                                EventChoice {
+                                    label: "DECIPHER_2".to_string(),
+                                    body: vec![
+                                        Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(6) },
+                                        Effect::UpgradeRandomDeckCards {
+                                            n: AmountSpec::Fixed(1),
+                                            filter: crate::effects::CardFilter::Upgradable,
+                                        },
+                                        Effect::SetEventChoices {
+                                            choices: vec![
+                                                EventChoice {
+                                                    label: "DECIPHER_3".to_string(),
+                                                    body: vec![
+                                                        Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(12) },
+                                                        Effect::UpgradeRandomDeckCards {
+                                                            n: AmountSpec::Fixed(1),
+                                                            filter: crate::effects::CardFilter::Upgradable,
+                                                        },
+                                                        Effect::SetEventChoices {
+                                                            choices: vec![
+                                                                EventChoice {
+                                                                    label: "DECIPHER_4".to_string(),
+                                                                    body: vec![
+                                                                        Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(24) },
+                                                                        Effect::UpgradeRandomDeckCards {
+                                                                            n: AmountSpec::Fixed(1),
+                                                                            filter: crate::effects::CardFilter::Upgradable,
+                                                                        },
+                                                                        Effect::SetEventChoices {
+                                                                            choices: vec![
+                                                                                EventChoice {
+                                                                                    label: "DECIPHER_5".to_string(),
+                                                                                    // Final tier: lose (max_hp-1), upgrade ALL.
+                                                                                    // The exact "max_hp-1" amount isn't directly
+                                                                                    // expressible without an AmountSpec for
+                                                                                    // OwnerMaxHp-arithmetic on run state; use a
+                                                                                    // large fixed value to mirror "near-death"
+                                                                                    // and let LoseRunStateMaxHp clamp at 0.
+                                                                                    body: vec![
+                                                                                        Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(9999) },
+                                                                                        Effect::UpgradeDeckCards {
+                                                                                            filter: crate::effects::CardFilter::Upgradable,
+                                                                                        },
+                                                                                    ],
+                                                                                },
+                                                                                EventChoice {
+                                                                                    label: "GIVE_UP".to_string(),
+                                                                                    body: vec![],
+                                                                                },
+                                                                            ],
+                                                                        },
+                                                                    ],
+                                                                },
+                                                                EventChoice {
+                                                                    label: "GIVE_UP".to_string(),
+                                                                    body: vec![],
+                                                                },
+                                                            ],
+                                                        },
+                                                    ],
+                                                },
+                                                EventChoice {
+                                                    label: "GIVE_UP".to_string(),
+                                                    body: vec![],
+                                                },
+                                            ],
+                                        },
+                                    ],
+                                },
+                                EventChoice {
+                                    label: "GIVE_UP".to_string(),
+                                    body: vec![],
+                                },
+                            ],
+                        },
+                    ],
+                },
+                EventChoice {
                     label: "SMASH".to_string(),
                     body: vec![Effect::HealRunState { amount: AmountSpec::Fixed(20) }],
-                },
-                EventChoice {
-                    label: "DECIPHER".to_string(),
-                    body: vec![Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(3) }],
-                    // TODO: + upgrade 1 picked card; loops 5 times via re-entry.
-                },
-                EventChoice {
-                    label: "GIVE_UP".to_string(),
-                    body: vec![],
                 },
             ],
         }),
@@ -1031,7 +1121,20 @@ pub fn resolve_event_choice(
     };
     let body = choice.body.clone();
     let player_idx = event.player_idx;
+    let event_id = event.event_id.clone();
+    // Ensure the side-channel is empty before running the body so
+    // we can detect whether `SetEventChoices` fired.
+    rs.next_event_choices = None;
     crate::effects::execute_run_state_effects(rs, player_idx, &body);
+    // If the body called SetEventChoices, transition to the new
+    // page by re-parking pending_event. Otherwise the event ends.
+    if let Some(next_choices) = rs.next_event_choices.take() {
+        rs.pending_event = Some(PendingEvent {
+            event_id,
+            player_idx,
+            choices: next_choices,
+        });
+    }
     Ok(())
 }
 
@@ -1327,7 +1430,8 @@ mod tests {
         rs.player_state_mut(0).unwrap().hp = 50; // out of 80
         rs.auto_resolve_offers = false;
         enter_event(&mut rs, 0, "TabletOfTruth");
-        resolve_event_choice(&mut rs, 0).expect("smash");
+        // SMASH is index 1 (DECIPHER_1 is 0).
+        resolve_event_choice(&mut rs, 1).expect("smash");
         assert_eq!(rs.players()[0].hp, 70);
         assert_eq!(rs.players()[0].max_hp, 80,
             "Smash should heal current HP, not raise max");
@@ -1339,9 +1443,51 @@ mod tests {
         rs.player_state_mut(0).unwrap().hp = 75; // out of 80
         rs.auto_resolve_offers = false;
         enter_event(&mut rs, 0, "TabletOfTruth");
-        resolve_event_choice(&mut rs, 0).expect("smash");
+        resolve_event_choice(&mut rs, 1).expect("smash");
         assert_eq!(rs.players()[0].hp, 80,
             "heal must cap at max_hp");
+    }
+
+    #[test]
+    fn tablet_of_truth_decipher_chain_transitions_pages() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.add_card(0, "StrikeIronclad", 0);
+        rs.add_card(0, "DefendIronclad", 0);
+        enter_event(&mut rs, 0, "TabletOfTruth");
+        // INITIAL: [DECIPHER_1, SMASH].
+        let pending = rs.pending_event.as_ref().expect("event entered");
+        assert_eq!(pending.choices.len(), 2);
+        assert_eq!(pending.choices[0].label, "DECIPHER_1");
+        assert_eq!(pending.choices[1].label, "SMASH");
+        // Pick DECIPHER_1: -3 max HP, upgrade 1 random card, page →
+        // [DECIPHER_2, GIVE_UP].
+        resolve_event_choice(&mut rs, 0).expect("decipher_1");
+        assert_eq!(rs.players()[0].max_hp, 77, "lose 3 max HP");
+        let pending = rs.pending_event.as_ref()
+            .expect("event must still be pending after page transition");
+        assert_eq!(pending.choices.len(), 2);
+        assert_eq!(pending.choices[0].label, "DECIPHER_2");
+        assert_eq!(pending.choices[1].label, "GIVE_UP");
+        // Decipher_2: -6 max HP, transitions to Decipher_3.
+        resolve_event_choice(&mut rs, 0).expect("decipher_2");
+        assert_eq!(rs.players()[0].max_hp, 71);
+        let pending = rs.pending_event.as_ref().expect("decipher_3 pending");
+        assert_eq!(pending.choices[0].label, "DECIPHER_3");
+    }
+
+    #[test]
+    fn tablet_of_truth_decipher_then_give_up_ends_event() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.add_card(0, "StrikeIronclad", 0);
+        enter_event(&mut rs, 0, "TabletOfTruth");
+        // DECIPHER_1 (index 0) opens [DECIPHER_2, GIVE_UP].
+        resolve_event_choice(&mut rs, 0).expect("decipher_1");
+        // GIVE_UP (index 1) clears pending_event.
+        resolve_event_choice(&mut rs, 1).expect("give_up");
+        assert!(rs.pending_event.is_none(),
+            "GIVE_UP must end the event with no further page transition");
     }
 
     #[test]

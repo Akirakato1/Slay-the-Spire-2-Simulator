@@ -1076,6 +1076,15 @@ pub enum Effect {
         n_max: i32,
         source: Option<String>,
     },
+    /// Replace the in-flight event's available choices with a new
+    /// list. Used by multi-page events (Trial REJECT → double-down
+    /// sub-menu, TabletOfTruth DECIPHER loop, AbyssalBaths chained
+    /// bath selection). The caller is expected to be inside a
+    /// `resolve_event_choice` body — the new choices are picked up
+    /// after the body finishes and re-park the `pending_event`.
+    SetEventChoices {
+        choices: Vec<crate::event_room::EventChoice>,
+    },
     /// Lose max HP outside combat. DistinguishedCape, LeafyPoultice
     /// (`CreatureCmd.LoseMaxHp(N)`).
     LoseRunStateMaxHp { amount: AmountSpec },
@@ -3644,6 +3653,11 @@ fn execute_run_state_effect(
             handle_offer(rs, player_idx,
                 crate::run_state::OfferKind::Card,
                 options, *n_min, *n_max, source.clone());
+        }
+        Effect::SetEventChoices { choices } => {
+            // Multi-page transition. resolve_event_choice picks this
+            // up after the body finishes and re-parks pending_event.
+            rs.next_event_choices = Some(choices.clone());
         }
         Effect::OfferRelicReward { options, n_min, n_max, source } => {
             handle_offer(rs, player_idx,
@@ -9835,7 +9849,8 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::CloneDeck
         | Effect::RemoveAllCardsOfType { .. }
         | Effect::StageDeckPick { .. }
-        | Effect::OfferCardRewardFromPool { .. } => {
+        | Effect::OfferCardRewardFromPool { .. }
+        | Effect::SetEventChoices { .. } => {
             // STUB: see Pile::Deck rationale. Mutates RunState; combat
             // VM has no handle. Routes through run_state_effects path.
         }
