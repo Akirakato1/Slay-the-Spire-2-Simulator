@@ -477,6 +477,83 @@ fn ascension_poverty_reduces_combat_gold() {
         "ratio {:.3} should be near 0.75", ratio);
 }
 
+/// TightBelt (A4+) reduces max potion slots by 1. A3 keeps the
+/// default 3 slots; A4+ drops to 2.
+#[test]
+fn ascension_tightbelt_reduces_potion_slots() {
+    let a3 = RunState::start_run(
+        "TIGHT3", 3, "Ironclad", vec![ActId::Overgrowth], Vec::new(),
+    ).unwrap();
+    let a4 = RunState::start_run(
+        "TIGHT4", 4, "Ironclad", vec![ActId::Overgrowth], Vec::new(),
+    ).unwrap();
+    let a10 = RunState::start_run(
+        "TIGHT10", 10, "Ironclad", vec![ActId::Overgrowth], Vec::new(),
+    ).unwrap();
+    assert_eq!(a3.players()[0].max_potion_slot_count, 3,
+        "A3 still has full belt");
+    assert_eq!(a4.players()[0].max_potion_slot_count, 2,
+        "A4 TightBelt -1 slot");
+    assert_eq!(a10.players()[0].max_potion_slot_count, 2,
+        "A10 still TightBelt-reduced");
+}
+
+/// Inflation (A6+) bumps the shop's card-removal price from 75 → 100.
+#[test]
+fn ascension_inflation_bumps_card_remove_price() {
+    use sts2_sim::shop::{open_shop, ShopEntryKind};
+
+    fn remove_price(ascension: i32) -> i32 {
+        let mut rs = RunState::start_run(
+            &format!("INFL{ascension}"),
+            ascension, "Ironclad",
+            vec![ActId::Overgrowth], Vec::new(),
+        ).unwrap();
+        rs.enter_act(0);
+        let shop = open_shop(&mut rs, 0);
+        shop.entries.iter()
+            .find(|e| matches!(e.kind, ShopEntryKind::CardRemove))
+            .map(|e| e.price)
+            .expect("shop has a card-remove entry")
+    }
+    assert_eq!(remove_price(5), 75, "A5 still pre-Inflation");
+    assert_eq!(remove_price(6), 100, "A6 Inflation kicks in");
+    assert_eq!(remove_price(10), 100, "A10 still Inflated");
+}
+
+/// Scarcity (A7+) reduces Rare card-reward odds. Run 5000 Normal-tier
+/// rolls at A6 vs A7 and verify the Rare count drops sharply.
+#[test]
+fn ascension_scarcity_reduces_rare_card_odds() {
+    use sts2_sim::card::CardRarity;
+    use sts2_sim::card_reward::{roll_card_rarity, CardRewardKind};
+
+    fn count_rares(ascension: i32) -> i32 {
+        let mut rs = RunState::start_run(
+            &format!("SCAR{ascension}"),
+            ascension, "Ironclad",
+            vec![ActId::Overgrowth], Vec::new(),
+        ).unwrap();
+        let mut rares = 0;
+        for _ in 0..5000 {
+            if roll_card_rarity(&mut rs, CardRewardKind::Normal) == CardRarity::Rare {
+                rares += 1;
+            }
+        }
+        rares
+    }
+    let pre = count_rares(6);
+    let post = count_rares(7);
+    // Pre-Scarcity ~3%, post-Scarcity ~1.5% — A7 must be at least
+    // 30% lower.
+    assert!(post < pre,
+        "Scarcity should reduce Rares: pre={} post={}", pre, post);
+    let ratio = post as f64 / pre.max(1) as f64;
+    assert!(ratio < 0.7,
+        "Scarcity should cut Rare rate by ~half: pre={} post={} ratio={:.3}",
+        pre, post, ratio);
+}
+
 /// Stress: walk 3 consecutive map nodes from a fresh run. Catches
 /// state-bleed between combats (relic hooks not clearing, RNG counters
 /// not advancing properly, deck refilled wrong, etc).

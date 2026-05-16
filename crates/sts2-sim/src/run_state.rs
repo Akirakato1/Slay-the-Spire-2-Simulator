@@ -317,6 +317,12 @@ impl RunState {
             starting_hp = (starting_hp + crate::ascension::WEARY_TRAVELER_MAX_HP_DELTA)
                 .max(1);
         }
+        // TightBelt (A4+): -1 max potion slot. Mirrors C#
+        // `AscensionManager.ApplyEffectsTo` → `player.SubtractFromMaxPotionCount(1)`.
+        let mut max_potions = 3;
+        if crate::ascension::has_level(ascension, crate::ascension::level::TightBelt) {
+            max_potions -= 1;
+        }
         let player = PlayerState {
             character_id: character_id.to_string(),
             id: 1,
@@ -326,7 +332,7 @@ impl RunState {
             deck,
             relics,
             potions: Vec::new(),
-            max_potion_slot_count: 3,
+            max_potion_slot_count: max_potions,
         };
         let mut rs = Self::new(seed_string, ascension, vec![player], acts, modifiers);
         // DoubleBoss (A10): every act gets a second boss fight.

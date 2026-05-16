@@ -35,19 +35,40 @@ pub enum CardRewardKind {
 /// player's rewards stream for reward rolls; the run-level stream is
 /// the closest available analog until PlayerOdds lands).
 pub fn roll_card_rarity(rs: &mut RunState, kind: CardRewardKind) -> CardRarity {
+    // Scarcity (A7+) shifts the rarity table per C# `CardRarityOdds`:
+    //   Normal: RegularRareOdds 0.03 → 0.0149,
+    //           regularCommonOdds 0.60 → 0.615.
+    //   Elite : EliteRareOdds   0.10 → 0.05,
+    //           EliteCommonOdds 0.50 → 0.549.
+    // Common-and-Uncommon split is computed from the cumulative
+    // threshold (common%, common%+uncommon%) with Rare being the
+    // tail. The Uncommon share absorbs the Rare reduction net of the
+    // Common bump (matches C# behavior — total still sums to 1.0).
+    let scarcity = crate::ascension::has_level(
+        rs.ascension(),
+        crate::ascension::level::Scarcity,
+    );
     let n = rs.rng_set_mut().combat_card_generation.next_float(1.0);
     match kind {
         CardRewardKind::Boss => CardRarity::Rare,
         CardRewardKind::Normal => {
-            // Common 60%, Uncommon 37%, Rare 3%.
-            if n < 0.60 { CardRarity::Common }
-            else if n < 0.97 { CardRarity::Uncommon }
+            let (common, common_plus_uncommon) = if scarcity {
+                (0.615, 1.0 - 0.0149)
+            } else {
+                (0.60, 0.97)
+            };
+            if n < common { CardRarity::Common }
+            else if n < common_plus_uncommon { CardRarity::Uncommon }
             else { CardRarity::Rare }
         }
         CardRewardKind::Elite => {
-            // Common 50%, Uncommon 40%, Rare 10%.
-            if n < 0.50 { CardRarity::Common }
-            else if n < 0.90 { CardRarity::Uncommon }
+            let (common, common_plus_uncommon) = if scarcity {
+                (0.549, 1.0 - 0.05)
+            } else {
+                (0.50, 0.90)
+            };
+            if n < common { CardRarity::Common }
+            else if n < common_plus_uncommon { CardRarity::Uncommon }
             else { CardRarity::Rare }
         }
     }

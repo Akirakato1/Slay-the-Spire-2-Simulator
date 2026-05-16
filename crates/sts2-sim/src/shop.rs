@@ -276,11 +276,16 @@ fn jitter_relic_price(rs: &mut RunState, player_idx: usize, rarity: RelicRarity)
     ((base as f32) * jitter).round() as i32
 }
 
-fn card_remove_price(_rs: &RunState, _player_idx: usize) -> i32 {
-    // C# BaseCost = 75 (ignore Inflation ascension for now).
+fn card_remove_price(rs: &RunState, _player_idx: usize) -> i32 {
+    // C# `MerchantCardRemovalEntry.BaseCost`:
+    //   GetValueIfAscension(Inflation, 100, 75) → 75 at A0..A5, 100 at A6+.
     // C# PriceIncrease bumps this per usage; deferred until the
     // CardShopRemovalsUsed counter is wired.
-    75
+    if crate::ascension::has_level(rs.ascension(), crate::ascension::level::Inflation) {
+        100
+    } else {
+        75
+    }
 }
 
 /// Possible outcomes of a purchase attempt.
