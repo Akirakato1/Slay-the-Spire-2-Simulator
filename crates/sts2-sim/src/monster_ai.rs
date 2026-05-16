@@ -1808,6 +1808,129 @@ fn register_migrated_legacy(m: &mut HashMap<&'static str, MonsterAi>) {
         },
     );
 
+    // Nibbit: cycle Butt → Slice → Hiss with conditional first turn:
+    //   if alone (1 living enemy): BUTT
+    //   else if front: SLICE
+    //   else: HISS
+    // Encoded as Conditional(LivingEnemyCountEquals(1)) wrapping BySlot.
+    m.insert(
+        "Nibbit",
+        MonsterAi {
+            model_id: "Nibbit",
+            moves: vec![
+                MonsterMove {
+                    id: "BUTT_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: AmountSpec::Fixed(12),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+                MonsterMove {
+                    id: "SLICE_MOVE",
+                    kind: IntentKind::AttackDefend { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: AmountSpec::Fixed(6),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::GainBlock {
+                            amount: AmountSpec::Fixed(5),
+                            target: Target::SelfActor,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "HISS_MOVE",
+                    kind: IntentKind::Buff,
+                    body: vec![Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    }],
+                },
+            ],
+            spawn: vec![],
+            pattern: MovePattern::Conditional {
+                // First-turn-only branching; subsequent turns use the
+                // base cycle regardless.
+                predicate: AiCondition::FirstTurn,
+                then_branch: Box::new(MovePattern::Conditional {
+                    predicate: AiCondition::LivingEnemyCountEquals(1),
+                    // Alone → BUTT.
+                    then_branch: Box::new(MovePattern::Cycle {
+                        moves: vec!["BUTT_MOVE"],
+                    }),
+                    else_branch: Box::new(MovePattern::BySlot {
+                        // Front slots → SLICE; back slots → HISS.
+                        branches: vec![
+                            ("front", MovePattern::Cycle { moves: vec!["SLICE_MOVE"] }),
+                            ("first", MovePattern::Cycle { moves: vec!["SLICE_MOVE"] }),
+                        ],
+                        default: Box::new(MovePattern::Cycle {
+                            moves: vec!["HISS_MOVE"],
+                        }),
+                    }),
+                }),
+                else_branch: Box::new(MovePattern::Cycle {
+                    moves: vec!["BUTT_MOVE", "SLICE_MOVE", "HISS_MOVE"],
+                }),
+            },
+        },
+    );
+
+    // FlailKnight: first-turn RAM, then weighted random
+    // {WAR_CHANT:1 (no_repeat), FLAIL:2, RAM:2}. No spawn.
+    m.insert(
+        "FlailKnight",
+        MonsterAi {
+            model_id: "FlailKnight",
+            moves: vec![
+                MonsterMove {
+                    id: "WAR_CHANT",
+                    kind: IntentKind::Buff,
+                    body: vec![Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(3),
+                        target: Target::SelfActor,
+                    }],
+                },
+                MonsterMove {
+                    id: "FLAIL_MOVE",
+                    kind: IntentKind::Attack { hits: 2 },
+                    body: vec![Effect::DealDamage {
+                        amount: AmountSpec::Fixed(9),
+                        target: Target::ChosenEnemy,
+                        hits: 2,
+                    }],
+                },
+                MonsterMove {
+                    id: "RAM_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: AmountSpec::Fixed(15),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+            ],
+            spawn: vec![],
+            pattern: MovePattern::FirstTurnOverride {
+                first_move: "RAM_MOVE",
+                then: Box::new(MovePattern::WeightedRandom {
+                    weights: vec![
+                        ("WAR_CHANT", 1),
+                        ("FLAIL_MOVE", 2),
+                        ("RAM_MOVE", 2),
+                    ],
+                    no_repeat: vec!["WAR_CHANT"],
+                }),
+            },
+        },
+    );
+
     m.insert(
         "Axebot",
         MonsterAi {
@@ -1990,7 +2113,7 @@ mod tests {
     fn ai_registry_covers_new_monsters() {
         // 5 RubyRaiders + 2 test + 3 gremlins + 7 single + 3 two-move
         // + 4 three-move + 4 weighted + 4 flag-state
-        // + 2 migrated legacy (Axebot, Myte) = 34 monsters.
+        // + 4 migrated legacy (Axebot, Myte, Nibbit, FlailKnight) = 36 monsters.
         let expected = [
             "AxeRubyRaider", "CrossbowRubyRaider", "BruteRubyRaider",
             "AssassinRubyRaider", "TrackerRubyRaider",
@@ -2002,7 +2125,7 @@ mod tests {
             "VineShambler", "KinFollower", "KinPriest", "PunchConstruct",
             "FossilStalker", "HunterKiller", "Flyconid", "Inklet",
             "GasBomb", "Mawler", "FrogKnight", "Fogmog",
-            "Axebot", "Myte",
+            "Axebot", "Myte", "Nibbit", "FlailKnight",
         ];
         for id in expected {
             assert!(ai_for(id).is_some(), "Missing AI for {}", id);
