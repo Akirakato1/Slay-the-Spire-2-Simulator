@@ -1018,6 +1018,34 @@ pub enum Effect {
     /// events. Atomic primitive avoids having to read the current
     /// gold to negate it.
     LoseAllGold,
+    /// Heal a fraction of the player's max_hp (rounded down).
+    /// SpiralingWhirlpool Drink heals 1/3 of max; future events may
+    /// heal 1/2 etc. Distinct from HealRunState which takes a fixed
+    /// integer.
+    HealRunStateMaxHpFraction { numerator: i32, denominator: i32 },
+    /// Upgrade N random cards from the master deck that match `filter`.
+    /// Picks via the run-state RNG. Reflections TouchAMirror upgrades
+    /// 4 random upgradable; DoorsOfLightAndDark Light upgrades 2;
+    /// EndlessConveyor ObserveChef upgrades 1; Trial verdict upgrades 2.
+    UpgradeRandomDeckCards {
+        n: AmountSpec,
+        filter: CardFilter,
+    },
+    /// Downgrade N random cards (set upgrade level back to 0 — or
+    /// decrement by 1 if multi-upgrade). Reflections TouchAMirror
+    /// downgrades 2 random upgraded cards.
+    DowngradeRandomDeckCards {
+        n: AmountSpec,
+        filter: CardFilter,
+    },
+    /// Duplicate every card in the master deck. Reflections Shatter
+    /// uses this — turns a 20-card deck into 40. Each clone is added
+    /// at the bottom of the deck (Cards.Add semantics).
+    CloneDeck,
+    /// Remove every card in the master deck whose id matches.
+    /// WarHistorianRepy strips all LanternKey quest cards. Generic
+    /// over card_id so future events that need "purge X" work.
+    RemoveAllCardsOfType { card_id: String },
     /// Lose max HP outside combat. DistinguishedCape, LeafyPoultice
     /// (`CreatureCmd.LoseMaxHp(N)`).
     LoseRunStateMaxHp { amount: AmountSpec },
@@ -1029,11 +1057,6 @@ pub enum Effect {
     /// Deterministic — no RNG. NeowsTalisman (upgrades starter Strike +
     /// Defend cards) uses Or(HasId("Strike"), HasId("Defend")).
     UpgradeDeckCards { filter: CardFilter },
-    /// Upgrade `n` random cards in the deck matching `filter`, using
-    /// the `up_front` run-state RNG stream for the pick. SandCastle
-    /// (6 random upgradable), WarPaint (2 random Skills), Whetstone
-    /// (2 random Attacks).
-    UpgradeRandomDeckCards { n: AmountSpec, filter: CardFilter },
     /// Enchant every deck card matching `filter` with `enchantment_id`.
     /// NutritiousSoup (every Basic Strike with TezcatarasEmber),
     /// PaelsClaw (entire deck with Goopy).
@@ -3455,6 +3478,51 @@ fn execute_run_state_effect(
         Effect::LoseAllGold => {
             if let Some(ps) = rs.player_state_mut(player_idx) {
                 ps.gold = 0;
+            }
+        }
+        Effect::HealRunStateMaxHpFraction { numerator, denominator } => {
+            let (n, d) = (*numerator, (*denominator).max(1));
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                let amt = (ps.max_hp * n / d).max(0);
+                ps.hp = (ps.hp + amt).min(ps.max_hp);
+            }
+        }
+        Effect::DowngradeRandomDeckCards { n, filter } => {
+            let n_val = run_state_resolve_amount(rs, player_idx, n, relic_id).max(0) as usize;
+            let eligible: Vec<usize> = rs.players()
+                .get(player_idx)
+                .map(|ps| ps.deck.iter().enumerate().filter_map(|(i, c)| {
+                    let cur = c.current_upgrade_level.unwrap_or(0);
+                    if cur <= 0 { return None; }
+                    if !card_id_matches_filter(&c.id, filter) { return None; }
+                    Some(i)
+                }).collect())
+                .unwrap_or_default();
+            if eligible.is_empty() { return; }
+            let mut pool = eligible;
+            let pick_count = pool.len().min(n_val);
+            let picks: Vec<usize> = (0..pick_count).map(|_| {
+                let idx = rs.rng_set_mut().niche.next_int(pool.len() as i32) as usize;
+                pool.swap_remove(idx)
+            }).collect();
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                for di in picks {
+                    if let Some(card) = ps.deck.get_mut(di) {
+                        let cur = card.current_upgrade_level.unwrap_or(0);
+                        card.current_upgrade_level = Some((cur - 1).max(0));
+                    }
+                }
+            }
+        }
+        Effect::CloneDeck => {
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                let clones: Vec<_> = ps.deck.clone();
+                ps.deck.extend(clones);
+            }
+        }
+        Effect::RemoveAllCardsOfType { card_id } => {
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.deck.retain(|c| &c.id != card_id);
             }
         }
         Effect::LoseRunStateHp { amount } => {
@@ -9668,13 +9736,18 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::GainRunStateGold { .. }
         | Effect::LoseRunStateGold { .. }
         | Effect::HealRunState { .. }
+        | Effect::HealRunStateMaxHpFraction { .. }
         | Effect::LoseAllGold
         | Effect::LoseRunStateMaxHp { .. }
         | Effect::AddCardToRunStateDeck { .. }
         | Effect::GainMaxPotionSlots { .. }
         | Effect::OfferCardReward { .. }
         | Effect::OfferRelicReward { .. }
-        | Effect::OfferPotionReward { .. } => {
+        | Effect::OfferPotionReward { .. }
+        | Effect::UpgradeRandomDeckCards { .. }
+        | Effect::DowngradeRandomDeckCards { .. }
+        | Effect::CloneDeck
+        | Effect::RemoveAllCardsOfType { .. } => {
             // STUB: see Pile::Deck rationale. Mutates RunState; combat
             // VM has no handle. Routes through run_state_effects path.
         }
@@ -9687,7 +9760,6 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         // are dispatched by `execute_run_state_effect` when fired from
         // a RunStateHook body.
         Effect::UpgradeDeckCards { .. }
-        | Effect::UpgradeRandomDeckCards { .. }
         | Effect::EnchantDeckCards { .. }
         | Effect::EnchantRandomDeckCards { .. }
         | Effect::TransformRandomDeckCards { .. }

@@ -373,8 +373,9 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             choices: vec![
                 EventChoice {
                     label: "LIGHT".to_string(),
-                    body: vec![Effect::UpgradeDeckCards {
-                        filter: crate::effects::CardFilter::Any,
+                    body: vec![Effect::UpgradeRandomDeckCards {
+                        n: AmountSpec::Fixed(2),
+                        filter: crate::effects::CardFilter::Upgradable,
                     }],
                 },
                 EventChoice {
@@ -570,26 +571,56 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             choices: vec![EventChoice { label: "LEAVE".to_string(), body: vec![] }],
         }),
 
-        // Reflections: TouchAMirror (downgrade 2 upgraded cards — needs
-        // primitive) vs Shatter (forks deck in 2 — needs primitive).
+        // Reflections: TouchAMirror downgrades 2 random upgraded
+        // cards, then upgrades 4 random upgradable cards. Shatter
+        // clones the entire deck and adds a BadLuck curse.
         "Reflections" => Some(EventModel {
             id: "Reflections".to_string(),
             choices: vec![
-                EventChoice { label: "TOUCH_A_MIRROR".to_string(), body: vec![] },
-                EventChoice { label: "SHATTER".to_string(),        body: vec![] },
-                EventChoice { label: "LEAVE".to_string(),           body: vec![] },
+                EventChoice {
+                    label: "TOUCH_A_MIRROR".to_string(),
+                    body: vec![
+                        Effect::DowngradeRandomDeckCards {
+                            n: AmountSpec::Fixed(2),
+                            filter: crate::effects::CardFilter::Any,
+                        },
+                        Effect::UpgradeRandomDeckCards {
+                            n: AmountSpec::Fixed(4),
+                            filter: crate::effects::CardFilter::Upgradable,
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "SHATTER".to_string(),
+                    body: vec![
+                        Effect::CloneDeck,
+                        Effect::AddCardToRunStateDeck {
+                            card_id: "BadLuck".to_string(),
+                            upgrade: 0,
+                        },
+                    ],
+                },
             ],
         }),
 
-        // SpiralingWhirlpool: ObserveSpiral (enchant 1 with Spiral —
-        // needs enchant primitive) vs Drink (heal — skip; uses HealVar(0)
-        // = char-default).
+        // SpiralingWhirlpool: ObserveSpiral (enchant 1 picked card
+        // with Spiral — needs interactive enchant primitive, stub).
+        // Drink heals 1/3 of max HP (the C# HealVar(0) is the base;
+        // CalculateVars sets it to floor(MaxHp / 3)).
         "SpiralingWhirlpool" => Some(EventModel {
             id: "SpiralingWhirlpool".to_string(),
             choices: vec![
-                EventChoice { label: "OBSERVE_THE_SPIRAL".to_string(), body: vec![] },
-                EventChoice { label: "DRINK".to_string(),               body: vec![] },
-                EventChoice { label: "LEAVE".to_string(),                body: vec![] },
+                EventChoice {
+                    label: "OBSERVE_THE_SPIRAL".to_string(),
+                    body: vec![], // TODO: interactive enchant
+                },
+                EventChoice {
+                    label: "DRINK".to_string(),
+                    body: vec![Effect::HealRunStateMaxHpFraction {
+                        numerator: 1,
+                        denominator: 3,
+                    }],
+                },
             ],
         }),
 
@@ -849,6 +880,36 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
+        // WarHistorianRepy: UNLOCK_CAGE (remove all LanternKey cards,
+        // gain HistoryCourse relic) vs UNLOCK_CHEST (remove all
+        // LanternKey, offer 2 potion + 2 relic rewards — reward bundle
+        // is event-time infra not yet built; encode the LanternKey
+        // removal so the deck-state effect lands correctly).
+        "WarHistorianRepy" => Some(EventModel {
+            id: "WarHistorianRepy".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "UNLOCK_CAGE".to_string(),
+                    body: vec![
+                        Effect::RemoveAllCardsOfType {
+                            card_id: "LanternKey".to_string(),
+                        },
+                        Effect::GainRelic {
+                            relic_id: "HistoryCourse".to_string(),
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "UNLOCK_CHEST".to_string(),
+                    body: vec![Effect::RemoveAllCardsOfType {
+                        card_id: "LanternKey".to_string(),
+                    }],
+                    // TODO: + custom-reward bundle (2 PotionReward +
+                    // 2 RelicReward) — needs OfferCustomRewards infra.
+                },
+            ],
+        }),
+
         // Trial: Accept (clean run end / advance) vs Reject (open
         // double-down sub-menu — multi-page). Skeleton until event
         // state machine supports multi-page.
@@ -872,7 +933,6 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
         | "TheArchitect"
         | "TheFutureOfPotions"
         | "TinkerTime"
-        | "WarHistorianRepy"
         | "WaterloggedScriptorium"
         | "DeprecatedEvent"
         => Some(EventModel {
@@ -1260,5 +1320,105 @@ mod tests {
         resolve_event_choice(&mut rs, 0).expect("let go");
         // Deck size is preserved; the card may have changed id.
         assert_eq!(rs.players()[0].deck.len(), deck_size_before);
+    }
+
+    #[test]
+    fn reflections_shatter_doubles_deck_and_adds_bad_luck() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        // Stock deck with a few cards.
+        rs.add_card(0, "StrikeIronclad", 0);
+        rs.add_card(0, "DefendIronclad", 0);
+        rs.add_card(0, "Bash", 0);
+        let pre_len = rs.players()[0].deck.len();
+        assert_eq!(pre_len, 3);
+        enter_event(&mut rs, 0, "Reflections");
+        // SHATTER is index 1 (TOUCH_A_MIRROR is 0).
+        resolve_event_choice(&mut rs, 1).expect("shatter");
+        let post_len = rs.players()[0].deck.len();
+        // CloneDeck duplicates every card (2x), then BadLuck is added.
+        assert_eq!(post_len, pre_len * 2 + 1,
+            "Shatter should clone every card and append BadLuck");
+        let has_bad_luck = rs.players()[0]
+            .deck
+            .iter()
+            .any(|c| c.id == "BadLuck");
+        assert!(has_bad_luck, "Shatter must add BadLuck card to deck");
+    }
+
+    #[test]
+    fn reflections_touch_a_mirror_upgrades_more_than_downgrades() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        // Stock deck with upgradable cards.
+        for _ in 0..6 {
+            rs.add_card(0, "StrikeIronclad", 0);
+        }
+        let pre_len = rs.players()[0].deck.len();
+        enter_event(&mut rs, 0, "Reflections");
+        // TOUCH_A_MIRROR is index 0.
+        resolve_event_choice(&mut rs, 0).expect("touch");
+        // Deck size preserved.
+        assert_eq!(rs.players()[0].deck.len(), pre_len);
+        // Net upgrade count: +4 upgrades, -2 downgrades = +2 from baseline
+        // (baseline 0 since StrikeIronclad starts at 0).
+        let total_upgrade: i32 = rs.players()[0]
+            .deck
+            .iter()
+            .map(|c| c.current_upgrade_level.unwrap_or(0))
+            .sum();
+        // Each random pick is independent and may collide, so the exact
+        // net is bounded but not deterministic; we assert the loose
+        // bound: net is in [+2, +4] (some downgrades may have clamped
+        // at 0 since cards start unupgraded).
+        assert!((2..=4).contains(&total_upgrade),
+            "Net upgrade count was {} (expected 2-4)", total_upgrade);
+    }
+
+    #[test]
+    fn spiraling_whirlpool_drink_heals_one_third_max_hp() {
+        let mut rs = fresh_rs();
+        rs.player_state_mut(0).unwrap().max_hp = 90;
+        rs.player_state_mut(0).unwrap().hp = 30; // out of 90
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "SpiralingWhirlpool");
+        // DRINK is index 1 (OBSERVE_THE_SPIRAL is 0).
+        resolve_event_choice(&mut rs, 1).expect("drink");
+        // 90 / 3 = 30 heal → 30 + 30 = 60.
+        assert_eq!(rs.players()[0].hp, 60);
+        assert_eq!(rs.players()[0].max_hp, 90);
+    }
+
+    #[test]
+    fn war_historian_repy_unlock_cage_removes_lantern_keys_and_grants_relic() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        // Plant 2 LanternKey cards + 1 other card.
+        rs.add_card(0, "LanternKey", 0);
+        rs.add_card(0, "LanternKey", 0);
+        rs.add_card(0, "StrikeIronclad", 0);
+        enter_event(&mut rs, 0, "WarHistorianRepy");
+        // UNLOCK_CAGE is index 0.
+        resolve_event_choice(&mut rs, 0).expect("unlock cage");
+        // All LanternKey cards removed.
+        let lantern_count = rs.players()[0]
+            .deck
+            .iter()
+            .filter(|c| c.id == "LanternKey")
+            .count();
+        assert_eq!(lantern_count, 0, "All LanternKey cards must be removed");
+        // Strike preserved.
+        let strike_count = rs.players()[0]
+            .deck
+            .iter()
+            .filter(|c| c.id == "StrikeIronclad")
+            .count();
+        assert_eq!(strike_count, 1);
+        // HistoryCourse relic granted.
+        let has_relic = rs.players()[0]
+            .relics
+            .iter()
+            .any(|r| r.id == "HistoryCourse");
+        assert!(has_relic, "HistoryCourse relic must be granted on UnlockCage");
     }
 }
