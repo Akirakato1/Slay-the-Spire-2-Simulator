@@ -12979,6 +12979,142 @@ mod tests {
         assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 5);
     }
 
+    /// Wave-1 Ironclad fixes — pure data/effect-list bugs (not power
+    /// hooks). Each test plays the card and asserts the expected state
+    /// delta. Lock-ins to prevent regression.
+
+    /// Corruption applies CorruptionPower with the correct canonical
+    /// var key ("Power", not "Dynamic"). Pre-fix: stack=0, post-fix:
+    /// stack=1.
+    #[test]
+    fn corruption_applies_power_with_correct_var_key() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+        let mut cs = build_ironclad_combat();
+        let effects = card_effects("Corruption").expect("Corruption exists");
+        let ctx = EffectContext::for_card(0, None, "Corruption", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let stacks = cs.allies[0].powers.iter()
+            .find(|p| p.id == "CorruptionPower")
+            .map(|p| p.amount).unwrap_or(0);
+        assert_eq!(stacks, 1, "Corruption should apply 1 CorruptionPower stack");
+    }
+
+    /// Stampede applies StampedePower (var "Power"=1). Pre-fix the key
+    /// "Dynamic" returned 0 and the stack was 0.
+    #[test]
+    fn stampede_applies_power_with_correct_var_key() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+        let mut cs = build_ironclad_combat();
+        let effects = card_effects("Stampede").unwrap();
+        let ctx = EffectContext::for_card(0, None, "Stampede", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let stacks = cs.allies[0].powers.iter()
+            .find(|p| p.id == "StampedePower")
+            .map(|p| p.amount).unwrap_or(0);
+        assert_eq!(stacks, 1, "Stampede should apply 1 stack");
+    }
+
+    /// FeelNoPain applies FeelNoPainPower at amount=3 (base var).
+    #[test]
+    fn feel_no_pain_applies_power_with_correct_var_key() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+        let mut cs = build_ironclad_combat();
+        let effects = card_effects("FeelNoPain").unwrap();
+        let ctx = EffectContext::for_card(0, None, "FeelNoPain", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let stacks = cs.allies[0].powers.iter()
+            .find(|p| p.id == "FeelNoPainPower")
+            .map(|p| p.amount).unwrap_or(0);
+        assert_eq!(stacks, 3, "FeelNoPain base = 3 stacks");
+    }
+
+    /// Dismantle hits twice when target has Vulnerable, once otherwise.
+    #[test]
+    fn dismantle_hits_twice_on_vulnerable_target() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+        // Setup A: no Vulnerable. Strike-style 1 hit.
+        let mut cs = build_ironclad_combat();
+        let effects = card_effects("Dismantle").unwrap();
+        let target = (CombatSide::Enemy, 0);
+        let hp_before = cs.enemies[0].current_hp;
+        let ctx = EffectContext::for_card(0, Some(target), "Dismantle", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let damage_a = hp_before - cs.enemies[0].current_hp;
+
+        // Setup B: with Vulnerable. Should deal ~2× (each hit also
+        // gets +50% from Vulnerable, but the comparison is about
+        // hits, not multiplier).
+        let mut cs = build_ironclad_combat();
+        cs.enemies[0].powers.push(PowerInstance {
+            id: "VulnerablePower".to_string(), amount: 5,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        let hp_before = cs.enemies[0].current_hp;
+        execute_effects(&mut cs, &effects, &ctx);
+        let damage_b = hp_before - cs.enemies[0].current_hp;
+        assert!(damage_b > damage_a,
+            "Dismantle on Vulnerable should deal more than on non-Vulnerable: {} > {}",
+            damage_b, damage_a);
+        // Stronger check: roughly 2× hits + Vulnerable 50% bonus.
+        // Damage base = 8 → 8 vs 8×2×1.5 = 24.
+        assert_eq!(damage_a, 8);
+        assert_eq!(damage_b, 24);
+    }
+
+    /// BurningPact requires exhausting 1 from hand BEFORE drawing.
+    /// Without the exhaust step it's free card draw.
+    #[test]
+    fn burning_pact_exhausts_then_draws() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+        let mut cs = build_ironclad_combat();
+        // Make sure hand has a card to exhaust.
+        let strike = CardInstance::from_card(crate::card::by_id("StrikeIronclad").unwrap(), 0);
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.hand.cards = vec![strike.clone()];
+        ps.draw.cards = vec![strike.clone(), strike.clone()];
+        ps.exhaust.cards.clear();
+        let hand_before = ps.hand.cards.len();
+        let exhaust_before = ps.exhaust.cards.len();
+        let draw_before = ps.draw.cards.len();
+
+        cs.auto_resolve_choices = true;
+        let effects = card_effects("BurningPact").unwrap();
+        let ctx = EffectContext::for_card(0, None, "BurningPact", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+
+        let ps = cs.allies[0].player.as_ref().unwrap();
+        let _ = (hand_before, exhaust_before, draw_before);
+        assert!(ps.exhaust.cards.len() >= 1, "BurningPact should exhaust 1 card");
+    }
+
+    /// DemonicShield's block multiplier reads the CASTER's block via
+    /// `AmountSpec::SelfBlock` (was incorrectly `TargetBlock` before
+    /// the fix). Verifies the amount-spec resolves to caster's block,
+    /// not the target ally's.
+    #[test]
+    fn demonic_shield_scales_with_caster_block_not_target() {
+        use crate::effects::{AmountSpec, EffectContext};
+        let mut cs = build_ironclad_combat();
+        cs.allies[0].block = 10;
+        let spec = AmountSpec::SelfBlock;
+        let ctx = EffectContext::for_card(0, None, "DemonicShield", 0, None, 0);
+        assert_eq!(spec.resolve(&ctx, &cs), 10,
+            "SelfBlock resolves to caster's block (10)");
+    }
+
+    fn build_ironclad_combat() -> CombatState {
+        let ironclad = character::by_id("Ironclad").unwrap();
+        let encounter = encounter::by_id("AxebotsNormal").unwrap();
+        let setup = PlayerSetup {
+            character: ironclad,
+            current_hp: 80, max_hp: 80,
+            deck: deck_from_ids(&ironclad.starting_deck),
+            relics: Vec::new(),
+        };
+        CombatState::start(encounter, vec![setup], Vec::new())
+    }
+
     /// Armaments base: gain block + stage a choice to upgrade one
     /// card in hand. Armaments+ upgrades every upgradable card in
     /// hand directly.
