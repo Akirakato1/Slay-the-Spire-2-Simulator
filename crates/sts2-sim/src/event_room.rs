@@ -626,6 +626,267 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
+        // TeaMaster: 3 tea relics with different gold costs.
+        "TeaMaster" => Some(EventModel {
+            id: "TeaMaster".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "BONE_TEA".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(50) },
+                        Effect::GainRelic { relic_id: "BoneTea".to_string() },
+                    ],
+                },
+                EventChoice {
+                    label: "EMBER_TEA".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(150) },
+                        Effect::GainRelic { relic_id: "EmberTea".to_string() },
+                    ],
+                },
+                EventChoice {
+                    label: "TEA_OF_DISCOURTESY".to_string(),
+                    body: vec![Effect::GainRelic {
+                        relic_id: "TeaOfDiscourtesy".to_string(),
+                    }],
+                },
+            ],
+        }),
+
+        // TheLanternKey: ReturnTheKey (+100 gold) vs KeepTheKey (combat skeleton).
+        "TheLanternKey" => Some(EventModel {
+            id: "TheLanternKey".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "RETURN_THE_KEY".to_string(),
+                    body: vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(100) }],
+                },
+                EventChoice {
+                    label: "KEEP_THE_KEY".to_string(),
+                    body: vec![], // TODO: event-combat with LanternKey reward
+                },
+            ],
+        }),
+
+        // CrystalSphere: UncoverFuture (-50 gold + minigame stub) vs
+        // PaymentPlan (Debt curse + minigame stub).
+        "CrystalSphere" => Some(EventModel {
+            id: "CrystalSphere".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "UNCOVER_FUTURE".to_string(),
+                    body: vec![Effect::LoseRunStateGold {
+                        amount: AmountSpec::Fixed(50),
+                    }],
+                    // TODO: minigame produces 3 prophesized cards
+                },
+                EventChoice {
+                    label: "PAYMENT_PLAN".to_string(),
+                    body: vec![Effect::AddCardToRunStateDeck {
+                        card_id: "Debt".to_string(), upgrade: 0,
+                    }],
+                    // TODO: minigame produces 6 prophesized cards
+                },
+            ],
+        }),
+
+        // JungleMazeAdventure: DontNeedHelp (-18 HP, +150 gold) vs
+        // SafetyInNumbers (+50 gold).
+        "JungleMazeAdventure" => Some(EventModel {
+            id: "JungleMazeAdventure".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "DONT_NEED_HELP".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(18) },
+                        Effect::GainRunStateGold { amount: AmountSpec::Fixed(150) },
+                    ],
+                },
+                EventChoice {
+                    label: "SAFETY_IN_NUMBERS".to_string(),
+                    body: vec![Effect::GainRunStateGold { amount: AmountSpec::Fixed(50) }],
+                },
+            ],
+        }),
+
+        // DollRoom: TakeSomeTime (-5 HP, 2-of-5 random doll) vs Examine
+        // (-15 HP, all-5 doll pick) vs ChooseRandom (1 random doll).
+        // "Doll" is a random relic; needs relic-pool primitive — stub.
+        "DollRoom" => Some(EventModel {
+            id: "DollRoom".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "CHOOSE_RANDOM".to_string(),
+                    body: vec![],
+                },
+                EventChoice {
+                    label: "TAKE_SOME_TIME".to_string(),
+                    body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(5) }],
+                },
+                EventChoice {
+                    label: "EXAMINE".to_string(),
+                    body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(15) }],
+                },
+            ],
+        }),
+
+        // WelcomeToWongos: 3 shop-style purchases (relic for gold).
+        // The "next-relic-from-front" picks are stubs (needs relic pool).
+        "WelcomeToWongos" => Some(EventModel {
+            id: "WelcomeToWongos".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "BUY_BARGAIN_BIN".to_string(),
+                    body: vec![Effect::LoseRunStateGold {
+                        amount: AmountSpec::Fixed(100),
+                    }],
+                    // TODO: + random Common relic from pool
+                },
+                EventChoice {
+                    label: "BUY_MYSTERY_BOX".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateGold { amount: AmountSpec::Fixed(300) },
+                        Effect::GainRelic { relic_id: "WongosMysteryTicket".to_string() },
+                    ],
+                },
+                EventChoice {
+                    label: "BUY_FEATURED_ITEM".to_string(),
+                    body: vec![Effect::LoseRunStateGold {
+                        amount: AmountSpec::Fixed(200),
+                    }],
+                    // TODO: + featured-item relic (varies per visit)
+                },
+                EventChoice { label: "LEAVE".to_string(), body: vec![] },
+            ],
+        }),
+
+        // ZenWeaver: 3 graduated remove-cards options at gold cost.
+        "ZenWeaver" => Some(EventModel {
+            id: "ZenWeaver".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "BREATHING_TECHNIQUES".to_string(),
+                    body: vec![Effect::LoseRunStateGold {
+                        amount: AmountSpec::Fixed(50),
+                    }],
+                    // TODO: + transform-2-cards-into-zen-something
+                },
+                EventChoice {
+                    label: "EMOTIONAL_AWARENESS".to_string(),
+                    body: vec![Effect::LoseRunStateGold {
+                        amount: AmountSpec::Fixed(125),
+                    }],
+                    // TODO: + remove 1 picked card
+                },
+                EventChoice {
+                    label: "ARACHNID_ACUPUNCTURE".to_string(),
+                    body: vec![Effect::LoseRunStateGold {
+                        amount: AmountSpec::Fixed(250),
+                    }],
+                    // TODO: + remove 2 picked cards
+                },
+            ],
+        }),
+
+        // Amalgamator: combine 2 Strikes / 2 Defends → single card.
+        // Needs interactive pick of 2-by-tag from deck; stub.
+        "Amalgamator" => Some(EventModel {
+            id: "Amalgamator".to_string(),
+            choices: vec![
+                EventChoice { label: "COMBINE_STRIKES".to_string(), body: vec![] },
+                EventChoice { label: "COMBINE_DEFENDS".to_string(), body: vec![] },
+                EventChoice { label: "LEAVE".to_string(),            body: vec![] },
+            ],
+        }),
+
+        // SapphireSeed: Eat (+9 heal + upgrade picked) vs Plant (enchant Sown).
+        "SapphireSeed" => Some(EventModel {
+            id: "SapphireSeed".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "EAT".to_string(),
+                    body: vec![Effect::HealRunState { amount: AmountSpec::Fixed(9) }],
+                    // TODO: + upgrade 1 picked card
+                },
+                EventChoice {
+                    label: "PLANT".to_string(),
+                    body: vec![],
+                    // TODO: enchant 1 picked card with Sown
+                },
+            ],
+        }),
+
+        // StoneOfAllTime: Drink → +10 MaxHp. Push → -6 HP + Vigorous enchant.
+        // Lift → +MaxHp + RNG side-effect (stub).
+        "StoneOfAllTime" => Some(EventModel {
+            id: "StoneOfAllTime".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "DRINK".to_string(),
+                    body: vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(10) }],
+                },
+                EventChoice {
+                    label: "PUSH".to_string(),
+                    body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(6) }],
+                    // TODO: + Vigorous(8) enchant pick
+                },
+                EventChoice {
+                    label: "LIFT".to_string(),
+                    body: vec![Effect::GainRunStateMaxHp { amount: AmountSpec::Fixed(10) }],
+                    // TODO: + discard a potion
+                },
+            ],
+        }),
+
+        // WoodCarvings: 3 carvings (Bird/Snake/Torus) — all enchant or
+        // transform 1 picked Basic card. All stubs for pick infra.
+        "WoodCarvings" => Some(EventModel {
+            id: "WoodCarvings".to_string(),
+            choices: vec![
+                EventChoice { label: "BIRD".to_string(),  body: vec![] },
+                EventChoice { label: "SNAKE".to_string(), body: vec![] },
+                EventChoice { label: "TORUS".to_string(), body: vec![] },
+            ],
+        }),
+
+        // Trial: Accept (clean run end / advance) vs Reject (open
+        // double-down sub-menu — multi-page). Skeleton until event
+        // state machine supports multi-page.
+        "Trial" => Some(EventModel {
+            id: "Trial".to_string(),
+            choices: vec![
+                EventChoice { label: "ACCEPT".to_string(), body: vec![] },
+                EventChoice { label: "REJECT".to_string(), body: vec![] },
+            ],
+        }),
+
+        // Multi-page / complex events. Skeletons keep the registry
+        // complete so unknown-event errors don't surface.
+        "AbyssalBaths"
+        | "ColossalFlower"
+        | "EndlessConveyor"
+        | "RanwidTheElder"
+        | "RoundTeaParty"
+        | "SelfHelpBook"
+        | "SlipperyBridge"
+        | "TheArchitect"
+        | "TheFutureOfPotions"
+        | "TinkerTime"
+        | "WarHistorianRepy"
+        | "WaterloggedScriptorium"
+        | "DeprecatedEvent"
+        => Some(EventModel {
+            id: id.to_string(),
+            // Single LEAVE option — the event is registered but its body
+            // is a no-op until the missing infra (deck-pick from filter,
+            // event-combat, multi-page state, relic-pool selection,
+            // potion-pool selection) lands.
+            choices: vec![EventChoice {
+                label: "LEAVE".to_string(),
+                body: vec![],
+            }],
+        }),
+
         _ => None,
     }
 }
@@ -701,6 +962,69 @@ mod tests {
     fn unknown_event_returns_false() {
         let mut rs = fresh_rs();
         assert!(!enter_event(&mut rs, 0, "NonexistentEvent"));
+    }
+
+    #[test]
+    fn every_event_in_data_table_is_registered() {
+        // Coverage gate: every event id in events.json (minus
+        // DeprecatedEvent if we ever drop it) must have a non-None
+        // entry in `event_choices`. New events extracted from the
+        // C# decompile would fail this test until they're wired.
+        let mut missing: Vec<String> = Vec::new();
+        let raw = include_str!("../data/events.json");
+        let entries: Vec<serde_json::Value> = serde_json::from_str(raw).unwrap();
+        for entry in entries {
+            let id = entry["id"].as_str().unwrap_or("").to_string();
+            if id.is_empty() { continue; }
+            if event_choices(&id).is_none() {
+                missing.push(id);
+            }
+        }
+        assert!(missing.is_empty(),
+            "Events without registry entries: {:?}", missing);
+    }
+
+    #[test]
+    fn tea_master_buys_bone_tea_with_gold() {
+        let mut rs = fresh_rs();
+        rs.player_state_mut(0).unwrap().gold = 100;
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "TeaMaster");
+        resolve_event_choice(&mut rs, 0).expect("bone tea");
+        assert_eq!(rs.players()[0].gold, 50);
+        assert!(rs.players()[0].relics.iter().any(|r| r.id == "BoneTea"));
+    }
+
+    #[test]
+    fn the_lantern_key_return_grants_gold() {
+        let mut rs = fresh_rs();
+        let gold = rs.players()[0].gold;
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "TheLanternKey");
+        resolve_event_choice(&mut rs, 0).expect("return");
+        assert_eq!(rs.players()[0].gold, gold + 100);
+    }
+
+    #[test]
+    fn welcome_to_wongos_mystery_box_charges_300_grants_ticket() {
+        let mut rs = fresh_rs();
+        rs.player_state_mut(0).unwrap().gold = 500;
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "WelcomeToWongos");
+        resolve_event_choice(&mut rs, 1).expect("mystery box");
+        assert_eq!(rs.players()[0].gold, 200);
+        assert!(rs.players()[0].relics.iter()
+            .any(|r| r.id == "WongosMysteryTicket"));
+    }
+
+    #[test]
+    fn stone_of_all_time_drink_grants_10_max_hp() {
+        let mut rs = fresh_rs();
+        let max = rs.players()[0].max_hp;
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "StoneOfAllTime");
+        resolve_event_choice(&mut rs, 0).expect("drink");
+        assert_eq!(rs.players()[0].max_hp, max + 10);
     }
 
     #[test]
