@@ -3278,14 +3278,29 @@ pub fn run_state_effects(
 
 /// Execute a run-state effect list against `RunState`. Match arms
 /// dispatch only the run-state Effect variants; combat-frame variants
-/// are no-ops here.
+/// are no-ops here. `relic_id` is the source relic for canonical-var
+/// resolution; pass `None` if there's no relic context (event-driven
+/// effect lists etc.).
 pub fn execute_run_state_effects(
     rs: &mut crate::run_state::RunState,
     player_idx: usize,
     effects: &[Effect],
 ) {
+    execute_run_state_effects_with_relic(rs, player_idx, effects, None);
+}
+
+/// Run-state effect dispatch with an optional source relic id. Used
+/// by the add_relic flow so `Canonical("HpLoss")` etc. can look up
+/// the relic's canonical_vars table. Falls back to the relic-less
+/// version when source is None.
+pub fn execute_run_state_effects_with_relic(
+    rs: &mut crate::run_state::RunState,
+    player_idx: usize,
+    effects: &[Effect],
+    relic_id: Option<&str>,
+) {
     for eff in effects {
-        execute_run_state_effect(rs, player_idx, eff);
+        execute_run_state_effect(rs, player_idx, eff, relic_id);
     }
 }
 
@@ -3293,17 +3308,18 @@ fn execute_run_state_effect(
     rs: &mut crate::run_state::RunState,
     player_idx: usize,
     eff: &Effect,
+    relic_id: Option<&str>,
 ) {
     match eff {
         Effect::GainRunStateMaxHp { amount } => {
-            let amt = run_state_resolve_amount(rs, player_idx, amount).max(0);
+            let amt = run_state_resolve_amount(rs, player_idx, amount, relic_id).max(0);
             if let Some(ps) = rs.player_state_mut(player_idx) {
                 ps.max_hp += amt;
                 ps.hp += amt;
             }
         }
         Effect::GainRunStateGold { amount } => {
-            let amt = run_state_resolve_amount(rs, player_idx, amount).max(0);
+            let amt = run_state_resolve_amount(rs, player_idx, amount, relic_id).max(0);
             if let Some(ps) = rs.player_state_mut(player_idx) {
                 ps.gold += amt;
             }
@@ -3315,7 +3331,7 @@ fn execute_run_state_effect(
             }
         }
         Effect::LoseRunStateHp { amount } => {
-            let amt = run_state_resolve_amount(rs, player_idx, amount).max(0);
+            let amt = run_state_resolve_amount(rs, player_idx, amount, relic_id).max(0);
             if let Some(ps) = rs.player_state_mut(player_idx) {
                 ps.hp = (ps.hp - amt).max(0);
             }
@@ -3344,7 +3360,7 @@ fn execute_run_state_effect(
             }
         }
         Effect::LoseRunStateMaxHp { amount } => {
-            let amt = run_state_resolve_amount(rs, player_idx, amount).max(0);
+            let amt = run_state_resolve_amount(rs, player_idx, amount, relic_id).max(0);
             if let Some(ps) = rs.player_state_mut(player_idx) {
                 // Match C# CreatureCmd.LoseMaxHp: lowers max_hp and clamps
                 // current_hp so it stays <= new max.
@@ -3376,7 +3392,7 @@ fn execute_run_state_effect(
             }
         }
         Effect::UpgradeRandomDeckCards { n, filter } => {
-            let count = run_state_resolve_amount(rs, player_idx, n).max(0) as usize;
+            let count = run_state_resolve_amount(rs, player_idx, n, relic_id).max(0) as usize;
             if count == 0 {
                 return;
             }
@@ -3429,7 +3445,7 @@ fn execute_run_state_effect(
             enchantment_id,
             enchantment_amount,
         } => {
-            let count = run_state_resolve_amount(rs, player_idx, n).max(0) as usize;
+            let count = run_state_resolve_amount(rs, player_idx, n, relic_id).max(0) as usize;
             if count == 0 {
                 return;
             }
@@ -3461,7 +3477,7 @@ fn execute_run_state_effect(
             }
         }
         Effect::RemoveRandomDeckCards { n, filter } => {
-            let count = run_state_resolve_amount(rs, player_idx, n).max(0) as usize;
+            let count = run_state_resolve_amount(rs, player_idx, n, relic_id).max(0) as usize;
             if count == 0 {
                 return;
             }
@@ -3526,7 +3542,7 @@ fn execute_run_state_effect(
             // Pool resolution at run-state needs the player's character
             // card pool. Look up CharacterData.card_pool (e.g.,
             // "Ironclad", "Silent") and match against CardData.pool.
-            let count = run_state_resolve_amount(rs, player_idx, n).max(0) as usize;
+            let count = run_state_resolve_amount(rs, player_idx, n, relic_id).max(0) as usize;
             if count == 0 {
                 return;
             }
@@ -3578,7 +3594,7 @@ fn execute_run_state_effect(
             }
         }
         Effect::GainMaxPotionSlots { delta } => {
-            let d = run_state_resolve_amount(rs, player_idx, delta);
+            let d = run_state_resolve_amount(rs, player_idx, delta, relic_id);
             if let Some(ps) = rs.player_state_mut(player_idx) {
                 ps.max_potion_slot_count = (ps.max_potion_slot_count + d).max(0);
             }
@@ -3735,26 +3751,40 @@ fn pick_distinct_indices(
 }
 
 fn run_state_resolve_amount(
-    _rs: &crate::run_state::RunState,
-    _player_idx: usize,
+    rs: &crate::run_state::RunState,
+    player_idx: usize,
     spec: &AmountSpec,
+    relic_id: Option<&str>,
 ) -> i32 {
     match spec {
         AmountSpec::Fixed(n) => *n,
         AmountSpec::Add { left, right } => {
-            run_state_resolve_amount(_rs, _player_idx, left)
-                + run_state_resolve_amount(_rs, _player_idx, right)
+            run_state_resolve_amount(rs, player_idx, left, relic_id)
+                + run_state_resolve_amount(rs, player_idx, right, relic_id)
         }
         AmountSpec::Sub { left, right } => {
-            run_state_resolve_amount(_rs, _player_idx, left)
-                - run_state_resolve_amount(_rs, _player_idx, right)
+            run_state_resolve_amount(rs, player_idx, left, relic_id)
+                - run_state_resolve_amount(rs, player_idx, right, relic_id)
         }
         AmountSpec::Mul { left, right } => {
-            run_state_resolve_amount(_rs, _player_idx, left)
-                * run_state_resolve_amount(_rs, _player_idx, right)
+            run_state_resolve_amount(rs, player_idx, left, relic_id)
+                * run_state_resolve_amount(rs, player_idx, right, relic_id)
         }
         AmountSpec::Multiplied { base, factor } => {
-            run_state_resolve_amount(_rs, _player_idx, base) * factor
+            run_state_resolve_amount(rs, player_idx, base, relic_id) * factor
+        }
+        AmountSpec::Canonical(key) => {
+            // Look up the canonical var on the relic. Base value only —
+            // upgrade_level doesn't apply to relics. Returns 0 if the
+            // var is missing or the relic context isn't supplied.
+            let Some(rid) = relic_id else { return 0 };
+            let Some(rd) = crate::relic::by_id(rid) else { return 0 };
+            for v in &rd.canonical_vars {
+                if v.kind == *key {
+                    return v.base_value.unwrap_or(0.0) as i32;
+                }
+            }
+            0
         }
         // Other variants require CombatState / EffectContext — caller
         // must specialize run-state relic bodies to use Fixed(N) for

@@ -545,7 +545,9 @@ use sts2_sim::run_state::{PlayerState as RsPlayerState, RunState};
 
 fn fresh_run_state() -> RunState {
     let players = vec![RsPlayerState {
-        character_id: "CHARACTER.IRONCLAD".into(),
+        // No "CHARACTER." prefix — matches the format that
+        // sts2_sim::character::by_id expects for card-pool lookups.
+        character_id: "Ironclad".into(),
         id: 1,
         hp: 80,
         max_hp: 80,
@@ -642,6 +644,279 @@ fn old_coin_gains_300_gold() {
     rs.add_relic(0, "OldCoin");
     assert_eq!(rs.players()[0].gold, 300,
         "OldCoin should grant +300 gold");
+}
+
+// ----------------------------------------------------------------------
+// Section 8b: Parametric audit of every relic with a run_state_effects
+// entry — proves that granting each one mutates SOMETHING about the
+// player's run-state (deck size, max HP, gold, potion slots, or hp).
+// If a future encoding regression leaves a relic's run-state body
+// empty, this catches it. 56 relics total at landing.
+// ----------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RsField { MaxHp, Hp, Gold, DeckLen, PotionSlots }
+
+fn snapshot(rs: &RunState, f: RsField) -> i32 {
+    let p = &rs.players()[0];
+    match f {
+        RsField::MaxHp => p.max_hp,
+        RsField::Hp => p.hp,
+        RsField::Gold => p.gold,
+        RsField::DeckLen => p.deck.len() as i32,
+        RsField::PotionSlots => p.max_potion_slot_count,
+    }
+}
+
+fn seed_starter_deck(rs: &mut RunState) {
+    // Stage a full Ironclad starter deck so relics that upgrade /
+    // transform / remove cards have material to operate on. Mirrors
+    // the deck composition a player would have when they obtain
+    // the relic mid-run.
+    for id in &["StrikeIronclad", "StrikeIronclad", "StrikeIronclad",
+                "StrikeIronclad", "StrikeIronclad",
+                "DefendIronclad", "DefendIronclad", "DefendIronclad",
+                "DefendIronclad", "Bash"] {
+        rs.players_mut()[0].deck.push(sts2_sim::run_log::CardRef {
+            id: id.to_string(),
+            floor_added_to_deck: Some(1),
+            current_upgrade_level: Some(0),
+            enchantment: None,
+        });
+    }
+}
+
+/// Verifies that granting `relic_id` changes the player's run-state in
+/// at least one observable dimension (HP / gold / deck / potion slots).
+/// If it doesn't, the encoding regressed to a no-op. Also checks for
+/// upgrades-in-place since deck length stays the same but cards
+/// change. Used by the parametric sweep below.
+fn assert_relic_mutates_run_state(relic_id: &str) {
+    let mut rs = fresh_run_state();
+    seed_starter_deck(&mut rs);
+    let before_simple = [
+        snapshot(&rs, RsField::MaxHp),
+        snapshot(&rs, RsField::Hp),
+        snapshot(&rs, RsField::Gold),
+        snapshot(&rs, RsField::DeckLen),
+        snapshot(&rs, RsField::PotionSlots),
+    ];
+    let deck_signature = |rs: &RunState| -> Vec<(String, i32, Option<String>)> {
+        rs.players()[0].deck.iter()
+            .map(|c| (
+                c.id.clone(),
+                c.current_upgrade_level.unwrap_or(0),
+                c.enchantment.as_ref().map(|e| e.id.clone()),
+            ))
+            .collect()
+    };
+    let deck_before_signature = deck_signature(&rs);
+    rs.add_relic(0, relic_id);
+    let after_simple = [
+        snapshot(&rs, RsField::MaxHp),
+        snapshot(&rs, RsField::Hp),
+        snapshot(&rs, RsField::Gold),
+        snapshot(&rs, RsField::DeckLen),
+        snapshot(&rs, RsField::PotionSlots),
+    ];
+    let deck_after_signature = deck_signature(&rs);
+    let scalar_changed = before_simple != after_simple;
+    let deck_changed = deck_before_signature != deck_after_signature;
+    assert!(scalar_changed || deck_changed,
+        "{} has a run_state_effects entry but granting it didn't change\n  \
+        any of [max_hp, hp, gold, deck composition + upgrades, potion slots].\n  \
+        The encoding may have an unresolved Canonical or a no-op body —\n  \
+        check run_state_effects(\"{}\") in effects.rs.",
+        relic_id, relic_id);
+}
+
+#[test]
+fn every_run_state_relic_mutates_at_least_one_player_field() {
+    // Hand-enumerated list of relics with run_state_effects entries.
+    // Keep in sync with the match arms in
+    // sts2_sim::effects::run_state_effects. A relic NOT in this list
+    // either has no permanent effect (e.g., combat-only relics) or
+    // is purely interactive (handled by a separate flow). When you
+    // add a new run-state encoding, append the id here.
+    let run_state_relics: &[&str] = &[
+        // Max-HP boosters
+        "Mango", "Pear", "Strawberry", "FakeMango", "BigMushroom",
+        "LeesWaffle", "LoomingFruit", "NutritiousOyster", "NutritiousSoup",
+        "LeafyPoultice", "DistinguishedCape",
+        // Gold
+        "OldCoin", "GoldenPearl",
+        // HP loss
+        "FragrantMushroom",
+        // Deck modifications (add specific card to deck)
+        "JewelryBox", "NeowsTorment", "Storybook", "TanxsWhistle",
+        "PaelsHorn", "SereTalon", "PreservedFog", "HeftyTablet",
+        "BloodSoakedRose", "CallingBell", "CursedPearl",
+        // Potion slots
+        "PotionBelt", "PhialHolster", "AlchemicalCoffer",
+        // Other run-state effects (deck modifications, transformations,
+        // etc.) — each must mutate something.
+        "Whetstone",     // upgrade 2 random Attacks
+        "WarPaint",      // upgrade 2 random Skills
+        "Astrolabe",     // transform 3 cards
+        "Pomander",      // add 3 random colorless to deck
+        "Claws",         // upgrade 1 specific
+        "NewLeaf",       // upgrade specific
+        "BeautifulBracelet", "TriBoomerang", "RoyalStamp",
+        "PaelsGrowth", "PaelsClaw", "PaelsTooth",
+        "NeowsTalisman", // permanent buff
+        "SandCastle", "Kifuda",
+        "PrecariousShears", "ElectricShrymp", "BiiigHug",
+        "EmptyCage", "SignetRing", "PandorasBox",
+        "PreciseScissors", "PunchDagger", "GnarledHammer",
+        "YummyCookie",
+        // Note: relics whose effect ONLY fires on a non-AfterObtained
+        // hook (AfterGoldGained / AfterCardAddedToDeck) are tested
+        // separately, since granting them alone is a no-op by design.
+        // Examples: DragonFruit, DarkstonePeriapt, LuckyFysh.
+    ];
+    let mut tested = 0;
+    let mut failed: Vec<(String, String)> = Vec::new();
+    for &id in run_state_relics {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_relic_mutates_run_state(id);
+        }));
+        match result {
+            Ok(()) => tested += 1,
+            Err(e) => {
+                let msg = e.downcast_ref::<String>()
+                    .map(|s| s.clone())
+                    .or_else(|| e.downcast_ref::<&str>().map(|s| s.to_string()))
+                    .unwrap_or_else(|| "<unknown panic>".to_string());
+                failed.push((id.to_string(), msg));
+            }
+        }
+    }
+    eprintln!("Audited {} run-state relics; {} no-ops found.",
+        tested, failed.len());
+    for (id, msg) in &failed {
+        eprintln!("  {}: {}", id, msg.lines().next().unwrap_or(""));
+    }
+    if !failed.is_empty() {
+        // Report all silent no-ops as a hard failure — these are the
+        // encoding gaps the user wants surfaced (cards/relics that
+        // claim to do something but produce zero state delta).
+        panic!("{} run-state relics produce no observable run-state change",
+            failed.len());
+    }
+}
+
+// ----------------------------------------------------------------------
+// Section 8c: Specific value-check tests for the run-state primitives
+// most likely to regress.
+// ----------------------------------------------------------------------
+
+#[test]
+fn whetstone_upgrades_two_attack_cards_in_deck() {
+    let mut rs = fresh_run_state();
+    // Stage some Attack cards in the deck for Whetstone to upgrade.
+    for id in &["StrikeIronclad", "StrikeIronclad", "StrikeIronclad",
+                "DefendIronclad", "DefendIronclad"] {
+        let data = card::by_id(id).expect("card in registry");
+        rs.players_mut()[0].deck.push(sts2_sim::run_log::CardRef {
+            id: data.id.clone(),
+            floor_added_to_deck: Some(1),
+            current_upgrade_level: Some(0),
+            enchantment: None,
+        });
+    }
+    let attacks_upgraded_before = rs.players()[0].deck.iter()
+        .filter(|c| c.id == "StrikeIronclad"
+            && c.current_upgrade_level.unwrap_or(0) > 0)
+        .count();
+    rs.add_relic(0, "Whetstone");
+    let attacks_upgraded_after = rs.players()[0].deck.iter()
+        .filter(|c| c.id == "StrikeIronclad"
+            && c.current_upgrade_level.unwrap_or(0) > 0)
+        .count();
+    let total_upgrades = attacks_upgraded_after - attacks_upgraded_before;
+    assert_eq!(total_upgrades, 2,
+        "Whetstone should upgrade exactly 2 Attack cards in deck");
+}
+
+#[test]
+fn pear_grants_10_max_hp() {
+    let mut rs = fresh_run_state();
+    let before = rs.players()[0].max_hp;
+    rs.add_relic(0, "Pear");
+    assert_eq!(rs.players()[0].max_hp, before + 10);
+}
+
+#[test]
+fn strawberry_grants_7_max_hp() {
+    let mut rs = fresh_run_state();
+    let before = rs.players()[0].max_hp;
+    rs.add_relic(0, "Strawberry");
+    assert_eq!(rs.players()[0].max_hp, before + 7);
+}
+
+#[test]
+fn big_mushroom_grants_20_max_hp() {
+    let mut rs = fresh_run_state();
+    let before = rs.players()[0].max_hp;
+    rs.add_relic(0, "BigMushroom");
+    assert_eq!(rs.players()[0].max_hp, before + 20);
+}
+
+#[test]
+fn looming_fruit_grants_31_max_hp() {
+    let mut rs = fresh_run_state();
+    let before = rs.players()[0].max_hp;
+    rs.add_relic(0, "LoomingFruit");
+    assert_eq!(rs.players()[0].max_hp, before + 31);
+}
+
+#[test]
+fn golden_pearl_grants_150_gold() {
+    let mut rs = fresh_run_state();
+    rs.add_relic(0, "GoldenPearl");
+    assert_eq!(rs.players()[0].gold, 150);
+}
+
+// ----------------------------------------------------------------------
+// Section 8d: Hook-triggered run-state relics. These fire on a
+// trigger other than AfterObtained (AfterGoldGained,
+// AfterCardAddedToDeck, AfterRoomEntered) so granting them alone is
+// a no-op by design. The tests below trigger the hook explicitly.
+// ----------------------------------------------------------------------
+
+#[test]
+fn dragon_fruit_max_hp_grows_on_gold_gain() {
+    // DragonFruit (Ironclad event): each time you gain gold, gain N
+    // max HP. Hook: AfterGoldGained.
+    let mut rs = fresh_run_state();
+    rs.add_relic(0, "DragonFruit");
+    let max_hp_before = rs.players()[0].max_hp;
+    // Gain gold via the run-state path that fires AfterGoldGained.
+    // We can't call the private effect directly from a test; the
+    // OldCoin relic grants 300 gold via the same Effect::GainRunStateGold
+    // path that fires the hook chain, so granting OldCoin afterwards
+    // exercises the trigger.
+    rs.add_relic(0, "OldCoin");
+    let max_hp_after = rs.players()[0].max_hp;
+    assert!(max_hp_after > max_hp_before,
+        "DragonFruit should grow max HP when gold is gained (was {}, now {})",
+        max_hp_before, max_hp_after);
+}
+
+#[test]
+fn darkstone_periapt_grants_max_hp_when_curse_added() {
+    // DarkstonePeriapt: +6 max HP each time a Curse enters the deck.
+    // Hook: AfterCardAddedToDeck (filter: Curse).
+    let mut rs = fresh_run_state();
+    rs.add_relic(0, "DarkstonePeriapt");
+    let max_hp_before = rs.players()[0].max_hp;
+    // CallingBell adds CurseOfTheBell to the deck via
+    // AddCardToRunStateDeck — fires AfterCardAddedToDeck hooks.
+    rs.add_relic(0, "CallingBell");
+    let max_hp_after = rs.players()[0].max_hp;
+    assert!(max_hp_after > max_hp_before,
+        "DarkstonePeriapt should grant max HP when CallingBell adds a curse \
+        (was {}, now {})", max_hp_before, max_hp_after);
 }
 
 // ============================================================================

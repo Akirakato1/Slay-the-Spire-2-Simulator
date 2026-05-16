@@ -225,7 +225,9 @@ impl RunState {
         };
         for (hook, body) in arms {
             if matches!(hook, crate::effects::RunStateHook::AfterObtained) {
-                crate::effects::execute_run_state_effects(self, player_idx, &body);
+                crate::effects::execute_run_state_effects_with_relic(
+                    self, player_idx, &body, Some(relic_id),
+                );
             }
         }
     }
@@ -252,7 +254,9 @@ impl RunState {
                                 continue;
                             }
                         }
-                        crate::effects::execute_run_state_effects(self, player_idx, &body);
+                        crate::effects::execute_run_state_effects_with_relic(
+                            self, player_idx, &body, Some(&relic_id),
+                        );
                     }
                 }
             }
