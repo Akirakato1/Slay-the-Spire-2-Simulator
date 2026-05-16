@@ -2139,6 +2139,373 @@ fn register_migrated_legacy(m: &mut HashMap<&'static str, MonsterAi>) {
         },
     );
 
+    // ---- Simple cycle / weighted-random batch via builders ----
+    // Numbers from each monster's combat.rs pick/execute pair (A0).
+
+    // CalcifiedCultist: cycle INCANTATION(+ritual 3) → DARK_STRIKE(9).
+    m.insert("CalcifiedCultist", MonsterAi {
+        model_id: "CalcifiedCultist",
+        moves: vec![
+            MonsterMove::buff("INCANTATION_MOVE", "RitualPower", 3),
+            MonsterMove::attack("DARK_STRIKE_MOVE", 9, 1),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle { moves: vec!["INCANTATION_MOVE", "DARK_STRIKE_MOVE"] },
+    });
+
+    // DevotedSculptor: cycle FORBIDDEN_INCANTATION(+ritual 9) → SAVAGE(12).
+    m.insert("DevotedSculptor", MonsterAi {
+        model_id: "DevotedSculptor",
+        moves: vec![
+            MonsterMove::buff("FORBIDDEN_INCANTATION_MOVE", "RitualPower", 9),
+            MonsterMove::attack("SAVAGE_MOVE", 12, 1),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec!["FORBIDDEN_INCANTATION_MOVE", "SAVAGE_MOVE"],
+        },
+    });
+
+    // Seapunk: cycle SEA_KICK(11) → SPINNING_KICK(2×4) → BUBBLE_BURP(block 7 + str 1).
+    m.insert("Seapunk", MonsterAi {
+        model_id: "Seapunk",
+        moves: vec![
+            MonsterMove::attack("SEA_KICK_MOVE", 11, 1),
+            MonsterMove::attack("SPINNING_KICK_MOVE", 2, 4),
+            MonsterMove {
+                id: "BUBBLE_BURP_MOVE",
+                kind: IntentKind::Defend,
+                body: vec![
+                    Effect::GainBlock {
+                        amount: AmountSpec::Fixed(7),
+                        target: Target::SelfActor,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(1),
+                        target: Target::SelfActor,
+                    },
+                ],
+            },
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec!["SEA_KICK_MOVE", "SPINNING_KICK_MOVE", "BUBBLE_BURP_MOVE"],
+        },
+    });
+
+    // GlobeHead: cycle SHOCKING_SLAP(13 + Frail 2) → THUNDER_STRIKE(6×3) → GALVANIC_BURST(16 + Str 2).
+    m.insert("GlobeHead", MonsterAi {
+        model_id: "GlobeHead",
+        moves: vec![
+            MonsterMove::attack_debuff("SHOCKING_SLAP_MOVE", 13, 1, "FrailPower", 2),
+            MonsterMove::attack("THUNDER_STRIKE_MOVE", 6, 3),
+            MonsterMove::attack_buff("GALVANIC_BURST_MOVE", 16, 1, "StrengthPower", 2),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "SHOCKING_SLAP_MOVE",
+                "THUNDER_STRIKE_MOVE",
+                "GALVANIC_BURST_MOVE",
+            ],
+        },
+    });
+
+    // TwigSlimeS: single move loop BUTT(4).
+    m.insert("TwigSlimeS", MonsterAi {
+        model_id: "TwigSlimeS",
+        moves: vec![MonsterMove::attack("BUTT_MOVE", 4, 1)],
+        spawn: vec![],
+        pattern: MovePattern::Cycle { moves: vec!["BUTT_MOVE"] },
+    });
+
+    // LeafSlimeM: strict alternation STICKY_SHOT(+slimed 2) ↔ CLUMP_SHOT(8).
+    m.insert("LeafSlimeM", MonsterAi {
+        model_id: "LeafSlimeM",
+        moves: vec![
+            MonsterMove {
+                id: "STICKY_SHOT_MOVE",
+                kind: IntentKind::Debuff,
+                body: vec![
+                    Effect::AddCardToPile {
+                        card_id: "Slimed".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                    Effect::AddCardToPile {
+                        card_id: "Slimed".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                ],
+            },
+            MonsterMove::attack("CLUMP_SHOT_MOVE", 8, 1),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec!["STICKY_SHOT_MOVE", "CLUMP_SHOT_MOVE"],
+        },
+    });
+
+    // BowlbugEgg: single move loop BITE (deal 7 + gain 7 block — attack_defend builder).
+    m.insert("BowlbugEgg", MonsterAi {
+        model_id: "BowlbugEgg",
+        moves: vec![MonsterMove::attack_defend("BITE_MOVE", 7, 1, 7)],
+        spawn: vec![],
+        pattern: MovePattern::Cycle { moves: vec!["BITE_MOVE"] },
+    });
+
+    // Vantom: 4-position cycle INK_BLOT(7) → INKY_LANCE(6×2) → DISMEMBER(27+Wound 3) → PREPARE(+str 2).
+    m.insert("Vantom", MonsterAi {
+        model_id: "Vantom",
+        moves: vec![
+            MonsterMove::attack("INK_BLOT_MOVE", 7, 1),
+            MonsterMove::attack("INKY_LANCE_MOVE", 6, 2),
+            MonsterMove {
+                id: "DISMEMBER_MOVE",
+                kind: IntentKind::AttackDebuff { hits: 1 },
+                body: vec![
+                    Effect::DealDamage {
+                        amount: AmountSpec::Fixed(27),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    },
+                    // Wound is a status card, not a power. C# uses
+                    // CardPileCmd.AddToCombat<Wound>(3).
+                    Effect::AddCardToPile {
+                        card_id: "Wound".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                    Effect::AddCardToPile {
+                        card_id: "Wound".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                    Effect::AddCardToPile {
+                        card_id: "Wound".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                ],
+            },
+            MonsterMove::buff("PREPARE_MOVE", "StrengthPower", 2),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "INK_BLOT_MOVE",
+                "INKY_LANCE_MOVE",
+                "DISMEMBER_MOVE",
+                "PREPARE_MOVE",
+            ],
+        },
+    });
+
+    // SpinyToad: cycle SPIKES(+thorns 5) → EXPLOSION(23, -thorns 5) → LASH(17).
+    m.insert("SpinyToad", MonsterAi {
+        model_id: "SpinyToad",
+        moves: vec![
+            MonsterMove::buff("SPIKES_MOVE", "ThornsPower", 5),
+            MonsterMove {
+                id: "EXPLOSION_MOVE",
+                kind: IntentKind::Attack { hits: 1 },
+                body: vec![
+                    Effect::ApplyPower {
+                        power_id: "ThornsPower".to_string(),
+                        amount: AmountSpec::Fixed(-5),
+                        target: Target::SelfActor,
+                    },
+                    Effect::DealDamage {
+                        amount: AmountSpec::Fixed(23),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    },
+                ],
+            },
+            MonsterMove::attack("LASH_MOVE", 17, 1),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec!["SPIKES_MOVE", "EXPLOSION_MOVE", "LASH_MOVE"],
+        },
+    });
+
+    // SlimedBerserker: cycle VOMIT_ICHOR (10 Slimed) → FURIOUS_PUMMELING (4×4)
+    //   → LEECHING_HUG (Weak 3 + Str 3) → SMOTHER (30).
+    m.insert("SlimedBerserker", MonsterAi {
+        model_id: "SlimedBerserker",
+        moves: vec![
+            MonsterMove {
+                id: "VOMIT_ICHOR_MOVE",
+                kind: IntentKind::Debuff,
+                body: (0..10).map(|_| Effect::AddCardToPile {
+                    card_id: "Slimed".to_string(),
+                    upgrade: 0,
+                    pile: crate::effects::Pile::Discard,
+                }).collect(),
+            },
+            MonsterMove::attack("FURIOUS_PUMMELING_MOVE", 4, 4),
+            MonsterMove {
+                id: "LEECHING_HUG_MOVE",
+                kind: IntentKind::Debuff,
+                body: vec![
+                    Effect::ApplyPower {
+                        power_id: "WeakPower".to_string(),
+                        amount: AmountSpec::Fixed(3),
+                        target: Target::ChosenEnemy,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(3),
+                        target: Target::SelfActor,
+                    },
+                ],
+            },
+            MonsterMove::attack("SMOTHER_MOVE", 30, 1),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "VOMIT_ICHOR_MOVE",
+                "FURIOUS_PUMMELING_MOVE",
+                "LEECHING_HUG_MOVE",
+                "SMOTHER_MOVE",
+            ],
+        },
+    });
+
+    // PhrogParasite: strict alternation INFECT (Infection 3) ↔ LASH (4×4).
+    m.insert("PhrogParasite", MonsterAi {
+        model_id: "PhrogParasite",
+        moves: vec![
+            MonsterMove::debuff("INFECT_MOVE", "InfectionPower", 3),
+            MonsterMove::attack("LASH_MOVE", 4, 4),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec!["INFECT_MOVE", "LASH_MOVE"],
+        },
+    });
+
+    // SoulFysh: cycle BECKON(+Beckon 2) → DE_GAS(16) → GAZE(7 + Beckon 1)
+    //   → FADE(+Intangible 2) → SCREAM(11 + Vulnerable 3).
+    m.insert("SoulFysh", MonsterAi {
+        model_id: "SoulFysh",
+        moves: vec![
+            MonsterMove::buff("BECKON_MOVE", "BeckonPower", 2),
+            MonsterMove::attack("DE_GAS_MOVE", 16, 1),
+            MonsterMove::attack_buff("GAZE_MOVE", 7, 1, "BeckonPower", 1),
+            MonsterMove::buff("FADE_MOVE", "IntangiblePower", 2),
+            MonsterMove::attack_debuff("SCREAM_MOVE", 11, 1, "VulnerablePower", 3),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "BECKON_MOVE",
+                "DE_GAS_MOVE",
+                "GAZE_MOVE",
+                "FADE_MOVE",
+                "SCREAM_MOVE",
+            ],
+        },
+    });
+
+    // TurretOperator: cycle UNLOAD1(3×5) → UNLOAD2(3×5) → RELOAD(+Str 1).
+    m.insert("TurretOperator", MonsterAi {
+        model_id: "TurretOperator",
+        moves: vec![
+            MonsterMove::attack("UNLOAD1_MOVE", 3, 5),
+            MonsterMove::attack("UNLOAD2_MOVE", 3, 5),
+            MonsterMove::buff("RELOAD_MOVE", "StrengthPower", 1),
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec!["UNLOAD1_MOVE", "UNLOAD2_MOVE", "RELOAD_MOVE"],
+        },
+    });
+
+    // OwlMagistrate: cycle SCRUTINY(16) → PECK_ASSAULT(4×6)
+    //   → JUDICIAL_FLIGHT(+SoarPower 1) → VERDICT(33 + Vulnerable 4 - SoarPower).
+    m.insert("OwlMagistrate", MonsterAi {
+        model_id: "OwlMagistrate",
+        moves: vec![
+            MonsterMove::attack("MAGISTRATE_SCRUTINY", 16, 1),
+            MonsterMove::attack("PECK_ASSAULT", 4, 6),
+            MonsterMove::buff("JUDICIAL_FLIGHT", "SoarPower", 1),
+            MonsterMove {
+                id: "VERDICT",
+                kind: IntentKind::AttackDebuff { hits: 1 },
+                body: vec![
+                    Effect::DealDamage {
+                        amount: AmountSpec::Fixed(33),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "VulnerablePower".to_string(),
+                        amount: AmountSpec::Fixed(4),
+                        target: Target::ChosenEnemy,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "SoarPower".to_string(),
+                        amount: AmountSpec::Fixed(-1),
+                        target: Target::SelfActor,
+                    },
+                ],
+            },
+        ],
+        spawn: vec![],
+        pattern: MovePattern::Cycle {
+            moves: vec![
+                "MAGISTRATE_SCRUTINY",
+                "PECK_ASSAULT",
+                "JUDICIAL_FLIGHT",
+                "VERDICT",
+            ],
+        },
+    });
+
+    // SoulNexus: SOUL_BURN(29) first, then weighted random
+    //   {MAELSTROM(6×4) no_repeat, DRAIN_LIFE(18 + Vuln 2 + Weak 2) no_repeat}.
+    m.insert("SoulNexus", MonsterAi {
+        model_id: "SoulNexus",
+        moves: vec![
+            MonsterMove::attack("SOUL_BURN_MOVE", 29, 1),
+            MonsterMove::attack("MAELSTROM_MOVE", 6, 4),
+            MonsterMove {
+                id: "DRAIN_LIFE_MOVE",
+                kind: IntentKind::AttackDebuff { hits: 1 },
+                body: vec![
+                    Effect::DealDamage {
+                        amount: AmountSpec::Fixed(18),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "VulnerablePower".to_string(),
+                        amount: AmountSpec::Fixed(2),
+                        target: Target::ChosenEnemy,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "WeakPower".to_string(),
+                        amount: AmountSpec::Fixed(2),
+                        target: Target::ChosenEnemy,
+                    },
+                ],
+            },
+        ],
+        spawn: vec![],
+        pattern: MovePattern::FirstTurnOverride {
+            first_move: "SOUL_BURN_MOVE",
+            then: Box::new(MovePattern::WeightedRandom {
+                weights: vec![("MAELSTROM_MOVE", 1), ("DRAIN_LIFE_MOVE", 1)],
+                no_repeat: vec!["MAELSTROM_MOVE", "DRAIN_LIFE_MOVE"],
+            }),
+        },
+    });
+
     // ThievingHopper: chain Thievery → Flutter → HatTrick → Nab →
     // Escape (loop). Spawn: EscapeArtistPower(5). Steal-cards and
     // Flutter mechanics are deferred — encoded as plain damage moves
@@ -2357,8 +2724,7 @@ mod tests {
     fn ai_registry_covers_new_monsters() {
         // 5 RubyRaiders + 2 test + 3 gremlins + 7 single + 3 two-move
         // + 4 three-move + 4 weighted + 4 flag-state
-        // + 6 migrated legacy (Axebot, Myte, Nibbit, FlailKnight,
-        //   Toadpole, ThievingHopper) = 38 monsters.
+        // + 22 migrated legacy = 54 monsters.
         let expected = [
             "AxeRubyRaider", "CrossbowRubyRaider", "BruteRubyRaider",
             "AssassinRubyRaider", "TrackerRubyRaider",
@@ -2372,6 +2738,10 @@ mod tests {
             "GasBomb", "Mawler", "FrogKnight", "Fogmog",
             "Axebot", "Myte", "Nibbit", "FlailKnight",
             "Toadpole", "ThievingHopper",
+            "CalcifiedCultist", "DevotedSculptor", "Seapunk", "GlobeHead",
+            "TwigSlimeS", "LeafSlimeM", "BowlbugEgg", "Vantom",
+            "SpinyToad", "SlimedBerserker", "PhrogParasite", "SoulFysh",
+            "TurretOperator", "OwlMagistrate", "SoulNexus",
         ];
         for id in expected {
             assert!(ai_for(id).is_some(), "Missing AI for {}", id);
