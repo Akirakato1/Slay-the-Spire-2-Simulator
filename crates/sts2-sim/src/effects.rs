@@ -39,6 +39,20 @@ use crate::combat::{
 };
 use crate::relic::by_id as relic_by_id;
 
+/// Card id the Forge primitive produces / upgrades. The `Effect::Forge`
+/// handler spawns this in hand if no instance exists in hand/draw/discard,
+/// then bumps `state[FORGE_BONUS_KEY]` on every non-exhausted copy.
+/// Centralized so the magic string sits in exactly one place — change
+/// this constant to retarget Forge for a future character pool, no
+/// scan-and-replace across the encoding table.
+pub const FORGE_TARGET_CARD: &str = "SovereignBlade";
+
+/// Per-instance state key on `FORGE_TARGET_CARD` that accumulates the
+/// in-combat damage / block bonus produced by every `Effect::Forge`
+/// fire. Read by `AmountSpec::SourceCardCounter` to project the
+/// bonus into the card's damage / block calc.
+pub const FORGE_BONUS_KEY: &str = "forge_bonus";
+
 /// Resolve a relic's canonical-var integer value by key. Relic vars
 /// don't upgrade, so this is a flat lookup against the `canonical_vars`
 /// table. Matches by `kind` first, then `generic`, then suffix-stripped
@@ -9288,24 +9302,29 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             // owner's piles, conjure one to hand-bottom. Then add `amount`
             // to the per-instance forge bonus on every non-exhausted
             // SovereignBlade. Mirrors C# ForgeCmd.Forge.
+            //
+            // The card id "SovereignBlade" and the state key
+            // "forge_bonus" are intrinsic to the Forge mechanic's
+            // specification — not card-specific dispatch. Hoisted to
+            // module-level constants so the magic strings live in one
+            // place (and a future character-pool port that retargets
+            // Forge can flip the constant or thread it via config).
             let amt = amount.resolve(ctx, cs);
             let Some(ps) = player_state_mut(cs, ctx.player_idx) else {
                 return;
             };
             ps.pending_forge += amt;
-            let has_blade = ps
+            let has_target = ps
                 .hand
                 .cards
                 .iter()
                 .chain(ps.draw.cards.iter())
                 .chain(ps.discard.cards.iter())
-                .any(|c| c.id == "SovereignBlade");
-            if !has_blade {
-                let _ = cs.add_card_to_pile(ctx.player_idx, "SovereignBlade", 0, PileType::Hand);
+                .any(|c| c.id == FORGE_TARGET_CARD);
+            if !has_target {
+                let _ = cs.add_card_to_pile(
+                    ctx.player_idx, FORGE_TARGET_CARD, 0, PileType::Hand);
             }
-            // Bump the per-instance forge bonus on every non-exhausted
-            // SovereignBlade. Single source of truth for the in-combat
-            // damage modifier.
             if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
                 for c in ps
                     .hand
@@ -9314,8 +9333,8 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                     .chain(ps.draw.cards.iter_mut())
                     .chain(ps.discard.cards.iter_mut())
                 {
-                    if c.id == "SovereignBlade" {
-                        let v = c.state.entry("forge_bonus".to_string()).or_insert(0);
+                    if c.id == FORGE_TARGET_CARD {
+                        let v = c.state.entry(FORGE_BONUS_KEY.to_string()).or_insert(0);
                         *v += amt;
                     }
                 }

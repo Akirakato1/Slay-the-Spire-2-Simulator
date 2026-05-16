@@ -4205,20 +4205,19 @@ impl CombatState {
         // GetResultPileType: `if (Type == Power) return PileType.None`.
         // Their effect persists as a Power on the player; the card
         // itself is consumed (not in any pile). Skip routing entirely.
+        // Routing priority: Power → no pile (consumed). Exhaust keyword
+        // → exhaust pile. Card-data `result_pile` override → as specified
+        // (data-driven; ParticleWall = Hand, ShiningStrike = DrawTop).
+        // Default → discard pile.
         let dest_opt: Option<PileType> = if card_data.card_type == crate::card::CardType::Power {
             None
         } else if card_data.keywords.iter().any(|k| k == "Exhaust") {
             Some(PileType::Exhaust)
-        } else if card_id == "ParticleWall" {
-            // ParticleWall.GetResultPileType overrides Discard -> Hand.
-            // Mirrors C# ParticleWall.cs: the only card with this
-            // override. Keeps the played card in hand for re-play.
-            Some(PileType::Hand)
-        } else if card_id == "ShiningStrike" {
-            // ShiningStrike OnPlay: if not Exhaust + not ExhaustOnNextPlay,
-            // CardPileCmd.Add(this, Draw, Top). The keyword check fails
-            // (no Exhaust keyword) so it always routes to Draw top.
-            Some(PileType::Draw)
+        } else if let Some(override_pile) = card_data.result_pile {
+            match override_pile {
+                crate::card::ResultPileOverride::Hand => Some(PileType::Hand),
+                crate::card::ResultPileOverride::DrawTop => Some(PileType::Draw),
+            }
         } else {
             Some(PileType::Discard)
         };

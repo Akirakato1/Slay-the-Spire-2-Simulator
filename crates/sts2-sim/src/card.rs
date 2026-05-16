@@ -75,6 +75,30 @@ pub struct CardData {
     /// `key`, depending on which indexer the C# code uses.
     #[serde(default)]
     pub upgrade_deltas: Vec<UpgradeDelta>,
+    /// Optional override for where the played card lands after OnPlay
+    /// resolves. None = use the default routing (Power → consumed,
+    /// Exhaust keyword → exhaust pile, else → discard pile).
+    /// `ParticleWall` overrides to `Hand` (C#: `GetResultPileType` →
+    /// `PileType.Hand`). `ShiningStrike` overrides to `DrawTop` (C#:
+    /// `OnPlay` calls `CardPileCmd.Add(this, Draw, Top)`). This
+    /// surface keeps both expressible as data instead of card-id
+    /// branches in the routing code.
+    #[serde(default)]
+    pub result_pile: Option<ResultPileOverride>,
+}
+
+/// Where a played card lands after OnPlay resolves. Closed set —
+/// extend only when a new C# routing override surfaces. Default
+/// (no override) uses the keyword-driven routing path
+/// (Exhaust/Discard/Hand-for-Power).
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub enum ResultPileOverride {
+    /// Land in the player's hand (ParticleWall — keeps the card
+    /// available for another play in the same turn).
+    Hand,
+    /// Land at the top of the draw pile (ShiningStrike — re-draws
+    /// next).
+    DrawTop,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

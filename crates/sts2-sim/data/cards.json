@@ -9973,7 +9973,8 @@
         "var_kind": "Block",
         "delta": 3.0
       }
-    ]
+    ],
+    "result_pile": "Hand"
   },
   {
     "id": "Patter",
@@ -12310,7 +12311,8 @@
         "var_kind": "Damage",
         "delta": 3.0
       }
-    ]
+    ],
+    "result_pile": "DrawTop"
   },
   {
     "id": "Shiv",
