@@ -47,6 +47,157 @@ pub struct MonsterMove {
     pub body: Vec<Effect>,
 }
 
+impl MonsterMove {
+    /// Single- or multi-hit attack on the targeted player. The
+    /// `hits` field on `DealDamage` re-rolls modifiers per hit
+    /// (StS rules for block recompute between hits).
+    pub fn attack(id: &'static str, damage: i32, hits: i32) -> Self {
+        Self {
+            id,
+            kind: IntentKind::Attack { hits },
+            body: vec![Effect::DealDamage {
+                amount: crate::effects::AmountSpec::Fixed(damage),
+                target: Target::ChosenEnemy,
+                hits,
+            }],
+        }
+    }
+
+    /// Pure block gain on self. No damage.
+    pub fn defend(id: &'static str, block: i32) -> Self {
+        Self {
+            id,
+            kind: IntentKind::Defend,
+            body: vec![Effect::GainBlock {
+                amount: crate::effects::AmountSpec::Fixed(block),
+                target: Target::SelfActor,
+            }],
+        }
+    }
+
+    /// Self-buff via a power apply. Common: Strength, Plating, Dexterity.
+    pub fn buff(id: &'static str, power_id: &str, amount: i32) -> Self {
+        Self {
+            id,
+            kind: IntentKind::Buff,
+            body: vec![Effect::ApplyPower {
+                power_id: power_id.to_string(),
+                amount: crate::effects::AmountSpec::Fixed(amount),
+                target: Target::SelfActor,
+            }],
+        }
+    }
+
+    /// Player-targeting debuff via a power apply. Common: Weak,
+    /// Frail, Vulnerable.
+    pub fn debuff(id: &'static str, power_id: &str, amount: i32) -> Self {
+        Self {
+            id,
+            kind: IntentKind::Debuff,
+            body: vec![Effect::ApplyPower {
+                power_id: power_id.to_string(),
+                amount: crate::effects::AmountSpec::Fixed(amount),
+                target: Target::ChosenEnemy,
+            }],
+        }
+    }
+
+    /// Damage + apply a debuff to the same target. The most common
+    /// "attack with rider" pattern: BruteRubyRaider STOMP (6 dmg +
+    /// Weak), AssassinRubyRaider, etc.
+    pub fn attack_debuff(
+        id: &'static str,
+        damage: i32,
+        hits: i32,
+        debuff_id: &str,
+        debuff_amount: i32,
+    ) -> Self {
+        Self {
+            id,
+            kind: IntentKind::AttackDebuff { hits },
+            body: vec![
+                Effect::DealDamage {
+                    amount: crate::effects::AmountSpec::Fixed(damage),
+                    target: Target::ChosenEnemy,
+                    hits,
+                },
+                Effect::ApplyPower {
+                    power_id: debuff_id.to_string(),
+                    amount: crate::effects::AmountSpec::Fixed(debuff_amount),
+                    target: Target::ChosenEnemy,
+                },
+            ],
+        }
+    }
+
+    /// Damage + self-buff. KinFollower QUICK_SLASH-with-strength,
+    /// SnappingJaxfruit ENERGY_ORB, Fogmog SWIPE.
+    pub fn attack_buff(
+        id: &'static str,
+        damage: i32,
+        hits: i32,
+        buff_id: &str,
+        buff_amount: i32,
+    ) -> Self {
+        Self {
+            id,
+            kind: IntentKind::AttackBuff { hits },
+            body: vec![
+                Effect::DealDamage {
+                    amount: crate::effects::AmountSpec::Fixed(damage),
+                    target: Target::ChosenEnemy,
+                    hits,
+                },
+                Effect::ApplyPower {
+                    power_id: buff_id.to_string(),
+                    amount: crate::effects::AmountSpec::Fixed(buff_amount),
+                    target: Target::SelfActor,
+                },
+            ],
+        }
+    }
+
+    /// Damage + self-block. Defensive-attack pattern: Nibbit SLICE.
+    pub fn attack_defend(
+        id: &'static str,
+        damage: i32,
+        hits: i32,
+        block: i32,
+    ) -> Self {
+        Self {
+            id,
+            kind: IntentKind::AttackDefend { hits },
+            body: vec![
+                Effect::DealDamage {
+                    amount: crate::effects::AmountSpec::Fixed(damage),
+                    target: Target::ChosenEnemy,
+                    hits,
+                },
+                Effect::GainBlock {
+                    amount: crate::effects::AmountSpec::Fixed(block),
+                    target: Target::SelfActor,
+                },
+            ],
+        }
+    }
+
+    /// No-effect move. Byrdpip NOTHING_MOVE.
+    pub fn sleep(id: &'static str) -> Self {
+        Self {
+            id,
+            kind: IntentKind::Sleep,
+            body: vec![],
+        }
+    }
+
+    /// Compose with an extra body suffix. Useful when adding a flag
+    /// set or self-kill to a builder-constructed move.
+    pub fn with_extra(mut self, extra: Vec<Effect>) -> Self {
+        self.body.extend(extra);
+        self
+    }
+}
+
 /// Intent hint shown to the player. Mirrors the C# `IntentModel` family.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum IntentKind {
@@ -1931,6 +2082,99 @@ fn register_migrated_legacy(m: &mut HashMap<&'static str, MonsterAi>) {
         },
     );
 
+    // Toadpole: triangle cycle Spiken → SpikeSpit → Whirl → Spiken.
+    // First turn: front slot starts on Spiken; back slot starts on
+    // Whirl. SpikeSpit subtracts 2 ThornsPower from self, then deals
+    // 1×3 damage (consumes the Thorns buff Spiken built up).
+    m.insert(
+        "Toadpole",
+        MonsterAi {
+            model_id: "Toadpole",
+            moves: vec![
+                MonsterMove::buff("SPIKEN_MOVE", "ThornsPower", 2),
+                MonsterMove {
+                    id: "SPIKE_SPIT_MOVE",
+                    kind: IntentKind::Attack { hits: 3 },
+                    body: vec![
+                        // Spend 2 ThornsPower stacks (C# uses Apply<Thorns>(-amount)).
+                        Effect::ApplyPower {
+                            power_id: "ThornsPower".to_string(),
+                            amount: AmountSpec::Fixed(-2),
+                            target: Target::SelfActor,
+                        },
+                        Effect::DealDamage {
+                            amount: AmountSpec::Fixed(1),
+                            target: Target::ChosenEnemy,
+                            hits: 3,
+                        },
+                    ],
+                },
+                MonsterMove::attack("WHIRL_MOVE", 7, 1),
+            ],
+            spawn: vec![],
+            pattern: MovePattern::BySlot {
+                // Front slot: enter at Spiken (idx 0).
+                // Back slot: enter at Whirl (idx 2), wraps to Spiken next.
+                branches: vec![
+                    ("front", MovePattern::FirstTurnOverride {
+                        first_move: "SPIKEN_MOVE",
+                        then: Box::new(MovePattern::Cycle {
+                            moves: vec!["SPIKEN_MOVE", "SPIKE_SPIT_MOVE", "WHIRL_MOVE"],
+                        }),
+                    }),
+                    ("first", MovePattern::FirstTurnOverride {
+                        first_move: "SPIKEN_MOVE",
+                        then: Box::new(MovePattern::Cycle {
+                            moves: vec!["SPIKEN_MOVE", "SPIKE_SPIT_MOVE", "WHIRL_MOVE"],
+                        }),
+                    }),
+                ],
+                default: Box::new(MovePattern::FirstTurnOverride {
+                    first_move: "WHIRL_MOVE",
+                    then: Box::new(MovePattern::Cycle {
+                        moves: vec!["SPIKEN_MOVE", "SPIKE_SPIT_MOVE", "WHIRL_MOVE"],
+                    }),
+                }),
+            },
+        },
+    );
+
+    // ThievingHopper: chain Thievery → Flutter → HatTrick → Nab →
+    // Escape (loop). Spawn: EscapeArtistPower(5). Steal-cards and
+    // Flutter mechanics are deferred — encoded as plain damage moves
+    // here. ESCAPE_MOVE uses the new Effect::EscapeFromCombat.
+    m.insert(
+        "ThievingHopper",
+        MonsterAi {
+            model_id: "ThievingHopper",
+            moves: vec![
+                MonsterMove::attack("THIEVERY_MOVE", 17, 1),
+                MonsterMove::buff("FLUTTER_MOVE", "FlutterPower", 5),
+                MonsterMove::attack("HAT_TRICK_MOVE", 21, 1),
+                MonsterMove::attack("NAB_MOVE", 14, 1),
+                MonsterMove {
+                    id: "ESCAPE_MOVE",
+                    kind: IntentKind::Sleep,
+                    body: vec![Effect::EscapeFromCombat],
+                },
+            ],
+            spawn: vec![Effect::ApplyPower {
+                power_id: "EscapeArtistPower".to_string(),
+                amount: AmountSpec::Fixed(5),
+                target: Target::SelfActor,
+            }],
+            pattern: MovePattern::Cycle {
+                moves: vec![
+                    "THIEVERY_MOVE",
+                    "FLUTTER_MOVE",
+                    "HAT_TRICK_MOVE",
+                    "NAB_MOVE",
+                    "ESCAPE_MOVE",
+                ],
+            },
+        },
+    );
+
     m.insert(
         "Axebot",
         MonsterAi {
@@ -2113,7 +2357,8 @@ mod tests {
     fn ai_registry_covers_new_monsters() {
         // 5 RubyRaiders + 2 test + 3 gremlins + 7 single + 3 two-move
         // + 4 three-move + 4 weighted + 4 flag-state
-        // + 4 migrated legacy (Axebot, Myte, Nibbit, FlailKnight) = 36 monsters.
+        // + 6 migrated legacy (Axebot, Myte, Nibbit, FlailKnight,
+        //   Toadpole, ThievingHopper) = 38 monsters.
         let expected = [
             "AxeRubyRaider", "CrossbowRubyRaider", "BruteRubyRaider",
             "AssassinRubyRaider", "TrackerRubyRaider",
@@ -2126,6 +2371,7 @@ mod tests {
             "FossilStalker", "HunterKiller", "Flyconid", "Inklet",
             "GasBomb", "Mawler", "FrogKnight", "Fogmog",
             "Axebot", "Myte", "Nibbit", "FlailKnight",
+            "Toadpole", "ThievingHopper",
         ];
         for id in expected {
             assert!(ai_for(id).is_some(), "Missing AI for {}", id);

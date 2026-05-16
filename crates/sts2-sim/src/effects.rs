@@ -956,6 +956,12 @@ pub enum Effect {
         flag: String,
         value: bool,
     },
+    /// Monster escapes / leaves combat. Mirrors C#
+    /// `CreatureCmd.Escape` — the monster is removed from the enemy
+    /// list (or marked escaped). Used by ThievingHopper ESCAPE_MOVE.
+    /// Approximated by zeroing HP so the dispatcher treats the
+    /// monster as dead. Targets `ctx.actor`.
+    EscapeFromCombat,
     /// Apply an Affliction to every card in `pile`. HexPower-style:
     /// iterate all cards, set `card.affliction = Some(...)`. STUB —
     /// affliction-on-card infrastructure (CardInstance.affliction
@@ -10044,6 +10050,21 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                     .and_then(|c| c.monster.as_mut())
                 {
                     ms.set_flag(flag, *value);
+                }
+            }
+        }
+        Effect::EscapeFromCombat => {
+            // Approximated as instant death: the dispatcher's dead-enemy
+            // gate stops trying to dispatch the monster on subsequent
+            // turns. C# `CreatureCmd.Escape` keeps the monster alive but
+            // marked as "left the room" — this approximation loses the
+            // mid-combat-return mechanic but is harmless for ThievingHopper
+            // (the C# Escape state is a terminal loop).
+            let (side, idx) = ctx.actor;
+            if let Some(c) = creature_at_mut(cs, side, idx) {
+                c.current_hp = 0;
+                if let Some(ms) = c.monster.as_mut() {
+                    ms.set_flag("escaped", true);
                 }
             }
         }

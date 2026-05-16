@@ -1448,6 +1448,59 @@ mod ai_integration_tests {
     }
 
     #[test]
+    fn toadpole_back_slot_starts_with_whirl() {
+        let mut cs = rig("Toadpole");
+        // rig() spawns in slot "front" — change to "back" via direct
+        // edit since the rig helper only takes a model id.
+        cs.enemies[0].slot = "back".to_string();
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(
+            cs.enemies[0].monster.as_ref().unwrap().intent_move,
+            Some("WHIRL_MOVE".to_string())
+        );
+    }
+
+    #[test]
+    fn toadpole_front_slot_starts_with_spiken() {
+        let mut cs = rig("Toadpole");
+        // rig() defaults to "front" slot.
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(
+            cs.enemies[0].monster.as_ref().unwrap().intent_move,
+            Some("SPIKEN_MOVE".to_string())
+        );
+    }
+
+    #[test]
+    fn thieving_hopper_spawn_applies_escape_artist() {
+        let mut cs = rig("ThievingHopper");
+        fire_monster_spawn_hooks(&mut cs);
+        let escape = cs.enemies[0]
+            .powers
+            .iter()
+            .find(|p| p.id == "EscapeArtistPower")
+            .map(|p| p.amount)
+            .unwrap_or(0);
+        assert_eq!(escape, 5);
+    }
+
+    #[test]
+    fn thieving_hopper_escape_move_kills_self() {
+        let mut cs = rig("ThievingHopper");
+        // Skip ahead to ESCAPE_MOVE via direct intent injection.
+        cs.enemies[0].monster.as_mut().unwrap().intent_move =
+            Some("NAB_MOVE".to_string());
+        assert!(dispatch_enemy_turn(&mut cs, 0, 0));
+        assert_eq!(
+            cs.enemies[0].monster.as_ref().unwrap().intent_move,
+            Some("ESCAPE_MOVE".to_string())
+        );
+        // The ESCAPE_MOVE body zeroes HP via Effect::EscapeFromCombat.
+        assert_eq!(cs.enemies[0].current_hp, 0);
+        assert!(cs.enemies[0].monster.as_ref().unwrap().flag("escaped"));
+    }
+
+    #[test]
     fn ruby_raider_no_spawn_powers() {
         // Sanity: monsters with empty spawn vec should NOT pick up
         // stray powers via the data-driven path.
