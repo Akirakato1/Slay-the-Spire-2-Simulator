@@ -1005,6 +1005,19 @@ pub enum Effect {
     /// combat-time `GainGold` which writes to pending_gold and folds
     /// into combat rewards. STUB.
     GainRunStateGold { amount: AmountSpec },
+    /// Permanent gold loss (events that charge a fee, WhisperingHollow's
+    /// "Gold" option, LuminousChoir's tribute, shop purchases). Clamps
+    /// at 0 (no negative gold). Distinct from `GainRunStateGold` with
+    /// a negative amount because that path clamps to 0 before the add.
+    LoseRunStateGold { amount: AmountSpec },
+    /// Permanent CurrentHp gain (events that heal — TabletOfTruth Smash,
+    /// SpiritGrafter LetItIn). Bounded by max_hp. Distinct from
+    /// `GainRunStateMaxHp` which bumps the cap.
+    HealRunState { amount: AmountSpec },
+    /// Drop the player's gold to zero. MorphicGrove Group, robbery
+    /// events. Atomic primitive avoids having to read the current
+    /// gold to negate it.
+    LoseAllGold,
     /// Lose max HP outside combat. DistinguishedCape, LeafyPoultice
     /// (`CreatureCmd.LoseMaxHp(N)`).
     LoseRunStateMaxHp { amount: AmountSpec },
@@ -3425,6 +3438,23 @@ fn execute_run_state_effect(
             // `_isApplyingBonus` instance field).
             if amt > 0 {
                 fire_run_state_after_gold_gained(rs, player_idx);
+            }
+        }
+        Effect::LoseRunStateGold { amount } => {
+            let amt = run_state_resolve_amount(rs, player_idx, amount, relic_id).max(0);
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.gold = (ps.gold - amt).max(0);
+            }
+        }
+        Effect::HealRunState { amount } => {
+            let amt = run_state_resolve_amount(rs, player_idx, amount, relic_id).max(0);
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.hp = (ps.hp + amt).min(ps.max_hp);
+            }
+        }
+        Effect::LoseAllGold => {
+            if let Some(ps) = rs.player_state_mut(player_idx) {
+                ps.gold = 0;
             }
         }
         Effect::LoseRunStateHp { amount } => {
@@ -9636,6 +9666,9 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::LoseRunStateHp { .. }
         | Effect::GainRunStateMaxHp { .. }
         | Effect::GainRunStateGold { .. }
+        | Effect::LoseRunStateGold { .. }
+        | Effect::HealRunState { .. }
+        | Effect::LoseAllGold
         | Effect::LoseRunStateMaxHp { .. }
         | Effect::AddCardToRunStateDeck { .. }
         | Effect::GainMaxPotionSlots { .. }

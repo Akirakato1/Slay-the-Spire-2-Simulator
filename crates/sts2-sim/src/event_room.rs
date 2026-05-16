@@ -220,9 +220,7 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
-        // MorphicGrove: Loner → +5 MaxHp. Group → lose all gold (encoded
-        // as -200 average since "all current gold" isn't a fixed amount;
-        // proper encoding needs a "lose all gold" primitive).
+        // MorphicGrove: Loner → +5 MaxHp. Group → drops all gold.
         "MorphicGrove" => Some(EventModel {
             id: "MorphicGrove".to_string(),
             choices: vec![
@@ -232,7 +230,7 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "GROUP".to_string(),
-                    body: vec![], // TODO: needs LoseAllGold primitive
+                    body: vec![Effect::LoseAllGold],
                 },
             ],
         }),
@@ -285,8 +283,10 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "OFFER_TRIBUTE".to_string(),
-                    body: vec![Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(0) }],
-                    // TODO: actually a gold cost (-149); needs LoseRunStateGold primitive.
+                    body: vec![Effect::LoseRunStateGold {
+                        amount: AmountSpec::Fixed(149),
+                    }],
+                    // TODO: + reward (relic / card pick)
                 },
             ],
         }),
@@ -402,6 +402,227 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                     label: "LEAVE".to_string(),
                     body: vec![],
                 },
+            ],
+        }),
+
+        // SpiritGrafter: LetItIn → heal 25 + add Metamorphosis card.
+        // Rejection → -10 HP + upgrade 1 picked card (pick is stub).
+        "SpiritGrafter" => Some(EventModel {
+            id: "SpiritGrafter".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "LET_IT_IN".to_string(),
+                    body: vec![
+                        Effect::HealRunState { amount: AmountSpec::Fixed(25) },
+                        Effect::AddCardToRunStateDeck {
+                            card_id: "Metamorphosis".to_string(), upgrade: 0,
+                        },
+                    ],
+                },
+                EventChoice {
+                    label: "REJECTION".to_string(),
+                    body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(10) }],
+                    // TODO: + upgrade-1-picked-card (deck-action staging)
+                },
+            ],
+        }),
+
+        // TabletOfTruth: 3 choices, multi-step (Decipher loops 5 times).
+        // For MVP encode Smash + GiveUp; Decipher's loop semantics needs
+        // a multi-page event surface that doesn't exist yet.
+        "TabletOfTruth" => Some(EventModel {
+            id: "TabletOfTruth".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "SMASH".to_string(),
+                    body: vec![Effect::HealRunState { amount: AmountSpec::Fixed(20) }],
+                },
+                EventChoice {
+                    label: "DECIPHER".to_string(),
+                    body: vec![Effect::LoseRunStateMaxHp { amount: AmountSpec::Fixed(3) }],
+                    // TODO: + upgrade 1 picked card; loops 5 times via re-entry.
+                },
+                EventChoice {
+                    label: "GIVE_UP".to_string(),
+                    body: vec![],
+                },
+            ],
+        }),
+
+        // WhisperingHollow: Gold (-35 gold + 2 potion rewards) vs Hug
+        // (transform 1 picked card with -9 HP).
+        "WhisperingHollow" => Some(EventModel {
+            id: "WhisperingHollow".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "GOLD".to_string(),
+                    body: vec![Effect::LoseRunStateGold {
+                        amount: AmountSpec::Fixed(35),
+                    }],
+                    // TODO: + 2 potion rewards
+                },
+                EventChoice {
+                    label: "HUG".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(9) },
+                        // TODO: should be "transform 1 PICKED card" not random.
+                        Effect::TransformRandomDeckCards {
+                            n: AmountSpec::Fixed(1),
+                            filter: crate::effects::CardFilter::Any,
+                            pool: crate::effects::CardPoolRef::CharacterAny,
+                        },
+                    ],
+                },
+            ],
+        }),
+
+        // PotionCourier: Grab (3 FoulPotions to belt) vs Ransack (1 uncommon potion).
+        // Ransack picks a random uncommon potion via PlayerRng.rewards — for
+        // MVP we drop GlowwaterPotion as a placeholder.
+        "PotionCourier" => Some(EventModel {
+            id: "PotionCourier".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "GRAB_POTIONS".to_string(),
+                    body: vec![
+                        Effect::GainPotionToBelt { potion_id: "FoulPotion".to_string() },
+                        Effect::GainPotionToBelt { potion_id: "FoulPotion".to_string() },
+                        Effect::GainPotionToBelt { potion_id: "FoulPotion".to_string() },
+                    ],
+                },
+                EventChoice {
+                    label: "RANSACK".to_string(),
+                    // TODO: random uncommon potion. Placeholder.
+                    body: vec![Effect::GainPotionToBelt {
+                        potion_id: "GlowwaterPotion".to_string(),
+                    }],
+                },
+            ],
+        }),
+
+        // RoomFullOfCheese: Gorge (8 common card rewards — stub) vs
+        // Search (-14 HP unblockable + ChosenCheese relic).
+        "RoomFullOfCheese" => Some(EventModel {
+            id: "RoomFullOfCheese".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "GORGE".to_string(),
+                    body: vec![], // TODO: 8-card common reward picker
+                },
+                EventChoice {
+                    label: "SEARCH".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(14) },
+                        Effect::GainRelic { relic_id: "ChosenCheese".to_string() },
+                    ],
+                },
+            ],
+        }),
+
+        // Wellspring: Bathe (remove 1 picked card + 1 Guilty curse) vs
+        // Bottle (random potion). Both stub mostly — Bathe needs pick;
+        // Bottle uses PlayerRng.Rewards.
+        "Wellspring" => Some(EventModel {
+            id: "Wellspring".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "BATHE".to_string(),
+                    body: vec![Effect::AddCardToRunStateDeck {
+                        card_id: "Guilty".to_string(), upgrade: 0,
+                    }],
+                    // TODO: + remove 1 picked card
+                },
+                EventChoice {
+                    label: "BOTTLE".to_string(),
+                    body: vec![], // TODO: random potion drop
+                },
+            ],
+        }),
+
+        // BattlewornDummy + DenseVegetation + PunchOff: combat-in-event.
+        // The "choice" is which encounter to fight; outcome is determined
+        // by combat. Skipped until event-driven combat lands.
+        "BattlewornDummy" | "DenseVegetation" | "PunchOff" => Some(EventModel {
+            id: id.to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "FIGHT".to_string(),
+                    body: vec![], // TODO: trigger event-encounter combat
+                },
+            ],
+        }),
+
+        // RelicTrader: pick one of your relics to swap for one of 3 new ones.
+        // Skipped — needs RelicSwap primitive.
+        "RelicTrader" => Some(EventModel {
+            id: "RelicTrader".to_string(),
+            choices: vec![
+                EventChoice { label: "TOP".to_string(),    body: vec![] },
+                EventChoice { label: "MIDDLE".to_string(), body: vec![] },
+                EventChoice { label: "BOTTOM".to_string(), body: vec![] },
+                EventChoice { label: "LEAVE".to_string(),  body: vec![] },
+            ],
+        }),
+
+        // FakeMerchant: a deceptive 3-relic shop. Skip — needs Shop event flow.
+        "FakeMerchant" => Some(EventModel {
+            id: "FakeMerchant".to_string(),
+            choices: vec![EventChoice { label: "LEAVE".to_string(), body: vec![] }],
+        }),
+
+        // Reflections: TouchAMirror (downgrade 2 upgraded cards — needs
+        // primitive) vs Shatter (forks deck in 2 — needs primitive).
+        "Reflections" => Some(EventModel {
+            id: "Reflections".to_string(),
+            choices: vec![
+                EventChoice { label: "TOUCH_A_MIRROR".to_string(), body: vec![] },
+                EventChoice { label: "SHATTER".to_string(),        body: vec![] },
+                EventChoice { label: "LEAVE".to_string(),           body: vec![] },
+            ],
+        }),
+
+        // SpiralingWhirlpool: ObserveSpiral (enchant 1 with Spiral —
+        // needs enchant primitive) vs Drink (heal — skip; uses HealVar(0)
+        // = char-default).
+        "SpiralingWhirlpool" => Some(EventModel {
+            id: "SpiralingWhirlpool".to_string(),
+            choices: vec![
+                EventChoice { label: "OBSERVE_THE_SPIRAL".to_string(), body: vec![] },
+                EventChoice { label: "DRINK".to_string(),               body: vec![] },
+                EventChoice { label: "LEAVE".to_string(),                body: vec![] },
+            ],
+        }),
+
+        // Symbiote: Approach (enchant 1 with Corrupted) vs KillWithFire
+        // (transform N cards). Both need primitives we haven't surfaced.
+        "Symbiote" => Some(EventModel {
+            id: "Symbiote".to_string(),
+            choices: vec![
+                EventChoice { label: "APPROACH".to_string(),    body: vec![] },
+                EventChoice { label: "KILL_WITH_FIRE".to_string(), body: vec![] },
+                EventChoice { label: "LEAVE".to_string(),         body: vec![] },
+            ],
+        }),
+
+        // InfestedAutomaton: Study (Power card reward) vs TouchCore
+        // (0-cost card reward) — both card-reward stubs.
+        "InfestedAutomaton" => Some(EventModel {
+            id: "InfestedAutomaton".to_string(),
+            choices: vec![
+                EventChoice { label: "STUDY".to_string(),     body: vec![] },
+                EventChoice { label: "TOUCH_CORE".to_string(), body: vec![] },
+                EventChoice { label: "LEAVE".to_string(),      body: vec![] },
+            ],
+        }),
+
+        // FieldOfManSizedHoles: Resist (remove N cards) vs EnterYourHole
+        // (enchant PerfectFit) vs Leave. Both options need primitives.
+        "FieldOfManSizedHoles" => Some(EventModel {
+            id: "FieldOfManSizedHoles".to_string(),
+            choices: vec![
+                EventChoice { label: "RESIST".to_string(),         body: vec![] },
+                EventChoice { label: "ENTER_YOUR_HOLE".to_string(), body: vec![] },
+                EventChoice { label: "LEAVE".to_string(),           body: vec![] },
             ],
         }),
 
@@ -648,6 +869,60 @@ mod tests {
         enter_event(&mut rs, 0, "TrashHeap");
         resolve_event_choice(&mut rs, 1).expect("grab");
         assert_eq!(rs.players()[0].gold, gold_before + 100);
+    }
+
+    #[test]
+    fn morphic_grove_group_drops_all_gold() {
+        let mut rs = fresh_rs();
+        rs.player_state_mut(0).unwrap().gold = 250;
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "MorphicGrove");
+        resolve_event_choice(&mut rs, 1).expect("group");
+        assert_eq!(rs.players()[0].gold, 0);
+    }
+
+    #[test]
+    fn whispering_hollow_gold_deducts_35() {
+        let mut rs = fresh_rs();
+        rs.player_state_mut(0).unwrap().gold = 100;
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "WhisperingHollow");
+        resolve_event_choice(&mut rs, 0).expect("gold");
+        assert_eq!(rs.players()[0].gold, 65);
+    }
+
+    #[test]
+    fn whispering_hollow_gold_clamps_at_zero() {
+        let mut rs = fresh_rs();
+        rs.player_state_mut(0).unwrap().gold = 10;
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "WhisperingHollow");
+        resolve_event_choice(&mut rs, 0).expect("gold");
+        assert_eq!(rs.players()[0].gold, 0,
+            "gold loss must clamp at 0 even if amount > current");
+    }
+
+    #[test]
+    fn tablet_of_truth_smash_heals_20() {
+        let mut rs = fresh_rs();
+        rs.player_state_mut(0).unwrap().hp = 50; // out of 80
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "TabletOfTruth");
+        resolve_event_choice(&mut rs, 0).expect("smash");
+        assert_eq!(rs.players()[0].hp, 70);
+        assert_eq!(rs.players()[0].max_hp, 80,
+            "Smash should heal current HP, not raise max");
+    }
+
+    #[test]
+    fn tablet_of_truth_smash_caps_at_max_hp() {
+        let mut rs = fresh_rs();
+        rs.player_state_mut(0).unwrap().hp = 75; // out of 80
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "TabletOfTruth");
+        resolve_event_choice(&mut rs, 0).expect("smash");
+        assert_eq!(rs.players()[0].hp, 80,
+            "heal must cap at max_hp");
     }
 
     #[test]
