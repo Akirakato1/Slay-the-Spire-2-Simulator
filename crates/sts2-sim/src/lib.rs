@@ -6,6 +6,7 @@
 pub mod act;
 pub mod affliction;
 pub mod card;
+pub mod card_reward;
 pub mod character;
 pub mod combat;
 pub mod effects;
