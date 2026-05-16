@@ -660,6 +660,13 @@ impl CombatState {
         let player_has_runic = player_relics_pre_clear
             .iter()
             .any(|r| r == "RunicPyramid");
+        // IceCream relic: energy is NOT reset to turn_energy at the
+        // start of the player turn — it carries over (turn_energy is
+        // added on top). Mirrors C# IceCream.AfterPlayerTurnStart
+        // skipping the reset.
+        let player_has_ice_cream = player_relics_pre_clear
+            .iter()
+            .any(|r| r == "IceCream");
         let player_block_retain_max: Option<i32> = if player_has_runic {
             Some(i32::MAX)
         } else if player_has_sturdy {
@@ -684,7 +691,13 @@ impl CombatState {
                         ally.block = final_block;
                     }
                     if let Some(ps) = ally.player.as_mut() {
-                        ps.energy = ps.turn_energy;
+                        // IceCream: accumulate (don't reset). Otherwise
+                        // standard refresh to turn_energy.
+                        if player_has_ice_cream {
+                            ps.energy = ps.energy.max(0) + ps.turn_energy;
+                        } else {
+                            ps.energy = ps.turn_energy;
+                        }
                         // Clear per-turn cost overrides (BulletTime /
                         // Enlightenment-non-upgraded ThisTurnOrUntilPlayed).
                         // Mirrors C# CardModel.EnergyCost.ClearThisTurn.
@@ -1706,6 +1719,19 @@ impl CombatState {
                     "Regret" => {
                         // damage = hand size at this moment. Unblockable.
                         self.lose_hp(CombatSide::Player, player_idx, hand_size);
+                    }
+                    "Void" => {
+                        // C# Void.OnTurnEndInHand: LoseEnergy(Amount=1).
+                        // Drains 1 energy if Void is still in hand at end
+                        // of player turn. Ethereal routes it to exhaust
+                        // immediately after this fires, so each Void in
+                        // hand drains exactly once.
+                        let drain = canonical_int_value(card, "Energy", *upgrade);
+                        if let Some(ps) = self.allies.get_mut(player_idx)
+                            .and_then(|c| c.player.as_mut())
+                        {
+                            ps.energy = (ps.energy - drain).max(0);
+                        }
                     }
                     _ => {}
                 }
@@ -15950,6 +15976,94 @@ mod tests {
         // so Lantern adds on top of the refilled turn_energy.
         let turn_energy = cs.allies[0].player.as_ref().unwrap().turn_energy;
         assert_eq!(after, turn_energy + 1, "starting was {starting}");
+    }
+
+    #[test]
+    fn void_status_drains_one_energy_at_end_of_turn() {
+        let mut cs = ironclad_combat();
+        // Place a Void status card in hand and ensure energy is 3.
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 3;
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("Void").unwrap(), 0));
+        // Fire OnTurnEndInHand directly (the routine called pre-flush
+        // at the end of every player turn).
+        cs.fire_turn_end_in_hand_effects();
+        let after = cs.allies[0].player.as_ref().unwrap().energy;
+        assert_eq!(after, 2,
+            "Void in hand at turn-end should drain 1 energy (was 3, now {})",
+            after);
+    }
+
+    #[test]
+    fn void_status_drains_per_copy_in_hand() {
+        // Two Voids = two drains.
+        let mut cs = ironclad_combat();
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 5;
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("Void").unwrap(), 0));
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("Void").unwrap(), 0));
+        cs.fire_turn_end_in_hand_effects();
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 3,
+            "Two Voids drain 2 energy");
+    }
+
+    #[test]
+    fn void_drain_clamps_to_zero() {
+        // Don't go negative.
+        let mut cs = ironclad_combat();
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 0;
+        ps.hand.cards.push(CardInstance::from_card(
+            crate::card::by_id("Void").unwrap(), 0));
+        cs.fire_turn_end_in_hand_effects();
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 0,
+            "Void drain must clamp at 0 (no negative energy)");
+    }
+
+    #[test]
+    fn ice_cream_keeps_unused_energy_into_next_turn() {
+        // Player has 5 energy leftover; with IceCream, next turn starts
+        // at 5 + turn_energy (3) = 8. Without IceCream, it'd reset to 3.
+        let mut cs = ironclad_combat_with_relic("IceCream");
+        // End enemy turn first (so we cycle into player turn cleanly).
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 5;
+        let turn_energy = ps.turn_energy;
+        cs.begin_turn(CombatSide::Player);
+        let after = cs.allies[0].player.as_ref().unwrap().energy;
+        assert_eq!(after, 5 + turn_energy,
+            "IceCream: energy should accumulate 5 + turn_energy={} → {} (got {})",
+            turn_energy, 5 + turn_energy, after);
+    }
+
+    #[test]
+    fn ice_cream_negative_energy_does_not_subtract_from_refresh() {
+        // Edge: if somehow energy is negative (Void over-drained pre-relic,
+        // shouldn't happen but defensive), IceCream should still hand out
+        // turn_energy, not turn_energy + negative.
+        let mut cs = ironclad_combat_with_relic("IceCream");
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = -3; // can't happen in real play but defensive
+        let turn_energy = ps.turn_energy;
+        cs.begin_turn(CombatSide::Player);
+        let after = cs.allies[0].player.as_ref().unwrap().energy;
+        assert_eq!(after, turn_energy,
+            "IceCream should clamp negative carry-over to 0 (got {})", after);
+    }
+
+    #[test]
+    fn no_ice_cream_resets_energy_each_turn() {
+        // Baseline: without IceCream, leftover energy is discarded.
+        let mut cs = ironclad_combat();
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.energy = 5;
+        let turn_energy = ps.turn_energy;
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, turn_energy,
+            "Without IceCream, energy resets to turn_energy");
     }
 
     // ---------- Potion VM (data-driven OnUse dispatch) tests --------------
