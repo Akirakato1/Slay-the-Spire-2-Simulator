@@ -4250,14 +4250,25 @@ fn handle_offer(
         let picks: Vec<usize> = (0..take).collect();
         apply_offer_picks(rs, player_idx, &kind, &options, &picks);
     } else {
-        rs.pending_offer = Some(crate::run_state::PendingRunStateOffer {
+        // Multi-offer chain: when an offer is already staged (e.g.
+        // post-combat fires card-reward THEN relic-reward THEN
+        // potion-drop in one effect list), queue the new one so the
+        // agent walks them in order via successive `resolve_run_state_offer`
+        // calls. The queue pops automatically into `pending_offer`
+        // when the active one resolves.
+        let offer = crate::run_state::PendingRunStateOffer {
             kind,
             player_idx,
             options,
             n_min,
             n_max,
             source,
-        });
+        };
+        if rs.pending_offer.is_some() {
+            rs.pending_offers_queue.push_back(offer);
+        } else {
+            rs.pending_offer = Some(offer);
+        }
     }
 }
 
@@ -4319,6 +4330,11 @@ pub fn resolve_run_state_offer(
         }
     }
     apply_offer_picks(rs, offer.player_idx, &offer.kind, &offer.options, picks);
+    // Pop the next queued offer into `pending_offer` so the agent
+    // can walk a chained sequence (post-combat: card → relic → potion).
+    if let Some(next) = rs.pending_offers_queue.pop_front() {
+        rs.pending_offer = Some(next);
+    }
     Ok(())
 }
 

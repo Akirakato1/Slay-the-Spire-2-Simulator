@@ -125,6 +125,13 @@ pub struct RunState {
     /// the run is paused waiting for the agent to commit. Resolution
     /// applies the picked indices to the player's deck / relics / potions.
     pub pending_offer: Option<PendingRunStateOffer>,
+    /// Queued offers waiting for `pending_offer` to be resolved. When
+    /// multiple Offer effects fire in a single run-state effect list
+    /// (e.g. post-combat: card reward + relic reward + potion drop),
+    /// the first stages `pending_offer` and the rest enqueue here.
+    /// On `resolve_run_state_offer`, the front of the queue is popped
+    /// into `pending_offer` so the agent walks them sequentially.
+    pub pending_offers_queue: std::collections::VecDeque<PendingRunStateOffer>,
     /// One in-flight deck-action choice (upgrade / remove a card the
     /// player already owns). Distinct from `pending_offer` because
     /// the picks index into the master deck, not an external pool.
@@ -260,6 +267,7 @@ impl RunState {
             players_rng,
             auto_resolve_offers: true,
             pending_offer: None,
+            pending_offers_queue: std::collections::VecDeque::new(),
             pending_deck_action: None,
             pending_event: None,
             next_event_choices: None,

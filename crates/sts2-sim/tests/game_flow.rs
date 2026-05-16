@@ -554,6 +554,118 @@ fn ascension_scarcity_reduces_rare_card_odds() {
         pre, post, ratio);
 }
 
+/// finish_combat bundles the post-Elite reward sequence: gold +
+/// card-reward offer + relic-reward offer. The agent walks them via
+/// successive `resolve_run_state_offer` calls and the queue pops
+/// each into `pending_offer` in order.
+#[test]
+fn finish_combat_chains_card_then_relic_for_elite() {
+    use sts2_sim::card_reward::CardRewardKind;
+    use sts2_sim::combat::CombatRewards;
+    use sts2_sim::effects::resolve_run_state_offer;
+    use sts2_sim::run_flow::{finish_combat, CombatOutcome};
+    use sts2_sim::run_state::OfferKind;
+
+    let mut rs = RunState::start_run(
+        "ELITEREWARDS", 0, "Ironclad",
+        vec![ActId::Overgrowth], Vec::new(),
+    ).unwrap();
+    rs.auto_resolve_offers = false;
+    rs.enter_act(0);
+
+    let pre_gold = rs.players()[0].gold;
+    let outcome = CombatOutcome {
+        victory: true,
+        final_hp: 70,
+        final_max_hp: 80,
+        rewards: CombatRewards { gold: 40, ..Default::default() },
+    };
+    let staged = finish_combat(&mut rs, 0, &outcome, CardRewardKind::Elite);
+    assert_eq!(staged, 2, "Elite victory stages 2 offers (card + relic)");
+
+    // Gold already applied.
+    assert_eq!(rs.players()[0].gold, pre_gold + 40);
+
+    // First offer is a Card.
+    let first = rs.pending_offer.as_ref().expect("first offer staged");
+    assert!(matches!(first.kind, OfferKind::Card));
+    // Skip the card (n_min=0 on post-combat card rewards).
+    resolve_run_state_offer(&mut rs, &[]).expect("card skip resolves");
+
+    // Queue pops Relic into pending_offer.
+    let second = rs.pending_offer.as_ref().expect("relic offer pops next");
+    assert!(matches!(second.kind, OfferKind::Relic));
+    assert_eq!(second.n_min, 1, "elite relic is mandatory");
+    let pre_relic_count = rs.players()[0].relics.len();
+    resolve_run_state_offer(&mut rs, &[0]).expect("relic pick resolves");
+    assert_eq!(rs.players()[0].relics.len(), pre_relic_count + 1,
+        "relic granted to player");
+
+    // No more offers queued.
+    assert!(rs.pending_offer.is_none());
+    assert!(rs.pending_offers_queue.is_empty());
+}
+
+/// Boss victory stages the 3-relic boss choice with n_min=1 (mandatory
+/// pick).
+#[test]
+fn finish_combat_boss_offers_three_relic_choice() {
+    use sts2_sim::card_reward::CardRewardKind;
+    use sts2_sim::combat::CombatRewards;
+    use sts2_sim::effects::resolve_run_state_offer;
+    use sts2_sim::run_flow::{finish_combat, CombatOutcome};
+    use sts2_sim::run_state::OfferKind;
+
+    let mut rs = RunState::start_run(
+        "BOSSREWARDS", 0, "Ironclad",
+        vec![ActId::Overgrowth], Vec::new(),
+    ).unwrap();
+    rs.auto_resolve_offers = false;
+    rs.enter_act(0);
+
+    let outcome = CombatOutcome {
+        victory: true, final_hp: 50, final_max_hp: 80,
+        rewards: CombatRewards { gold: 100, ..Default::default() },
+    };
+    let staged = finish_combat(&mut rs, 0, &outcome, CardRewardKind::Boss);
+    assert_eq!(staged, 2, "Boss stages 2 offers (card + 3-relic choice)");
+
+    // Skip card.
+    assert!(matches!(rs.pending_offer.as_ref().unwrap().kind, OfferKind::Card));
+    resolve_run_state_offer(&mut rs, &[]).unwrap();
+
+    // Boss relic: 3 options, must pick 1.
+    let relic = rs.pending_offer.as_ref().expect("boss relic offer");
+    assert!(matches!(relic.kind, OfferKind::Relic));
+    assert_eq!(relic.n_min, 1);
+    assert!(relic.options.len() >= 1 && relic.options.len() <= 3,
+        "boss relic offer has 1-3 options (dedup may reduce from 3): {}",
+        relic.options.len());
+}
+
+/// Defeat skips reward offers entirely.
+#[test]
+fn finish_combat_defeat_stages_no_offers() {
+    use sts2_sim::card_reward::CardRewardKind;
+    use sts2_sim::combat::CombatRewards;
+    use sts2_sim::run_flow::{finish_combat, CombatOutcome};
+
+    let mut rs = RunState::start_run(
+        "LOSS", 0, "Ironclad",
+        vec![ActId::Overgrowth], Vec::new(),
+    ).unwrap();
+    rs.auto_resolve_offers = false;
+    rs.enter_act(0);
+    let outcome = CombatOutcome {
+        victory: false, final_hp: 0, final_max_hp: 80,
+        rewards: CombatRewards::default(),
+    };
+    let staged = finish_combat(&mut rs, 0, &outcome, CardRewardKind::Normal);
+    assert_eq!(staged, 0, "defeat stages no offers");
+    assert!(rs.pending_offer.is_none());
+    assert!(rs.pending_offers_queue.is_empty());
+}
+
 /// Stress: walk 3 consecutive map nodes from a fresh run. Catches
 /// state-bleed between combats (relic hooks not clearing, RNG counters
 /// not advancing properly, deck refilled wrong, etc).

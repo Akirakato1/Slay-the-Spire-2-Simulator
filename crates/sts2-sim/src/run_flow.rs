@@ -210,6 +210,98 @@ pub fn offer_combat_reward(
     crate::card_reward::offer_post_combat_card_reward(rs, player_idx, kind);
 }
 
+/// Bundle the full post-combat reward sequence: apply HP/gold from
+/// outcome, then stage offers in canonical order so the agent walks
+/// them via successive `resolve_run_state_offer` calls.
+///
+/// Monster: gold + card.
+/// Elite:   gold + card + 1 relic.
+/// Boss:    gold + card + 3 boss relics.
+///
+/// Mirrors C# `RewardsCmd.OfferForCombatEnd`. Returns the number of
+/// offers staged so callers can drive the resolution loop. Skipped
+/// when `outcome.victory == false`.
+pub fn finish_combat(
+    rs: &mut RunState,
+    player_idx: usize,
+    outcome: &CombatOutcome,
+    kind: crate::card_reward::CardRewardKind,
+) -> usize {
+    // Step 1: HP / gold / max_hp fold (unchanged from
+    // `apply_combat_outcome`; calling it here keeps existing tests
+    // that call `apply_combat_outcome` directly working too).
+    apply_combat_outcome(rs, player_idx, outcome);
+
+    if !outcome.victory {
+        return 0;
+    }
+    let pre_pending = if rs.pending_offer.is_some() { 1 } else { 0 };
+    let pre_queue = rs.pending_offers_queue.len();
+
+    // Step 2: card-reward offer (Normal / Elite / Boss rarity weights).
+    crate::card_reward::offer_post_combat_card_reward(rs, player_idx, kind);
+
+    // Step 3: relic-reward offer for Elite / Boss victories. Elite
+    // gives 1 relic (random rarity). Boss gives 3 boss-pool relics
+    // (n_min=1, force pick — boss reward is mandatory in C#).
+    use crate::card_reward::CardRewardKind;
+    use crate::effects::Effect;
+    match kind {
+        CardRewardKind::Elite => {
+            let rarity = crate::treasure::roll_treasure_rarity(rs);
+            if let Some(relic_id) =
+                crate::treasure::pick_treasure_relic(rs, player_idx, rarity)
+            {
+                let body = vec![Effect::OfferRelicReward {
+                    options: vec![relic_id],
+                    n_min: 1,
+                    n_max: 1,
+                    source: Some("PostEliteRelicReward".to_string()),
+                }];
+                crate::effects::execute_run_state_effects(rs, player_idx, &body);
+            }
+        }
+        CardRewardKind::Boss => {
+            // 3 distinct boss-pool relics. We don't yet have a boss-
+            // specific pool extractor; treasure-Rare pool is the
+            // closest approximation. Distinguished by source label so
+            // a follow-up commit can swap the pool without touching
+            // the offer surface.
+            let mut picks: Vec<String> = Vec::new();
+            for _ in 0..3 {
+                let r = crate::treasure::roll_treasure_rarity(rs);
+                if let Some(id) =
+                    crate::treasure::pick_treasure_relic(rs, player_idx, r)
+                {
+                    if !picks.contains(&id) {
+                        picks.push(id);
+                    }
+                }
+            }
+            if !picks.is_empty() {
+                let body = vec![Effect::OfferRelicReward {
+                    options: picks,
+                    n_min: 1,
+                    n_max: 1,
+                    source: Some("PostBossRelicReward".to_string()),
+                }];
+                crate::effects::execute_run_state_effects(rs, player_idx, &body);
+            }
+        }
+        CardRewardKind::Normal => {}
+    }
+
+    // Step 4: potion drop. Skip if max_potion_slot_count is 0 (would
+    // be the case under a hypothetical "no-potion-belt" relic). We
+    // don't yet roll a real drop chance — left for the follow-up
+    // commit that wires TightBelt's per-combat drop-chance penalty.
+
+    // Count offers staged this call.
+    let post_pending = if rs.pending_offer.is_some() { 1 } else { 0 };
+    let post_queue = rs.pending_offers_queue.len();
+    (post_pending + post_queue).saturating_sub(pre_pending + pre_queue)
+}
+
 /// Drive a combat to completion using a trivial built-in policy.
 /// Returns the final `CombatState` so the caller can inspect or
 /// pass to `extract_outcome`. Used by integration tests and any
