@@ -1005,6 +1005,58 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
+        // SelfHelpBook: 3 enchantment options.
+        //   READ_THE_BACK   → pick 1 Attack card, enchant Sharp(2)
+        //   READ_PASSAGE    → pick 1 Skill  card, enchant Nimble(2)
+        //   READ_ENTIRE_BOOK→ pick 1 Power  card, enchant Swift(2)
+        // C# locks each option if no eligible card of that type
+        // exists (PlayerHasCardsAvailable). We offer all three; the
+        // StageDeckPick handler silently no-ops on empty eligibility.
+        "SelfHelpBook" => Some(EventModel {
+            id: "SelfHelpBook".to_string(),
+            choices: vec![
+                EventChoice {
+                    label: "READ_THE_BACK".to_string(),
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Enchant {
+                            enchantment_id: "Sharp".to_string(),
+                            amount: 2,
+                        },
+                        filter: crate::effects::CardFilter::OfType("Attack".to_string()),
+                        n_min: 1,
+                        n_max: 1,
+                        source: "SelfHelpBook.READ_THE_BACK".to_string(),
+                    }],
+                },
+                EventChoice {
+                    label: "READ_PASSAGE".to_string(),
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Enchant {
+                            enchantment_id: "Nimble".to_string(),
+                            amount: 2,
+                        },
+                        filter: crate::effects::CardFilter::OfType("Skill".to_string()),
+                        n_min: 1,
+                        n_max: 1,
+                        source: "SelfHelpBook.READ_PASSAGE".to_string(),
+                    }],
+                },
+                EventChoice {
+                    label: "READ_ENTIRE_BOOK".to_string(),
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Enchant {
+                            enchantment_id: "Swift".to_string(),
+                            amount: 2,
+                        },
+                        filter: crate::effects::CardFilter::OfType("Power".to_string()),
+                        n_min: 1,
+                        n_max: 1,
+                        source: "SelfHelpBook.READ_ENTIRE_BOOK".to_string(),
+                    }],
+                },
+            ],
+        }),
+
         // WarHistorianRepy: UNLOCK_CAGE (remove all LanternKey cards,
         // gain HistoryCourse relic) vs UNLOCK_CHEST (remove all
         // LanternKey, offer 2 potion + 2 relic rewards — reward bundle
@@ -1053,7 +1105,6 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
         | "EndlessConveyor"
         | "RanwidTheElder"
         | "RoundTeaParty"
-        | "SelfHelpBook"
         | "SlipperyBridge"
         | "TheArchitect"
         | "TheFutureOfPotions"
