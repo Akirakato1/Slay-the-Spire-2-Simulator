@@ -330,6 +330,10 @@ pub static MONSTER_AI_REGISTRY: LazyLock<HashMap<&'static str, MonsterAi>> = Laz
     register_ruby_raiders(&mut m);
     register_simple_test_monsters(&mut m);
     register_basic_gremlins(&mut m);
+    register_single_move_monsters(&mut m);
+    register_two_move_cycles(&mut m);
+    register_three_move_cycles(&mut m);
+    register_weighted_random_monsters(&mut m);
     m
 });
 
@@ -662,6 +666,692 @@ fn register_basic_gremlins(m: &mut HashMap<&'static str, MonsterAi>) {
     );
 }
 
+/// Monsters with a single move that repeats every turn. Damage/block
+/// numbers from C# `*.cs` per-move getters. A0 (no-ascension) values
+/// used; the higher branch of `AscensionHelper.GetValueIfAscension`
+/// switches to the ascended value once that's plumbed.
+fn register_single_move_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
+    // Byrdpip: NOTHING_MOVE — no-op (Byrdpips do nothing themselves;
+    // their threat is via the Byrdonis they spawn from).
+    m.insert(
+        "Byrdpip",
+        MonsterAi {
+            model_id: "Byrdpip",
+            moves: vec![MonsterMove {
+                id: "NOTHING_MOVE",
+                kind: IntentKind::Sleep,
+                body: vec![],
+            }],
+            pattern: MovePattern::Cycle { moves: vec!["NOTHING_MOVE"] },
+        },
+    );
+    // Stabbot: STAB damage 11 + Frail(1) every turn.
+    m.insert(
+        "Stabbot",
+        MonsterAi {
+            model_id: "Stabbot",
+            moves: vec![MonsterMove {
+                id: "STAB_MOVE",
+                kind: IntentKind::AttackDebuff { hits: 1 },
+                body: vec![
+                    Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(11),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "FrailPower".to_string(),
+                        amount: crate::effects::AmountSpec::Fixed(1),
+                        target: Target::ChosenEnemy,
+                    },
+                ],
+            }],
+            pattern: MovePattern::Cycle { moves: vec!["STAB_MOVE"] },
+        },
+    );
+    // Zapbot: ZAP 14 damage every turn. (HighVoltage(2) preset is
+    // applied via spawn hook, not here.)
+    m.insert(
+        "Zapbot",
+        MonsterAi {
+            model_id: "Zapbot",
+            moves: vec![MonsterMove {
+                id: "ZAP_MOVE",
+                kind: IntentKind::Attack { hits: 1 },
+                body: vec![Effect::DealDamage {
+                    amount: crate::effects::AmountSpec::Fixed(14),
+                    target: Target::ChosenEnemy,
+                    hits: 1,
+                }],
+            }],
+            pattern: MovePattern::Cycle { moves: vec!["ZAP_MOVE"] },
+        },
+    );
+    // Noisebot: NOISE adds 2 Dazed cards to the player's discard.
+    m.insert(
+        "Noisebot",
+        MonsterAi {
+            model_id: "Noisebot",
+            moves: vec![MonsterMove {
+                id: "NOISE_MOVE",
+                kind: IntentKind::Debuff,
+                body: vec![
+                    Effect::AddCardToPile {
+                        card_id: "Dazed".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                    Effect::AddCardToPile {
+                        card_id: "Dazed".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                ],
+            }],
+            pattern: MovePattern::Cycle { moves: vec!["NOISE_MOVE"] },
+        },
+    );
+    // EyeWithTeeth: DISTRACT adds 3 Dazed to player discard.
+    // (Spawned only by Fogmog ILLUSION; preset Illusion power.)
+    m.insert(
+        "EyeWithTeeth",
+        MonsterAi {
+            model_id: "EyeWithTeeth",
+            moves: vec![MonsterMove {
+                id: "DISTRACT_MOVE",
+                kind: IntentKind::Debuff,
+                body: vec![
+                    Effect::AddCardToPile {
+                        card_id: "Dazed".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                    Effect::AddCardToPile {
+                        card_id: "Dazed".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                    Effect::AddCardToPile {
+                        card_id: "Dazed".to_string(),
+                        upgrade: 0,
+                        pile: crate::effects::Pile::Discard,
+                    },
+                ],
+            }],
+            pattern: MovePattern::Cycle { moves: vec!["DISTRACT_MOVE"] },
+        },
+    );
+    // Parafright: SLAM 16 damage every turn. Hologram (Illusion preset).
+    m.insert(
+        "Parafright",
+        MonsterAi {
+            model_id: "Parafright",
+            moves: vec![MonsterMove {
+                id: "SLAM_MOVE",
+                kind: IntentKind::Attack { hits: 1 },
+                body: vec![Effect::DealDamage {
+                    amount: crate::effects::AmountSpec::Fixed(16),
+                    target: Target::ChosenEnemy,
+                    hits: 1,
+                }],
+            }],
+            pattern: MovePattern::Cycle { moves: vec!["SLAM_MOVE"] },
+        },
+    );
+    // SnappingJaxfruit: ENERGY_ORB damage 3 + self +2 Strength.
+    m.insert(
+        "SnappingJaxfruit",
+        MonsterAi {
+            model_id: "SnappingJaxfruit",
+            moves: vec![MonsterMove {
+                id: "ENERGY_ORB_MOVE",
+                kind: IntentKind::AttackBuff { hits: 1 },
+                body: vec![
+                    Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(3),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    },
+                    Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: crate::effects::AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    },
+                ],
+            }],
+            pattern: MovePattern::Cycle { moves: vec!["ENERGY_ORB_MOVE"] },
+        },
+    );
+}
+
+/// Two-move cycle monsters. First move often differs from C#
+/// expectation, so each gets a FirstTurnOverride wrapper.
+fn register_two_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
+    // DampCultist: INCANTATION (+5 Ritual) → DARK_STRIKE (1 damage).
+    // First turn: INCANTATION.
+    m.insert(
+        "DampCultist",
+        MonsterAi {
+            model_id: "DampCultist",
+            moves: vec![
+                MonsterMove {
+                    id: "INCANTATION_MOVE",
+                    kind: IntentKind::Buff,
+                    body: vec![Effect::ApplyPower {
+                        power_id: "RitualPower".to_string(),
+                        amount: crate::effects::AmountSpec::Fixed(5),
+                        target: Target::SelfActor,
+                    }],
+                },
+                MonsterMove {
+                    id: "DARK_STRIKE_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(1),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+            ],
+            pattern: MovePattern::Cycle {
+                moves: vec!["INCANTATION_MOVE", "DARK_STRIKE_MOVE"],
+            },
+        },
+    );
+    // SewerClam: PRESSURIZE (self +4 Strength) ↔ JET (10 damage).
+    // First turn: JET.
+    m.insert(
+        "SewerClam",
+        MonsterAi {
+            model_id: "SewerClam",
+            moves: vec![
+                MonsterMove {
+                    id: "PRESSURIZE_MOVE",
+                    kind: IntentKind::Buff,
+                    body: vec![Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: crate::effects::AmountSpec::Fixed(4),
+                        target: Target::SelfActor,
+                    }],
+                },
+                MonsterMove {
+                    id: "JET_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(10),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+            ],
+            pattern: MovePattern::FirstTurnOverride {
+                first_move: "JET_MOVE",
+                then: Box::new(MovePattern::Cycle {
+                    moves: vec!["JET_MOVE", "PRESSURIZE_MOVE"],
+                }),
+            },
+        },
+    );
+    // ToughEgg: HATCH → NIBBLE (4 damage) → HATCH again.
+    // First turn: HATCH unless already hatched.
+    m.insert(
+        "ToughEgg",
+        MonsterAi {
+            model_id: "ToughEgg",
+            moves: vec![
+                MonsterMove {
+                    id: "HATCH_MOVE",
+                    kind: IntentKind::Summon,
+                    // Summon mechanics not yet wired through this path;
+                    // body is a no-op for now.
+                    body: vec![],
+                },
+                MonsterMove {
+                    id: "NIBBLE_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(4),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+            ],
+            pattern: MovePattern::Cycle {
+                moves: vec!["HATCH_MOVE", "NIBBLE_MOVE"],
+            },
+        },
+    );
+}
+
+/// Three-move cycle monsters and similar.
+fn register_three_move_cycles(m: &mut HashMap<&'static str, MonsterAi>) {
+    // VineShambler: SWIPE (6×2) → GRASPING_VINES (8 + Tangled?) → CHOMP (16).
+    // First turn: SWIPE. We approximate Tangled with WeakPower since
+    // TangledPower may not be wired.
+    m.insert(
+        "VineShambler",
+        MonsterAi {
+            model_id: "VineShambler",
+            moves: vec![
+                MonsterMove {
+                    id: "SWIPE_MOVE",
+                    kind: IntentKind::Attack { hits: 2 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(6),
+                        target: Target::ChosenEnemy,
+                        hits: 2,
+                    }],
+                },
+                MonsterMove {
+                    id: "GRASPING_VINES_MOVE",
+                    kind: IntentKind::AttackDebuff { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: crate::effects::AmountSpec::Fixed(8),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "WeakPower".to_string(),
+                            amount: crate::effects::AmountSpec::Fixed(1),
+                            target: Target::ChosenEnemy,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "CHOMP_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(16),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+            ],
+            pattern: MovePattern::Cycle {
+                moves: vec!["SWIPE_MOVE", "GRASPING_VINES_MOVE", "CHOMP_MOVE"],
+            },
+        },
+    );
+    // KinFollower: QUICK_SLASH (5) → BOOMERANG (2×2) → POWER_DANCE (+2 Str).
+    m.insert(
+        "KinFollower",
+        MonsterAi {
+            model_id: "KinFollower",
+            moves: vec![
+                MonsterMove {
+                    id: "QUICK_SLASH_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(5),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+                MonsterMove {
+                    id: "BOOMERANG_MOVE",
+                    kind: IntentKind::Attack { hits: 2 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(2),
+                        target: Target::ChosenEnemy,
+                        hits: 2,
+                    }],
+                },
+                MonsterMove {
+                    id: "POWER_DANCE_MOVE",
+                    kind: IntentKind::Buff,
+                    body: vec![Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: crate::effects::AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    }],
+                },
+            ],
+            pattern: MovePattern::Cycle {
+                moves: vec!["QUICK_SLASH_MOVE", "BOOMERANG_MOVE", "POWER_DANCE_MOVE"],
+            },
+        },
+    );
+    // KinPriest: ORB_FRAILTY (8+Frail) → ORB_WEAKNESS (8+Weak) → BEAM (3×3) → RITUAL (+2 Str).
+    m.insert(
+        "KinPriest",
+        MonsterAi {
+            model_id: "KinPriest",
+            moves: vec![
+                MonsterMove {
+                    id: "ORB_OF_FRAILTY_MOVE",
+                    kind: IntentKind::AttackDebuff { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: crate::effects::AmountSpec::Fixed(8),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "FrailPower".to_string(),
+                            amount: crate::effects::AmountSpec::Fixed(1),
+                            target: Target::ChosenEnemy,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "ORB_OF_WEAKNESS_MOVE",
+                    kind: IntentKind::AttackDebuff { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: crate::effects::AmountSpec::Fixed(8),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "WeakPower".to_string(),
+                            amount: crate::effects::AmountSpec::Fixed(1),
+                            target: Target::ChosenEnemy,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "BEAM_MOVE",
+                    kind: IntentKind::Attack { hits: 3 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(3),
+                        target: Target::ChosenEnemy,
+                        hits: 3,
+                    }],
+                },
+                MonsterMove {
+                    id: "RITUAL_MOVE",
+                    kind: IntentKind::Buff,
+                    body: vec![Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: crate::effects::AmountSpec::Fixed(2),
+                        target: Target::SelfActor,
+                    }],
+                },
+            ],
+            pattern: MovePattern::Cycle {
+                moves: vec![
+                    "ORB_OF_FRAILTY_MOVE",
+                    "ORB_OF_WEAKNESS_MOVE",
+                    "BEAM_MOVE",
+                    "RITUAL_MOVE",
+                ],
+            },
+        },
+    );
+    // PunchConstruct: READY (10 block) → STRONG_PUNCH (14) → FAST_PUNCH (5×2 + Weak).
+    // Some encounter variants start on STRONG_PUNCH.
+    m.insert(
+        "PunchConstruct",
+        MonsterAi {
+            model_id: "PunchConstruct",
+            moves: vec![
+                MonsterMove {
+                    id: "READY_MOVE",
+                    kind: IntentKind::Defend,
+                    body: vec![Effect::GainBlock {
+                        amount: crate::effects::AmountSpec::Fixed(10),
+                        target: Target::SelfActor,
+                    }],
+                },
+                MonsterMove {
+                    id: "STRONG_PUNCH_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(14),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+                MonsterMove {
+                    id: "FAST_PUNCH_MOVE",
+                    kind: IntentKind::AttackDebuff { hits: 2 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: crate::effects::AmountSpec::Fixed(5),
+                            target: Target::ChosenEnemy,
+                            hits: 2,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "WeakPower".to_string(),
+                            amount: crate::effects::AmountSpec::Fixed(1),
+                            target: Target::ChosenEnemy,
+                        },
+                    ],
+                },
+            ],
+            pattern: MovePattern::Cycle {
+                moves: vec!["READY_MOVE", "STRONG_PUNCH_MOVE", "FAST_PUNCH_MOVE"],
+            },
+        },
+    );
+}
+
+/// Monsters with weighted-random patterns.
+fn register_weighted_random_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
+    // FossilStalker: weighted random {LATCH:2, TACKLE:2, LASH:2}.
+    // First turn: LATCH. (Spawn preset: Suck 3 — applied separately.)
+    m.insert(
+        "FossilStalker",
+        MonsterAi {
+            model_id: "FossilStalker",
+            moves: vec![
+                MonsterMove {
+                    id: "TACKLE_MOVE",
+                    kind: IntentKind::AttackDebuff { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: crate::effects::AmountSpec::Fixed(9),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "FrailPower".to_string(),
+                            amount: crate::effects::AmountSpec::Fixed(1),
+                            target: Target::ChosenEnemy,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "LATCH_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(12),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+                MonsterMove {
+                    id: "LASH_MOVE",
+                    kind: IntentKind::Attack { hits: 2 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(3),
+                        target: Target::ChosenEnemy,
+                        hits: 2,
+                    }],
+                },
+            ],
+            pattern: MovePattern::FirstTurnOverride {
+                first_move: "LATCH_MOVE",
+                then: Box::new(MovePattern::WeightedRandom {
+                    weights: vec![
+                        ("LATCH_MOVE", 2),
+                        ("TACKLE_MOVE", 2),
+                        ("LASH_MOVE", 2),
+                    ],
+                    no_repeat: vec![],
+                }),
+            },
+        },
+    );
+    // HunterKiller: TENDERIZING_GOOP (Tender 1) first; then weighted
+    // {BITE:1 no_repeat, PUNCTURE:2}.
+    m.insert(
+        "HunterKiller",
+        MonsterAi {
+            model_id: "HunterKiller",
+            moves: vec![
+                MonsterMove {
+                    id: "TENDERIZING_GOOP_MOVE",
+                    kind: IntentKind::Debuff,
+                    // Tender power not yet wired; approximate with Weak.
+                    body: vec![Effect::ApplyPower {
+                        power_id: "WeakPower".to_string(),
+                        amount: crate::effects::AmountSpec::Fixed(1),
+                        target: Target::ChosenEnemy,
+                    }],
+                },
+                MonsterMove {
+                    id: "BITE_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(17),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+                MonsterMove {
+                    id: "PUNCTURE_MOVE",
+                    kind: IntentKind::Attack { hits: 3 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(7),
+                        target: Target::ChosenEnemy,
+                        hits: 3,
+                    }],
+                },
+            ],
+            pattern: MovePattern::FirstTurnOverride {
+                first_move: "TENDERIZING_GOOP_MOVE",
+                then: Box::new(MovePattern::WeightedRandom {
+                    weights: vec![("BITE_MOVE", 1), ("PUNCTURE_MOVE", 2)],
+                    no_repeat: vec!["BITE_MOVE"],
+                }),
+            },
+        },
+    );
+    // Flyconid: first turn weighted {FRAIL_SPORES:2, SMASH:1}, then
+    // {VULNERABLE_SPORES:3, FRAIL_SPORES:2, SMASH:1}.
+    m.insert(
+        "Flyconid",
+        MonsterAi {
+            model_id: "Flyconid",
+            moves: vec![
+                MonsterMove {
+                    id: "VULNERABLE_SPORES_MOVE",
+                    kind: IntentKind::Debuff,
+                    body: vec![Effect::ApplyPower {
+                        power_id: "VulnerablePower".to_string(),
+                        amount: crate::effects::AmountSpec::Fixed(2),
+                        target: Target::ChosenEnemy,
+                    }],
+                },
+                MonsterMove {
+                    id: "FRAIL_SPORES_MOVE",
+                    kind: IntentKind::AttackDebuff { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: crate::effects::AmountSpec::Fixed(8),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "FrailPower".to_string(),
+                            amount: crate::effects::AmountSpec::Fixed(2),
+                            target: Target::ChosenEnemy,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "SMASH_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(11),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+            ],
+            pattern: MovePattern::Conditional {
+                predicate: AiCondition::FirstTurn,
+                then_branch: Box::new(MovePattern::WeightedRandom {
+                    weights: vec![("FRAIL_SPORES_MOVE", 2), ("SMASH_MOVE", 1)],
+                    no_repeat: vec![],
+                }),
+                else_branch: Box::new(MovePattern::WeightedRandom {
+                    weights: vec![
+                        ("VULNERABLE_SPORES_MOVE", 3),
+                        ("FRAIL_SPORES_MOVE", 2),
+                        ("SMASH_MOVE", 1),
+                    ],
+                    no_repeat: vec![],
+                }),
+            },
+        },
+    );
+    // Inklet: first turn slot conditional — middle slot starts on
+    // WHIRLWIND; else weighted {JAB:2, WHIRLWIND:1 no_repeat,
+    // PIERCING_GAZE:1 no_repeat}.
+    m.insert(
+        "Inklet",
+        MonsterAi {
+            model_id: "Inklet",
+            moves: vec![
+                MonsterMove {
+                    id: "JAB_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(3),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+                MonsterMove {
+                    id: "WHIRLWIND_MOVE",
+                    kind: IntentKind::Attack { hits: 3 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(2),
+                        target: Target::ChosenEnemy,
+                        hits: 3,
+                    }],
+                },
+                MonsterMove {
+                    id: "PIERCING_GAZE_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: crate::effects::AmountSpec::Fixed(10),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+            ],
+            pattern: MovePattern::BySlot {
+                branches: vec![(
+                    "second",
+                    MovePattern::FirstTurnOverride {
+                        first_move: "WHIRLWIND_MOVE",
+                        then: Box::new(MovePattern::WeightedRandom {
+                            weights: vec![
+                                ("JAB_MOVE", 2),
+                                ("WHIRLWIND_MOVE", 1),
+                                ("PIERCING_GAZE_MOVE", 1),
+                            ],
+                            no_repeat: vec!["WHIRLWIND_MOVE", "PIERCING_GAZE_MOVE"],
+                        }),
+                    },
+                )],
+                default: Box::new(MovePattern::WeightedRandom {
+                    weights: vec![
+                        ("JAB_MOVE", 2),
+                        ("WHIRLWIND_MOVE", 1),
+                        ("PIERCING_GAZE_MOVE", 1),
+                    ],
+                    no_repeat: vec!["WHIRLWIND_MOVE", "PIERCING_GAZE_MOVE"],
+                }),
+            },
+        },
+    );
+}
+
 // ---------------------------------------------------------------- Tests
 
 #[cfg(test)]
@@ -762,6 +1452,90 @@ mod tests {
                 Some("SLAM_MOVE")
             );
         }
+    }
+
+    #[test]
+    fn ai_registry_covers_new_monsters() {
+        // 5 RubyRaiders + 2 test + 3 gremlins + 7 single + 3 two-move
+        // + 4 three-move + 4 weighted = 28 monsters total.
+        let expected = [
+            "AxeRubyRaider", "CrossbowRubyRaider", "BruteRubyRaider",
+            "AssassinRubyRaider", "TrackerRubyRaider",
+            "SingleAttackMoveMonster", "MultiAttackMoveMonster",
+            "FatGremlin", "SneakyGremlin", "GremlinMerc",
+            "Byrdpip", "Stabbot", "Zapbot", "Noisebot",
+            "EyeWithTeeth", "Parafright", "SnappingJaxfruit",
+            "DampCultist", "SewerClam", "ToughEgg",
+            "VineShambler", "KinFollower", "KinPriest", "PunchConstruct",
+            "FossilStalker", "HunterKiller", "Flyconid", "Inklet",
+        ];
+        for id in expected {
+            assert!(ai_for(id).is_some(), "Missing AI for {}", id);
+        }
+        assert_eq!(MONSTER_AI_REGISTRY.len(), expected.len());
+    }
+
+    #[test]
+    fn damp_cultist_opens_with_incantation() {
+        let ai = ai_for("DampCultist").unwrap();
+        let cs = CombatState::empty();
+        let mut rng = Rng::new(0, 0);
+        assert_eq!(
+            pick_next_move(&ai.pattern, &cs, 0, None, "front", &mut rng),
+            Some("INCANTATION_MOVE")
+        );
+    }
+
+    #[test]
+    fn sewer_clam_first_turn_jet_then_alternates() {
+        let ai = ai_for("SewerClam").unwrap();
+        let cs = CombatState::empty();
+        let mut rng = Rng::new(0, 0);
+        assert_eq!(
+            pick_next_move(&ai.pattern, &cs, 0, None, "front", &mut rng),
+            Some("JET_MOVE")
+        );
+        assert_eq!(
+            pick_next_move(&ai.pattern, &cs, 0, Some("JET_MOVE"), "front", &mut rng),
+            Some("PRESSURIZE_MOVE")
+        );
+        assert_eq!(
+            pick_next_move(&ai.pattern, &cs, 0, Some("PRESSURIZE_MOVE"), "front", &mut rng),
+            Some("JET_MOVE")
+        );
+    }
+
+    #[test]
+    fn inklet_middle_slot_starts_on_whirlwind() {
+        let ai = ai_for("Inklet").unwrap();
+        let cs = CombatState::empty();
+        let mut rng = Rng::new(0, 0);
+        // Middle slot ("second" in C# encoder).
+        assert_eq!(
+            pick_next_move(&ai.pattern, &cs, 0, None, "second", &mut rng),
+            Some("WHIRLWIND_MOVE")
+        );
+    }
+
+    #[test]
+    fn hunter_killer_opens_with_tenderizing_goop() {
+        let ai = ai_for("HunterKiller").unwrap();
+        let cs = CombatState::empty();
+        let mut rng = Rng::new(0, 0);
+        assert_eq!(
+            pick_next_move(&ai.pattern, &cs, 0, None, "front", &mut rng),
+            Some("TENDERIZING_GOOP_MOVE")
+        );
+        // After GOOP we're in weighted mode → either BITE or PUNCTURE.
+        let after = pick_next_move(
+            &ai.pattern,
+            &cs,
+            0,
+            Some("TENDERIZING_GOOP_MOVE"),
+            "front",
+            &mut rng,
+        );
+        assert!(matches!(after, Some("BITE_MOVE") | Some("PUNCTURE_MOVE")));
     }
 
     #[test]
