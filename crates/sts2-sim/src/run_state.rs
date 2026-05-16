@@ -39,6 +39,11 @@ pub struct PlayerState {
     pub relics: Vec<RelicEntry>,
     pub potions: Vec<PotionEntry>,
     pub max_potion_slot_count: i32,
+    /// Number of card removals the player has paid for at shops this
+    /// run. Each use bumps the next shop's `MerchantCardRemovalEntry`
+    /// price by `PriceIncrease` (25 base / 50 at Inflation A6+). Mirrors
+    /// C# `Player.ExtraFields.CardShopRemovalsUsed`.
+    pub card_shop_removals_used: i32,
 }
 
 impl PlayerState {
@@ -57,6 +62,7 @@ impl PlayerState {
             relics: Vec::new(),
             potions: Vec::new(),
             max_potion_slot_count: 0,
+            card_shop_removals_used: 0,
         }
     }
 }
@@ -341,6 +347,7 @@ impl RunState {
             relics,
             potions: Vec::new(),
             max_potion_slot_count: max_potions,
+            card_shop_removals_used: 0,
         };
         let mut rs = Self::new(seed_string, ascension, vec![player], acts, modifiers);
         // DoubleBoss (A10): every act gets a second boss fight.
@@ -400,6 +407,7 @@ impl RunState {
                     relics: p.relics.clone(),
                     potions: p.potions.clone(),
                     max_potion_slot_count: p.max_potion_slot_count,
+                    card_shop_removals_used: 0,
                 }
             })
             .collect();
@@ -839,6 +847,7 @@ mod tests {
             relics: Vec::new(),
             potions: Vec::new(),
             max_potion_slot_count: 3,
+            card_shop_removals_used: 0,
         }];
         let mut rs = RunState::new(
             "ABC123",
@@ -885,6 +894,7 @@ mod tests {
             relics: Vec::new(),
             potions: Vec::new(),
             max_potion_slot_count: 3,
+            card_shop_removals_used: 0,
         }];
         let mut rs = RunState::new(
             "ABC123",

@@ -46,6 +46,7 @@ mod ascension_smoke_tests {
             gold: cd.starting_gold.unwrap_or(99),
             deck, relics, potions: Vec::<PotionEntry>::new(),
             max_potion_slot_count: 3,
+            card_shop_removals_used: 0,
         }
     }
 

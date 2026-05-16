@@ -291,6 +291,7 @@ mod tests {
             relics: Vec::new(),
             potions: Vec::new(),
             max_potion_slot_count: 3,
+            card_shop_removals_used: 0,
         };
         RunState::new("seed", 0, vec![player], vec![ActId::Overgrowth], Vec::new())
     }

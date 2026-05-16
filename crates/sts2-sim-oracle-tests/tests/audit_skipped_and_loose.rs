@@ -556,6 +556,7 @@ fn fresh_run_state() -> RunState {
         relics: Vec::new(),
         potions: Vec::new(),
         max_potion_slot_count: 3,
+        card_shop_removals_used: 0,
     }];
     RunState::new("AUDIT123", 0, players, vec![ActId::Overgrowth], Vec::new())
 }

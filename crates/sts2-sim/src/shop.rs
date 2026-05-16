@@ -276,16 +276,23 @@ fn jitter_relic_price(rs: &mut RunState, player_idx: usize, rarity: RelicRarity)
     ((base as f32) * jitter).round() as i32
 }
 
-fn card_remove_price(rs: &RunState, _player_idx: usize) -> i32 {
-    // C# `MerchantCardRemovalEntry.BaseCost`:
-    //   GetValueIfAscension(Inflation, 100, 75) → 75 at A0..A5, 100 at A6+.
-    // C# PriceIncrease bumps this per usage; deferred until the
-    // CardShopRemovalsUsed counter is wired.
-    if crate::ascension::has_level(rs.ascension(), crate::ascension::level::Inflation) {
-        100
-    } else {
-        75
-    }
+fn card_remove_price(rs: &RunState, player_idx: usize) -> i32 {
+    // C# `MerchantCardRemovalEntry.CalcCost`:
+    //   cost = BaseCost + PriceIncrease * CardShopRemovalsUsed
+    //   BaseCost      = GetValueIfAscension(Inflation, 100, 75)
+    //   PriceIncrease = GetValueIfAscension(Inflation,  50, 25)
+    let inflated = crate::ascension::has_level(
+        rs.ascension(),
+        crate::ascension::level::Inflation,
+    );
+    let base_cost = if inflated { 100 } else { 75 };
+    let price_increase = if inflated { 50 } else { 25 };
+    let removals = rs
+        .players()
+        .get(player_idx)
+        .map(|ps| ps.card_shop_removals_used)
+        .unwrap_or(0);
+    base_cost + price_increase * removals
 }
 
 /// Possible outcomes of a purchase attempt.
@@ -359,7 +366,13 @@ pub fn purchase(
             if eligible.is_empty() {
                 return PurchaseResult::AlreadySold; // no removable cards
             }
-            rs.player_state_mut(shop.player_idx).map(|ps| ps.gold -= price);
+            rs.player_state_mut(shop.player_idx).map(|ps| {
+                ps.gold -= price;
+                // Bump per-run usage counter — next shop visit prices
+                // up by `PriceIncrease`. Mirrors C# `Player.ExtraFields
+                // .CardShopRemovalsUsed` increment.
+                ps.card_shop_removals_used += 1;
+            });
             shop.entries[entry_index].sold = true;
             if rs.auto_resolve_offers {
                 // Auto: remove the first eligible card.
@@ -403,6 +416,7 @@ mod tests {
             relics: Vec::new(),
             potions: Vec::new(),
             max_potion_slot_count: 3,
+            card_shop_removals_used: 0,
         };
         RunState::new("seed", 0, vec![player], vec![ActId::Overgrowth], Vec::new())
     }

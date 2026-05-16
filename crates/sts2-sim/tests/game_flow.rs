@@ -53,6 +53,7 @@ fn build_starter_player(character_id: &str, player_id: i64) -> PlayerState {
         relics,
         potions: Vec::<PotionEntry>::new(),
         max_potion_slot_count: 3,
+        card_shop_removals_used: 0,
     }
 }
 
@@ -496,6 +497,43 @@ fn ascension_tightbelt_reduces_potion_slots() {
         "A4 TightBelt -1 slot");
     assert_eq!(a10.players()[0].max_potion_slot_count, 2,
         "A10 still TightBelt-reduced");
+}
+
+/// Card-remove price escalates per use per C#
+/// `MerchantCardRemovalEntry.CalcCost = BaseCost + PriceIncrease *
+/// CardShopRemovalsUsed`. At A0..A5: 75 → 100 → 125. At A6+ (Inflation):
+/// 100 → 150 → 200.
+#[test]
+fn card_remove_price_escalates_per_use() {
+    use sts2_sim::shop::{open_shop, purchase, ShopEntryKind, PurchaseResult};
+
+    fn remove_prices_across_three_visits(ascension: i32) -> Vec<i32> {
+        let mut rs = RunState::start_run(
+            &format!("ESCAL{ascension}"),
+            ascension, "Ironclad",
+            vec![ActId::Overgrowth], Vec::new(),
+        ).unwrap();
+        rs.enter_act(0);
+        // Give the player plenty of gold so removal purchases succeed.
+        rs.player_state_mut(0).map(|ps| ps.gold = 10_000);
+        let mut prices = Vec::new();
+        for _ in 0..3 {
+            let mut shop = open_shop(&mut rs, 0);
+            let entry_idx = shop.entries.iter()
+                .position(|e| matches!(e.kind, ShopEntryKind::CardRemove))
+                .unwrap();
+            prices.push(shop.entries[entry_idx].price);
+            // Purchase to bump the counter.
+            let r = purchase(&mut rs, &mut shop, entry_idx);
+            assert!(matches!(r, PurchaseResult::Ok | PurchaseResult::CardRemoveStaged),
+                "purchase outcome: {:?}", r);
+        }
+        prices
+    }
+    // A0..A5: 75 / 100 / 125.
+    assert_eq!(remove_prices_across_three_visits(0), vec![75, 100, 125]);
+    // A6+: 100 / 150 / 200 (PriceIncrease = 50 at Inflation).
+    assert_eq!(remove_prices_across_three_visits(6), vec![100, 150, 200]);
 }
 
 /// Inflation (A6+) bumps the shop's card-removal price from 75 → 100.
