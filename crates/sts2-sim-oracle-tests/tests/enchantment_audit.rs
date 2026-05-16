@@ -48,6 +48,7 @@ fn force_enchanted(cs: &mut CombatState, card_id: &str, ench_id: &str, amount: i
         id: ench_id.to_string(),
         amount,
         consumed_this_combat: false,
+        state: Default::default(),
     });
     cs.allies[0].player.as_mut().unwrap().hand.cards.push(inst);
 }
@@ -119,6 +120,7 @@ fn cloning_a_sown_card_produces_fresh_enchantment_on_copy() {
         amount: 1,
         // Simulate the original was played once already this combat.
         consumed_this_combat: true,
+        state: Default::default(),
     });
     cs.allies[0].player.as_mut().unwrap().hand.cards.push(inst);
 
@@ -301,6 +303,7 @@ fn apply_enchantment_on_play_sown_grants_energy_directly() {
         id: "Sown".to_string(),
         amount: 2,
         consumed_this_combat: false,
+        state: Default::default(),
     };
     apply_enchantment_on_play(&mut cs, 0, &ench, None);
     assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 5,
@@ -314,7 +317,8 @@ fn apply_enchantment_on_play_sown_skips_when_consumed() {
     let ench = EnchantmentInstance {
         id: "Sown".to_string(),
         amount: 2,
-        consumed_this_combat: true, // already fired this combat
+        consumed_this_combat: true,
+        state: Default::default(), // already fired this combat
     };
     apply_enchantment_on_play(&mut cs, 0, &ench, None);
     assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 3,

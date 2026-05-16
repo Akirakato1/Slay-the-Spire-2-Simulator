@@ -361,6 +361,15 @@ pub struct EnchantmentInstance {
     pub id: String,
     pub amount: i32,
     pub consumed_this_combat: bool,
+    /// Per-instance scalar state for enchantments whose effect ramps
+    /// across plays (Momentum.ExtraDamage), or counts something
+    /// (Goopy.PlaysSeen). Keyed by short id; mutated by enchantment
+    /// hooks (OnPlay, AfterCardPlayed). Mirrors per-card C# fields
+    /// like Momentum's `_extraDamage`. Duplicates of an enchanted
+    /// card get a fresh (empty) state map — part of the
+    /// once-per-combat-on-replica semantics: duplicates start with
+    /// no accumulated state.
+    pub state: std::collections::HashMap<String, i32>,
 }
 
 impl CardInstance {
@@ -3784,11 +3793,18 @@ impl CombatState {
                 &ench,
                 target,
             );
-            // If the enchantment fired a once-per-combat trigger, the
-            // helper returned with consumed_this_combat=true via the
-            // mutation below. Update the played_card's local copy so
-            // post-play routing carries the flag.
+            // Apply per-instance state deltas (Momentum ExtraDamage
+            // ramp, Goopy StackCount, etc.) to played_card's
+            // enchantment BEFORE the once-per-combat flag and BEFORE
+            // routing.
+            let deltas = enchantment_self_state_delta(&ench);
             if let Some(updated) = played_card.enchantment.as_mut() {
+                for (key, delta) in deltas {
+                    let cur = updated.state.get(&key).copied().unwrap_or(0);
+                    updated.state.insert(key, cur + delta);
+                }
+                // If the enchantment fired a once-per-combat trigger,
+                // mark it consumed. Carries through routing.
                 if matches!(updated.id.as_str(),
                     "Sown" | "Swift" | "Glam" | "Vigorous"
                 ) {
@@ -5463,7 +5479,35 @@ pub fn apply_enchantment_on_play(
                 }
             }
         }
+        // Momentum / Goopy mutate per-instance `state` rather than
+        // the global combat state on play. The play_card flow updates
+        // played_card.enchantment.state after this helper returns;
+        // the actual mutation is handled there to keep this helper
+        // pure with respect to enchantment internals.
         _ => {}
+    }
+}
+
+/// Returns the post-play `state` mutation an enchantment makes to its
+/// own per-instance state on OnPlay. Caller applies the delta to
+/// `played_card.enchantment.state` BEFORE routing the card. Mirrors
+/// C# enchantment OnPlay methods that mutate private fields
+/// (Momentum.ExtraDamage += Amount, Goopy.Amount++ via
+/// AfterCardPlayed, etc.).
+pub fn enchantment_self_state_delta(ench: &EnchantmentInstance) -> Vec<(String, i32)> {
+    match ench.id.as_str() {
+        "Momentum" => {
+            // C# Momentum.OnPlay: ExtraDamage += Amount.
+            vec![("ExtraDamage".to_string(), ench.amount)]
+        }
+        "Goopy" => {
+            // C# Goopy.AfterCardPlayed: Amount++. We track via a
+            // separate state key so the additive isn't read from the
+            // base Amount field (which gates other enchantment
+            // behavior — keep them separated).
+            vec![("StackCount".to_string(), 1)]
+        }
+        _ => Vec::new(),
     }
 }
 
@@ -5505,6 +5549,13 @@ pub fn enchantment_instance_damage_additive_gated(
     match ench.id.as_str() {
         "Sharp" => ench.amount as f64,
         "Vigorous" if !ench.consumed_this_combat => ench.amount as f64,
+        "Momentum" => {
+            // C# Momentum.EnchantDamageAdditive returns ExtraDamage,
+            // which is the per-instance accumulator. enchantment_self_
+            // state_delta adds `amount` to state["ExtraDamage"] on
+            // each play, so this read returns the cumulative bonus.
+            ench.state.get("ExtraDamage").copied().unwrap_or(0) as f64
+        }
         _ => 0.0,
     }
 }
@@ -13229,6 +13280,7 @@ mod tests {
             amount: 3,
         
             consumed_this_combat: false,
+            state: std::collections::HashMap::new(),
         };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
@@ -13246,8 +13298,8 @@ mod tests {
         let ench = EnchantmentInstance {
             id: "Corrupted".to_string(),
             amount: 1, // ignored — Corrupted is a fixed factor
-
             consumed_this_combat: false,
+            state: std::collections::HashMap::new(),
         };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
@@ -13262,7 +13314,7 @@ mod tests {
     #[test]
     fn enchantments_skip_on_non_powered_attacks() {
         let cs = ironclad_combat();
-        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 5, consumed_this_combat: false };
+        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 5, consumed_this_combat: false, state: std::collections::HashMap::new() };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
             (CombatSide::Enemy, 0),
@@ -13282,7 +13334,7 @@ mod tests {
         let mut cs = ironclad_combat();
         cs.apply_power(CombatSide::Player, 0, "StrengthPower", 2);
         cs.apply_power(CombatSide::Enemy, 0, "VulnerablePower", 1);
-        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 3, consumed_this_combat: false };
+        let sharp = EnchantmentInstance { id: "Sharp".to_string(), amount: 3, consumed_this_combat: false, state: std::collections::HashMap::new() };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
             (CombatSide::Enemy, 0),
@@ -13307,6 +13359,7 @@ mod tests {
                 amount: 2,
             
             consumed_this_combat: false,
+            state: std::collections::HashMap::new(),
         });
             ps.hand.cards.push(card);
         }
@@ -13325,6 +13378,7 @@ mod tests {
             amount: 99,
         
             consumed_this_combat: false,
+            state: std::collections::HashMap::new(),
         };
         let d = cs.modify_damage_with_enchantment(
             (CombatSide::Player, 0),
@@ -13426,6 +13480,7 @@ mod tests {
             amount: 3,
         
             consumed_this_combat: false,
+            state: std::collections::HashMap::new(),
         };
         let with = cs.modify_block_with_enchantment(
             (CombatSide::Player, 0),

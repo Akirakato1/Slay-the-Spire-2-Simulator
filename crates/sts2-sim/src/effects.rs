@@ -850,6 +850,13 @@ pub enum Effect {
         cost: AmountSpec,
         scope: CostScope,
     },
+    /// Randomize the energy cost of every non-X-cost card in `pile`
+    /// to a uniform pick in `[0, max_cost]`. SneckoOil and Slither
+    /// both use this — Slither on AfterCardDrawn for its host card,
+    /// SneckoOil on all hand cards via OnUse. Cost override scope
+    /// is `UntilPlayed` to match C#'s `SetThisTurnOrUntilPlayed`
+    /// semantics (resets when the card is played).
+    RandomizeHandCostsUntilPlayed { max_cost: i32 },
     /// Spawn a fresh monster into the named slot. Used by summon
     /// moves (LivingFog, Fabricator, Ovicopter, Doormaker).
     SummonMonster {
@@ -4289,11 +4296,13 @@ pub fn potion_effects(potion_id: &str) -> Option<Vec<Effect>> {
         // The randomize step requires a per-card cost-override
         // primitive that doesn't exist yet; for now we just draw.
         "SneckoOil" => Some(vec![
-            // Canonical("Cards") = 7 for this potion. Same potion-
-            // canonical-vars-lookup gap as BloodPotion / FoulPotion.
+            // Canonical("Cards") = 7 for this potion (no potion-
+            // canonical resolver yet, so literal 7).
             Effect::DrawCards { amount: AmountSpec::Fixed(7) },
-            // TODO: add Effect::RandomizeHandCostsUntilPlayed { range: 0..=N }
-            // to fully port the Snecko cost-shuffle mechanic.
+            // C# Snecko randomizes to {0, 1, 2} per card. The C# game
+            // uses NextEnergyCost() which picks uniformly in that
+            // range. We use max_cost=2 → range 0..=2.
+            Effect::RandomizeHandCostsUntilPlayed { max_cost: 2 },
         ]),
 
         // C# SoldiersStew: BaseReplayCount++ on every Strike-tagged
@@ -8340,6 +8349,7 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                             id: enchantment_id.clone(),
                             amount: *enchantment_amount,
                             consumed_this_combat: false,
+            state: std::collections::HashMap::new(),
                         });
                     }
                 }
@@ -8491,6 +8501,35 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                     resume_upgrade_level: ctx.upgrade_level,
                     resume_x_value: ctx.x_value,
                 });
+            }
+        }
+        Effect::RandomizeHandCostsUntilPlayed { max_cost } => {
+            // Walk every non-X-cost card in hand; pick a random new
+            // cost in 0..=max_cost via combat RNG; store as the
+            // until-played override so the next play uses the
+            // randomized cost and subsequent draws reset.
+            let len = cs.allies.get(ctx.player_idx)
+                .and_then(|c| c.player.as_ref())
+                .map(|ps| ps.hand.cards.len())
+                .unwrap_or(0);
+            for i in 0..len {
+                // Look up card to skip X-cost. cards[i].id is stable.
+                let id = {
+                    let Some(ps) = cs.allies.get(ctx.player_idx)
+                        .and_then(|c| c.player.as_ref()) else { break };
+                    let Some(card) = ps.hand.cards.get(i) else { break };
+                    card.id.clone()
+                };
+                let Some(data) = crate::card::by_id(&id) else { continue };
+                if data.has_energy_cost_x { continue; }
+                let new_cost = cs.rng.next_int_range(0, *max_cost + 1);
+                if let Some(ps) = cs.allies.get_mut(ctx.player_idx)
+                    .and_then(|c| c.player.as_mut())
+                {
+                    if let Some(card) = ps.hand.cards.get_mut(i) {
+                        card.cost_override_until_played = Some(new_cost);
+                    }
+                }
             }
         }
         Effect::ModifyRound1HandDraw { delta } => {
