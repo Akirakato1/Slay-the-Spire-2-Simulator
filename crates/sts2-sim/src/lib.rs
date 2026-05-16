@@ -32,6 +32,7 @@ pub mod power;
 pub mod relic;
 pub mod rng;
 pub mod rng_set;
+pub mod room_set;
 pub mod run_log;
 pub mod run_state;
 pub mod shop;

@@ -135,6 +135,11 @@ pub struct RunState {
     /// "add to deck/relics/potions" or "upgrade/remove a card"
     /// operation. Resolved via `event_room::resolve_event_choice`.
     pub pending_event: Option<crate::event_room::PendingEvent>,
+    /// Pre-generated per-act room pools (hallway / elite / event /
+    /// boss). Built once at `enter_act` time, then queried by
+    /// `pick_encounter_for_current_node` / event resolution. `None`
+    /// before any `enter_act` call.
+    pub room_set: Option<crate::room_set::RoomSet>,
     /// Side-channel for multi-page event transitions. The
     /// `Effect::SetEventChoices` handler stashes the new choices
     /// here; `resolve_event_choice` consumes the value at the end of
@@ -254,6 +259,7 @@ impl RunState {
             pending_deck_action: None,
             pending_event: None,
             next_event_choices: None,
+            room_set: None,
         }
     }
 
@@ -539,6 +545,33 @@ impl RunState {
         self.current_coord = self.current_map
             .as_ref()
             .map(|m| m.starting().coord);
+
+        // Generate the per-act room pools (hallway / elite / event /
+        // boss) using the run's up_front RNG stream. Mirrors C#
+        // `ActModel.GenerateRooms`. Skipped for DeprecatedAct since
+        // it has no pools.
+        let act_name = match act_id {
+            crate::act::ActId::Overgrowth => "Overgrowth",
+            crate::act::ActId::Hive => "Hive",
+            crate::act::ActId::Glory => "Glory",
+            crate::act::ActId::Underdocks => "Underdocks",
+            crate::act::ActId::DeprecatedAct => {
+                self.room_set = None;
+                return self.current_map.as_ref().unwrap();
+            }
+        };
+        let number_of_rooms = act.get_number_of_rooms(is_multiplayer);
+        let pool_rng = &mut self.rng_set.up_front;
+        let mut new_rs = crate::room_set::RoomSet::generate(
+            act_name, number_of_rooms, pool_rng, has_second_boss,
+        );
+        // Carry forward visited_event_ids across acts so the same event
+        // doesn't re-appear in Act 2/3 if it already fired in Act 1.
+        if let Some(prev) = self.room_set.as_ref() {
+            new_rs.visited_event_ids = prev.visited_event_ids.clone();
+        }
+        self.room_set = Some(new_rs);
+
         self.current_map.as_ref().unwrap()
     }
 
