@@ -145,6 +145,101 @@ pub fn offer_post_combat_card_reward(
     crate::effects::execute_run_state_effects(rs, player_idx, &body);
 }
 
+/// Pool-aware sibling of `pick_card_of_rarity`. Restricts the
+/// candidate set to a specific pool reference (CharacterAny / Colorless /
+/// CharacterAttack / CharacterSkill / CharacterPower). Used by events
+/// that roll a card-reward from a *specific* pool — e.g. BrainLeech
+/// Rip (Colorless only) — distinct from the normal post-combat reward
+/// that draws from character ∪ Colorless.
+fn pick_card_of_rarity_from_pool(
+    rs: &mut RunState,
+    player_idx: usize,
+    rarity: CardRarity,
+    pool_ref: &crate::effects::CardPoolRef,
+    exclude: &std::collections::HashSet<String>,
+) -> Option<String> {
+    use crate::effects::CardPoolRef;
+    let character = rs
+        .players()
+        .get(player_idx)
+        .map(|ps| ps.character_id.clone())
+        .unwrap_or_default();
+    let type_filter: Option<crate::card::CardType> = match pool_ref {
+        CardPoolRef::CharacterAttack => Some(crate::card::CardType::Attack),
+        CardPoolRef::CharacterSkill => Some(crate::card::CardType::Skill),
+        CardPoolRef::CharacterPower => Some(crate::card::CardType::Power),
+        _ => None,
+    };
+    let pool_match = |c: &card::CardData| -> bool {
+        match pool_ref {
+            CardPoolRef::Colorless => c.pool == "Colorless",
+            CardPoolRef::CharacterAny
+            | CardPoolRef::CharacterAttack
+            | CardPoolRef::CharacterSkill
+            | CardPoolRef::CharacterPower => c.pool == character,
+        }
+    };
+    let candidates: Vec<&str> = card::ALL_CARDS
+        .iter()
+        .filter(|c| c.rarity == rarity)
+        .filter(|c| pool_match(c))
+        .filter(|c| type_filter.map_or(true, |t| c.card_type == t))
+        .filter(|c| !exclude.contains(&c.id))
+        .filter(|c| c.id != "DeprecatedCard")
+        .map(|c| c.id.as_str())
+        .collect();
+    if candidates.is_empty() {
+        return None;
+    }
+    let idx = rs.rng_set_mut().combat_card_generation
+        .next_int(candidates.len() as i32) as usize;
+    Some(candidates[idx].to_string())
+}
+
+/// Pool-targeted version of `build_card_reward_options`. Used by
+/// event-time `OfferCardRewardFromPool` to materialize the N-card
+/// option list at offer-emit time. Rolls a per-card rarity via
+/// CardRewardKind::Normal odds (default for non-combat events;
+/// `ForNonCombatWithDefaultOdds` in C#).
+pub fn build_card_options_from_pool(
+    rs: &mut RunState,
+    player_idx: usize,
+    pool_ref: &crate::effects::CardPoolRef,
+    count: i32,
+) -> Vec<String> {
+    let count = count.max(0) as usize;
+    let mut picks: Vec<String> = Vec::with_capacity(count);
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Fallback order if the rolled rarity is empty in this pool —
+    // e.g. Colorless has no Commons. Tries the rolled rarity first,
+    // then the alternates. Matches the C# behavior of
+    // `ForNonCombatWithDefaultOdds` which redistributes weight when
+    // a tier is empty for the configured pool.
+    let fallback_order = |primary: CardRarity| -> [CardRarity; 3] {
+        match primary {
+            CardRarity::Common => [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare],
+            CardRarity::Uncommon => [CardRarity::Uncommon, CardRarity::Common, CardRarity::Rare],
+            CardRarity::Rare => [CardRarity::Rare, CardRarity::Uncommon, CardRarity::Common],
+            // Should never occur for combat/event rolls, but cover the case.
+            _ => [CardRarity::Common, CardRarity::Uncommon, CardRarity::Rare],
+        }
+    };
+    for _ in 0..count {
+        let primary = roll_card_rarity(rs, CardRewardKind::Normal);
+        let mut got: Option<String> = None;
+        for r in fallback_order(primary) {
+            if let Some(id) = pick_card_of_rarity_from_pool(rs, player_idx, r, pool_ref, &seen) {
+                got = Some(id);
+                break;
+            }
+        }
+        let Some(id) = got else { break };
+        seen.insert(id.clone());
+        picks.push(id);
+    }
+    picks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

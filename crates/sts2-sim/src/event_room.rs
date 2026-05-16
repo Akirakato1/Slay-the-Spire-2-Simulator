@@ -392,23 +392,34 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             ],
         }),
 
-        // BrainLeech: Rip (-5 HP + card reward) vs ShareKnowledge (card pick) vs Leave.
-        // Both card-reward branches need event-driven OfferCardReward; stub for now.
+        // BrainLeech: Rip (-5 HP + 3-Colorless card reward) vs
+        // ShareKnowledge (pick 1 from 5 char-pool options). No Leave —
+        // C# only exposes the 2 options.
         "BrainLeech" => Some(EventModel {
             id: "BrainLeech".to_string(),
             choices: vec![
                 EventChoice {
-                    label: "RIP".to_string(),
-                    body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(5) }],
-                    // TODO: + 1 colorless-pool card reward (3 options)
-                },
-                EventChoice {
                     label: "SHARE_KNOWLEDGE".to_string(),
-                    body: vec![], // TODO: pick 1 card from 5 char-pool options
+                    body: vec![Effect::OfferCardRewardFromPool {
+                        pool: crate::effects::CardPoolRef::CharacterAny,
+                        count: 5,
+                        n_min: 1,  // C#: cancellable=false
+                        n_max: 1,
+                        source: Some("BrainLeech.SHARE_KNOWLEDGE".to_string()),
+                    }],
                 },
                 EventChoice {
-                    label: "LEAVE".to_string(),
-                    body: vec![],
+                    label: "RIP".to_string(),
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(5) },
+                        Effect::OfferCardRewardFromPool {
+                            pool: crate::effects::CardPoolRef::Colorless,
+                            count: 3,
+                            n_min: 0,  // post-combat-style: skip allowed
+                            n_max: 1,
+                            source: Some("BrainLeech.RIP".to_string()),
+                        },
+                    ],
                 },
             ],
         }),
@@ -1448,6 +1459,46 @@ mod tests {
         // First choice (LET_GO) was auto-applied: 1 card transformed.
         // No pending action since auto-resolve.
         assert!(rs.pending_deck_action.is_none());
+    }
+
+    #[test]
+    fn brain_leech_rip_loses_hp_and_offers_3_colorless_cards() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.player_state_mut(0).unwrap().hp = 50;
+        enter_event(&mut rs, 0, "BrainLeech");
+        // RIP is index 1 (SHARE_KNOWLEDGE is 0).
+        resolve_event_choice(&mut rs, 1).expect("rip");
+        // HP dropped by 5.
+        assert_eq!(rs.players()[0].hp, 45);
+        // Card-reward offer staged.
+        let pending = rs.pending_offer.as_ref()
+            .expect("RIP must stage a colorless card reward");
+        assert_eq!(pending.options.len(), 3,
+            "C# default: 3 colorless options");
+        // Every option must be a Colorless-pool card.
+        for opt in &pending.options {
+            let data = crate::card::by_id(opt).expect("valid card id");
+            assert_eq!(data.pool, "Colorless",
+                "Card {} should be Colorless, got pool={}", opt, data.pool);
+        }
+    }
+
+    #[test]
+    fn brain_leech_share_knowledge_offers_5_character_cards() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        enter_event(&mut rs, 0, "BrainLeech");
+        // SHARE_KNOWLEDGE is index 0.
+        resolve_event_choice(&mut rs, 0).expect("share knowledge");
+        let pending = rs.pending_offer.as_ref()
+            .expect("SHARE_KNOWLEDGE must stage a 5-card character pool offer");
+        assert_eq!(pending.options.len(), 5);
+        for opt in &pending.options {
+            let data = crate::card::by_id(opt).expect("valid card id");
+            assert_eq!(data.pool, "Ironclad",
+                "Card {} should be Ironclad, got {}", opt, data.pool);
+        }
     }
 
     #[test]

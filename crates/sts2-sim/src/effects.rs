@@ -1063,6 +1063,19 @@ pub enum Effect {
         n_max: i32,
         source: String,
     },
+    /// Roll `count` card options from `pool` at effect-execution time
+    /// and emit them as a card-reward offer. Mirrors C#
+    /// `CardFactory.CreateForReward(...CardCreationOptions.ForNonCombat...)`.
+    /// BrainLeech Rip rolls 3 Colorless cards; ShareKnowledge rolls 5
+    /// character-pool cards. Distinct from `OfferCardReward` which
+    /// takes a pre-rolled fixed list.
+    OfferCardRewardFromPool {
+        pool: CardPoolRef,
+        count: i32,
+        n_min: i32,
+        n_max: i32,
+        source: Option<String>,
+    },
     /// Lose max HP outside combat. DistinguishedCape, LeafyPoultice
     /// (`CreatureCmd.LoseMaxHp(N)`).
     LoseRunStateMaxHp { amount: AmountSpec },
@@ -3620,6 +3633,17 @@ fn execute_run_state_effect(
             handle_offer(rs, player_idx,
                 crate::run_state::OfferKind::Card,
                 options.clone(), *n_min, *n_max, source.clone());
+        }
+        Effect::OfferCardRewardFromPool { pool, count, n_min, n_max, source } => {
+            let options = crate::card_reward::build_card_options_from_pool(
+                rs, player_idx, pool, *count,
+            );
+            if options.is_empty() {
+                return;
+            }
+            handle_offer(rs, player_idx,
+                crate::run_state::OfferKind::Card,
+                options, *n_min, *n_max, source.clone());
         }
         Effect::OfferRelicReward { options, n_min, n_max, source } => {
             handle_offer(rs, player_idx,
@@ -9810,7 +9834,8 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::DowngradeRandomDeckCards { .. }
         | Effect::CloneDeck
         | Effect::RemoveAllCardsOfType { .. }
-        | Effect::StageDeckPick { .. } => {
+        | Effect::StageDeckPick { .. }
+        | Effect::OfferCardRewardFromPool { .. } => {
             // STUB: see Pile::Deck rationale. Mutates RunState; combat
             // VM has no handle. Routes through run_state_effects path.
         }
