@@ -2,6 +2,7 @@
   {
     "id": "AxebotsNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "front",
       "back"
@@ -18,22 +19,30 @@
     ],
     "possible_monsters": [
       "Axebot"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "BattlewornDummyEventEncounter",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [],
     "possible_monsters": [
       "BattleFriendV1",
       "BattleFriendV2",
       "BattleFriendV3"
-    ]
+    ],
+    "tags": [],
+    "acts": []
   },
   {
     "id": "BowlbugsNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [],
     "possible_monsters": [
@@ -41,11 +50,18 @@
       "BowlbugNectar",
       "BowlbugRock",
       "BowlbugSilk"
+    ],
+    "tags": [
+      "Workers"
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "BowlbugsWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -57,11 +73,18 @@
       "BowlbugEgg",
       "BowlbugNectar",
       "BowlbugRock"
+    ],
+    "tags": [
+      "Workers"
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "BygoneEffigyElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -71,11 +94,16 @@
     ],
     "possible_monsters": [
       "BygoneEffigy"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "ByrdonisElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -85,11 +113,16 @@
     ],
     "possible_monsters": [
       "Byrdonis"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "CeremonialBeastBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -99,11 +132,16 @@
     ],
     "possible_monsters": [
       "CeremonialBeast"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "ChompersNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -117,11 +155,18 @@
     ],
     "possible_monsters": [
       "Chomper"
+    ],
+    "tags": [
+      "Chomper"
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "ConstructMenagerieNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -140,11 +185,16 @@
     "possible_monsters": [
       "CubexConstruct",
       "PunchConstruct"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "CorpseSlugsNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -162,11 +212,18 @@
     ],
     "possible_monsters": [
       "CorpseSlug"
+    ],
+    "tags": [
+      "Slugs"
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "CorpseSlugsWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -180,11 +237,18 @@
     ],
     "possible_monsters": [
       "CorpseSlug"
+    ],
+    "tags": [
+      "Slugs"
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "CubexConstructNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -194,11 +258,16 @@
     ],
     "possible_monsters": [
       "CubexConstruct"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "CultistsNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -213,11 +282,16 @@
     "possible_monsters": [
       "CalcifiedCultist",
       "DampCultist"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "DecimillipedeElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [
       "segment1",
       "segment2",
@@ -241,11 +315,16 @@
       "DecimillipedeSegmentBack",
       "DecimillipedeSegmentFront",
       "DecimillipedeSegmentMiddle"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "DenseVegetationEventEncounter",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "wriggler1",
       "wriggler2",
@@ -260,18 +339,24 @@
     ],
     "possible_monsters": [
       "Wriggler"
-    ]
+    ],
+    "tags": [],
+    "acts": []
   },
   {
     "id": "DeprecatedEncounter",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [],
-    "possible_monsters": []
+    "possible_monsters": [],
+    "tags": [],
+    "acts": []
   },
   {
     "id": "DevotedSculptorWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -281,11 +366,16 @@
     ],
     "possible_monsters": [
       "DevotedSculptor"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "DoormakerBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -295,11 +385,16 @@
     ],
     "possible_monsters": [
       "Doormaker"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "EntomancerElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -309,11 +404,16 @@
     ],
     "possible_monsters": [
       "Entomancer"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "ExoskeletonsNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "first",
       "second",
@@ -340,11 +440,18 @@
     ],
     "possible_monsters": [
       "Exoskeleton"
+    ],
+    "tags": [
+      "Exoskeletons"
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "ExoskeletonsWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [
       "first",
       "second",
@@ -366,11 +473,18 @@
     ],
     "possible_monsters": [
       "Exoskeleton"
+    ],
+    "tags": [
+      "Exoskeletons"
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "FabricatorNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "bot1",
       "bot2",
@@ -386,11 +500,16 @@
     ],
     "possible_monsters": [
       "Fabricator"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "FakeMerchantEventEncounter",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "merchant"
     ],
@@ -402,11 +521,14 @@
     ],
     "possible_monsters": [
       "FakeMerchantMonster"
-    ]
+    ],
+    "tags": [],
+    "acts": []
   },
   {
     "id": "FlyconidNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -418,11 +540,19 @@
       "Flyconid",
       "LeafSlimeM",
       "TwigSlimeM"
+    ],
+    "tags": [
+      "Mushroom",
+      "Slimes"
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "FogmogNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "illusion",
       "fogmog"
@@ -436,11 +566,16 @@
     "possible_monsters": [
       "EyeWithTeeth",
       "Fogmog"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "FossilStalkerNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -450,11 +585,16 @@
     ],
     "possible_monsters": [
       "FossilStalker"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "FrogKnightNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -464,11 +604,16 @@
     ],
     "possible_monsters": [
       "FrogKnight"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "FuzzyWurmCrawlerWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -478,11 +623,18 @@
     ],
     "possible_monsters": [
       "FuzzyWurmCrawler"
+    ],
+    "tags": [
+      "Crawler"
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "GlobeHeadNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -492,11 +644,16 @@
     ],
     "possible_monsters": [
       "GlobeHead"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "GremlinMercNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -508,11 +665,16 @@
       "FatGremlin",
       "GremlinMerc",
       "SneakyGremlin"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "HauntedShipNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -522,11 +684,16 @@
     ],
     "possible_monsters": [
       "HauntedShip"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "HunterKillerNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -536,11 +703,16 @@
     ],
     "possible_monsters": [
       "HunterKiller"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "InfestedPrismsElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -550,11 +722,16 @@
     ],
     "possible_monsters": [
       "InfestedPrism"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "InkletsNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -572,11 +749,16 @@
     ],
     "possible_monsters": [
       "Inklet"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "KaiserCrabBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [
       "crusher",
       "rocket"
@@ -594,11 +776,16 @@
     "possible_monsters": [
       "Crusher",
       "Rocket"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "KnightsElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -618,11 +805,18 @@
       "FlailKnight",
       "MagiKnight",
       "SpectralKnight"
+    ],
+    "tags": [
+      "Knights"
+    ],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "KnowledgeDemonBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -632,11 +826,16 @@
     ],
     "possible_monsters": [
       "KnowledgeDemon"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "LagavulinMatriarchBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -646,11 +845,16 @@
     ],
     "possible_monsters": [
       "LagavulinMatriarch"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "LivingFogNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "bomb1",
       "bomb2",
@@ -668,11 +872,16 @@
     "possible_monsters": [
       "GasBomb",
       "LivingFog"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "LouseProgenitorNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -682,11 +891,16 @@
     ],
     "possible_monsters": [
       "LouseProgenitor"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "MawlerNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -696,11 +910,16 @@
     ],
     "possible_monsters": [
       "Mawler"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "MechaKnightElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -710,11 +929,16 @@
     ],
     "possible_monsters": [
       "MechaKnight"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "MysteriousKnightEventEncounter",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -724,11 +948,14 @@
     ],
     "possible_monsters": [
       "MysteriousKnight"
-    ]
+    ],
+    "tags": [],
+    "acts": []
   },
   {
     "id": "MytesNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "first",
       "second"
@@ -745,11 +972,16 @@
     ],
     "possible_monsters": [
       "Myte"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "NibbitsNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "front",
       "back"
@@ -762,11 +994,16 @@
     ],
     "possible_monsters": [
       "Nibbit"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "NibbitsWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -776,11 +1013,18 @@
     ],
     "possible_monsters": [
       "Nibbit"
+    ],
+    "tags": [
+      "Nibbit"
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "OvergrowthCrawlers",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -795,11 +1039,19 @@
     "possible_monsters": [
       "FuzzyWurmCrawler",
       "ShrinkerBeetle"
+    ],
+    "tags": [
+      "Crawler",
+      "Shrinker"
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "OvicopterNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "egg1",
       "egg2",
@@ -817,11 +1069,16 @@
     "possible_monsters": [
       "Ovicopter",
       "ToughEgg"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "OwlMagistrateNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -831,11 +1088,16 @@
     ],
     "possible_monsters": [
       "OwlMagistrate"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "PhantasmalGardenersElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [
       "first",
       "second",
@@ -862,11 +1124,16 @@
     ],
     "possible_monsters": [
       "PhantasmalGardener"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "PhrogParasiteElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [
       "phrog",
       "wriggler1",
@@ -883,11 +1150,16 @@
     "possible_monsters": [
       "PhrogParasite",
       "Wriggler"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "PunchConstructNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -897,11 +1169,16 @@
     ],
     "possible_monsters": [
       "PunchConstruct"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "PunchOffEventEncounter",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -915,11 +1192,14 @@
     ],
     "possible_monsters": [
       "PunchConstruct"
-    ]
+    ],
+    "tags": [],
+    "acts": []
   },
   {
     "id": "QueenBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [
       "amalgam",
       "queen"
@@ -937,11 +1217,16 @@
     "possible_monsters": [
       "Queen",
       "TorchHeadAmalgam"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "RubyRaidersNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [],
     "possible_monsters": [
@@ -950,11 +1235,16 @@
       "BruteRubyRaider",
       "CrossbowRubyRaider",
       "TrackerRubyRaider"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "ScrollsOfBitingNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -976,11 +1266,18 @@
     ],
     "possible_monsters": [
       "ScrollOfBiting"
+    ],
+    "tags": [
+      "Scrolls"
+    ],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "ScrollsOfBitingWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -998,11 +1295,18 @@
     ],
     "possible_monsters": [
       "ScrollOfBiting"
+    ],
+    "tags": [
+      "Scrolls"
+    ],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "SeapunkNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1017,11 +1321,18 @@
     "possible_monsters": [
       "CalcifiedCultist",
       "Seapunk"
+    ],
+    "tags": [
+      "Seapunk"
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "SeapunkWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1031,11 +1342,18 @@
     ],
     "possible_monsters": [
       "Seapunk"
+    ],
+    "tags": [
+      "Seapunk"
+    ],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "SewerClamNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1045,11 +1363,16 @@
     ],
     "possible_monsters": [
       "SewerClam"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "ShrinkerBeetleWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1059,11 +1382,18 @@
     ],
     "possible_monsters": [
       "ShrinkerBeetle"
+    ],
+    "tags": [
+      "Shrinker"
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "SkulkingColonyElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1073,11 +1403,16 @@
     ],
     "possible_monsters": [
       "SkulkingColony"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "SlimedBerserkerNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1087,11 +1422,16 @@
     ],
     "possible_monsters": [
       "SlimedBerserker"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "SlimesNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1108,11 +1448,18 @@
       "LeafSlimeS",
       "TwigSlimeM",
       "TwigSlimeS"
+    ],
+    "tags": [
+      "Slimes"
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "SlimesWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [],
     "possible_monsters": [
@@ -1120,11 +1467,18 @@
       "LeafSlimeS",
       "TwigSlimeM",
       "TwigSlimeS"
+    ],
+    "tags": [
+      "Slimes"
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "SlitheringStranglerNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [],
     "possible_monsters": [
@@ -1134,11 +1488,16 @@
       "SnappingJaxfruit",
       "TwigSlimeM",
       "TwigSlimeS"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "SludgeSpinnerWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1148,11 +1507,16 @@
     ],
     "possible_monsters": [
       "SludgeSpinner"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "SlumberingBeetleNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1172,11 +1536,18 @@
       "BowlbugRock",
       "BowlbugSilk",
       "SlumberingBeetle"
+    ],
+    "tags": [
+      "Workers"
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "SnappingJaxfruitNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1191,11 +1562,18 @@
     "possible_monsters": [
       "Flyconid",
       "SnappingJaxfruit"
+    ],
+    "tags": [
+      "Mushroom"
+    ],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "SoulFyshBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1205,11 +1583,16 @@
     ],
     "possible_monsters": [
       "SoulFysh"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "SoulNexusElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1219,11 +1602,16 @@
     ],
     "possible_monsters": [
       "SoulNexus"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "SpinyToadNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1233,11 +1621,16 @@
     ],
     "possible_monsters": [
       "SpinyToad"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "TerrorEelElite",
     "room_type": "Elite",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1247,11 +1640,16 @@
     ],
     "possible_monsters": [
       "TerrorEel"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "TestSubjectBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1261,11 +1659,16 @@
     ],
     "possible_monsters": [
       "TestSubject"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "TheArchitectEventEncounter",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1275,11 +1678,14 @@
     ],
     "possible_monsters": [
       "Architect"
-    ]
+    ],
+    "tags": [],
+    "acts": []
   },
   {
     "id": "TheInsatiableBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1289,11 +1695,16 @@
     ],
     "possible_monsters": [
       "TheInsatiable"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "TheKinBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [
       "slot1",
       "slot2",
@@ -1312,11 +1723,16 @@
     "possible_monsters": [
       "KinFollower",
       "KinPriest"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "TheLostAndForgottenNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1331,11 +1747,16 @@
     "possible_monsters": [
       "TheForgotten",
       "TheLost"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "TheObscuraNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "illusion",
       "obscura"
@@ -1348,11 +1769,16 @@
     ],
     "possible_monsters": [
       "TheObscura"
+    ],
+    "tags": [],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "ThievingHopperWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1362,11 +1788,18 @@
     ],
     "possible_monsters": [
       "ThievingHopper"
+    ],
+    "tags": [
+      "Thieves"
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "ToadpolesWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1380,11 +1813,16 @@
     ],
     "possible_monsters": [
       "Toadpole"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "TunnelerNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1395,11 +1833,17 @@
     "possible_monsters": [
       "Chomper",
       "Tunneler"
-    ]
+    ],
+    "tags": [
+      "Burrower",
+      "Chomper"
+    ],
+    "acts": []
   },
   {
     "id": "TunnelerWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1409,11 +1853,18 @@
     ],
     "possible_monsters": [
       "Tunneler"
+    ],
+    "tags": [
+      "Burrower"
+    ],
+    "acts": [
+      "Hive"
     ]
   },
   {
     "id": "TurretOperatorWeak",
     "room_type": "Monster",
+    "is_weak": true,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1428,11 +1879,16 @@
     "possible_monsters": [
       "LivingShield",
       "TurretOperator"
+    ],
+    "tags": [],
+    "acts": [
+      "Glory"
     ]
   },
   {
     "id": "TwoTailedRatsNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [
       "first",
       "second",
@@ -1456,11 +1912,16 @@
     ],
     "possible_monsters": [
       "TwoTailedRat"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   },
   {
     "id": "VantomBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1470,11 +1931,16 @@
     ],
     "possible_monsters": [
       "Vantom"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "VineShamblerNormal",
     "room_type": "Monster",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1484,11 +1950,16 @@
     ],
     "possible_monsters": [
       "VineShambler"
+    ],
+    "tags": [],
+    "acts": [
+      "Overgrowth"
     ]
   },
   {
     "id": "WaterfallGiantBoss",
     "room_type": "Boss",
+    "is_weak": false,
     "slots": [],
     "canonical_monsters": [
       {
@@ -1498,6 +1969,10 @@
     ],
     "possible_monsters": [
       "WaterfallGiant"
+    ],
+    "tags": [],
+    "acts": [
+      "Underdocks"
     ]
   }
 ]

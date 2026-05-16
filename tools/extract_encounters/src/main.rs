@@ -1,15 +1,20 @@
 //! Encounter data extractor.
 //!
-//! Captures per-encounter: room_type (Monster/Elite/Boss), slot names, the
-//! canonical (Monster, slot) spawn list, and the broader "possible monsters"
-//! set. Behavior — randomized variations of who-spawns-where — is deferred.
+//! Captures per-encounter: room_type (Monster/Elite/Boss), IsWeak (only
+//! meaningful when room_type=Monster — separates weak-pool from regular-
+//! pool), slot names, the canonical (Monster, slot) spawn list, the
+//! broader "possible monsters" set, encounter tags (used by C# for the
+//! `AddWithoutRepeatingTags` no-repeat constraint), and which acts
+//! include the encounter (walked from each `Acts/{ActName}.cs`
+//! `GenerateAllEncounters()` body).
 
 use anyhow::{Context, Result, bail};
 use extractors_common::{extract_method_body, extract_property_body, workspace_root_from_manifest};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const DEFAULT_MODELS_DIR: &str =
     r"C:\Users\zhuyl\OneDrive\Desktop\sts2_stats\sts2_decompiled\sts2\MegaCrit\sts2\Core\Models";
@@ -20,6 +25,11 @@ const OUTPUT_REL: &str = r"crates\sts2-sim\data\encounters.json";
 struct EncounterData {
     id: String,
     room_type: Option<String>,
+    /// Only meaningful when room_type=Monster. C# `EncounterModel.IsWeak`
+    /// splits the Monster pool into the "first N hallway fights" weak
+    /// pool and the regular pool. Defaults false for Elite/Boss.
+    #[serde(default)]
+    is_weak: bool,
     #[serde(default)]
     slots: Vec<String>,
     /// Canonical spawn: list of (monster_id, slot) tuples from
@@ -30,6 +40,16 @@ struct EncounterData {
     /// Often a superset of the canonical spawn for variation.
     #[serde(default)]
     possible_monsters: Vec<String>,
+    /// `EncounterTag` enum values used by C# `AddWithoutRepeatingTags`
+    /// to avoid back-to-back same-archetype encounters.
+    #[serde(default)]
+    tags: Vec<String>,
+    /// Which acts include this encounter, walked from each act's
+    /// `GenerateAllEncounters()` body. An encounter may appear in
+    /// multiple acts; an empty list means none of the canonical acts
+    /// (Overgrowth/Hive/Glory/Underdocks) list it.
+    #[serde(default)]
+    acts: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -37,6 +57,8 @@ struct MonsterSpawn {
     monster: String,
     slot: String,
 }
+
+const ACT_NAMES: &[&str] = &["Overgrowth", "Hive", "Glory", "Underdocks"];
 
 fn main() -> Result<()> {
     let models_dir = std::env::var("STS2_DECOMPILE_DIR")
@@ -46,6 +68,18 @@ fn main() -> Result<()> {
         bail!("decompile Models dir not found: {}", models_dir.display());
     }
     let dir = models_dir.join("Encounters");
+    let acts_dir = models_dir.join("Acts");
+
+    // First walk: build encounter_id -> Vec<ActId> map by parsing every
+    // canonical act file's GenerateAllEncounters() body.
+    let act_pools = parse_act_pools(&acts_dir)?;
+    // Invert: encounter -> list of acts.
+    let mut encounter_acts: HashMap<String, Vec<String>> = HashMap::new();
+    for (act, ids) in &act_pools {
+        for id in ids {
+            encounter_acts.entry(id.clone()).or_default().push(act.clone());
+        }
+    }
 
     let mut out: Vec<EncounterData> = Vec::new();
     for entry in fs::read_dir(&dir)? {
@@ -62,12 +96,20 @@ fn main() -> Result<()> {
         if !source.contains(": EncounterModel") {
             continue;
         }
+        let mut acts = encounter_acts
+            .get(stem)
+            .cloned()
+            .unwrap_or_default();
+        acts.sort();
         out.push(EncounterData {
             id: stem.to_string(),
             room_type: parse_enum_property(&source, "RoomType", "RoomType"),
+            is_weak: parse_bool_property(&source, "IsWeak"),
             slots: parse_slots(&source),
             canonical_monsters: parse_canonical_monsters(&source),
             possible_monsters: parse_possible_monsters(&source),
+            tags: parse_tags(&source),
+            acts,
         });
     }
     out.sort_by(|a, b| a.id.cmp(&b.id));
@@ -78,14 +120,94 @@ fn main() -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     fs::write(&output, serde_json::to_string_pretty(&out)?)?;
-    eprintln!("wrote {} encounters to {}", out.len(), output.display());
+
+    // Stats so the human running the extractor can sanity-check.
+    let weak = out.iter().filter(|e| e.is_weak).count();
+    let monster = out.iter().filter(|e| e.room_type.as_deref() == Some("Monster")).count();
+    let elite = out.iter().filter(|e| e.room_type.as_deref() == Some("Elite")).count();
+    let boss = out.iter().filter(|e| e.room_type.as_deref() == Some("Boss")).count();
+    let act_assigned = out.iter().filter(|e| !e.acts.is_empty()).count();
+    eprintln!(
+        "wrote {} encounters ({} weak / {} monster / {} elite / {} boss; {} act-assigned)",
+        out.len(),
+        weak,
+        monster,
+        elite,
+        boss,
+        act_assigned,
+    );
+    let printed: HashSet<&str> = HashSet::new();
+    let _ = printed;
+    eprintln!("per-act pool sizes:");
+    for act in ACT_NAMES {
+        let n = out.iter().filter(|e| e.acts.iter().any(|a| a == act)).count();
+        eprintln!("  {:<11} {}", act, n);
+    }
+    eprintln!("output → {}", output.display());
     Ok(())
+}
+
+/// Walk `Acts/{Name}.cs` files. Each `GenerateAllEncounters()` returns a
+/// `new EncounterModel[]` array of `ModelDb.Encounter<X>()` calls. We
+/// extract every `X` ID per act.
+fn parse_act_pools(acts_dir: &Path) -> Result<HashMap<String, Vec<String>>> {
+    let mut out: HashMap<String, Vec<String>> = HashMap::new();
+    for act_name in ACT_NAMES {
+        let path = acts_dir.join(format!("{}.cs", act_name));
+        if !path.exists() {
+            eprintln!("warn: act file missing: {}", path.display());
+            continue;
+        }
+        let source = fs::read_to_string(&path)?;
+        let Some(body) = extract_method_body(&source, "GenerateAllEncounters") else {
+            eprintln!("warn: no GenerateAllEncounters() body in {}", path.display());
+            continue;
+        };
+        let rx = Regex::new(r"ModelDb\.Encounter<(\w+)>\(\)").unwrap();
+        let ids: Vec<String> = rx
+            .captures_iter(&body)
+            .map(|c| c[1].to_string())
+            .collect();
+        out.insert(act_name.to_string(), ids);
+    }
+    Ok(out)
 }
 
 fn parse_enum_property(source: &str, prop: &str, enum_name: &str) -> Option<String> {
     let body = extract_property_body(source, prop)?;
     let rx = Regex::new(&format!(r"return\s+{}\.(\w+)\s*;", regex::escape(enum_name))).ok()?;
     rx.captures(&body).map(|c| c[1].to_string())
+}
+
+/// Read a `public override bool IsWeak { get { return X; } }` style
+/// property. Defaults to `false` if the property is absent (which the
+/// base class does — only weak monster encounters override it).
+fn parse_bool_property(source: &str, prop: &str) -> bool {
+    let Some(body) = extract_property_body(source, prop) else {
+        return false;
+    };
+    let rx = Regex::new(r"return\s+(true|false)\s*;").unwrap();
+    rx.captures(&body)
+        .map(|c| &c[1] == "true")
+        .unwrap_or(false)
+}
+
+/// Tags property body contains `EncounterTag.X` references. We extract
+/// every distinct enum member.
+fn parse_tags(source: &str) -> Vec<String> {
+    let Some(body) = extract_property_body(source, "Tags") else {
+        return Vec::new();
+    };
+    let rx = Regex::new(r"EncounterTag\.(\w+)").unwrap();
+    let mut v: Vec<String> = rx
+        .captures_iter(&body)
+        .map(|c| c[1].to_string())
+        .collect();
+    v.sort();
+    v.dedup();
+    // Drop the explicit `None` tag — semantically equivalent to "no tags."
+    v.retain(|t| t != "None");
+    v
 }
 
 fn parse_slots(source: &str) -> Vec<String> {
