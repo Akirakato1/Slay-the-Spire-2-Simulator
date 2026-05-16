@@ -8558,7 +8558,17 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             });
         }
         Effect::GainEnergy { amount } => {
-            let amt = amount.resolve(ctx, cs);
+            let mut amt = amount.resolve(ctx, cs);
+            // NoEnergyGainPower gate. C# `NoEnergyGainPower.ModifyEnergyGain`
+            // returns 0 when the player is the owner — so any GainEnergy
+            // on a player carrying it nets zero. Single-stack, self-removes
+            // at end of any turn. ExpectAFight is the card that applies it.
+            let has_no_energy = cs
+                .get_power_amount(CombatSide::Player, ctx.player_idx, "NoEnergyGainPower")
+                > 0;
+            if has_no_energy {
+                amt = 0;
+            }
             if let Some(creature) = cs.allies.get_mut(ctx.player_idx) {
                 if let Some(ps) = creature.player.as_mut() {
                     ps.energy += amt;
@@ -9182,8 +9192,15 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             key,
             delta,
         } => {
-            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             let d = delta.resolve(ctx, cs);
+            if try_stage_interactive_choice(
+                cs, ctx, *from, selector,
+                crate::combat::ChoiceAction::IncrementCounter {
+                    key: key.clone(),
+                    delta: d,
+                },
+            ) { return; }
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
                 let pile = match from {
                     Pile::Hand => &mut ps.hand,
@@ -9481,9 +9498,15 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             cost,
             scope,
         } => {
-            // Resolve target picks first (before mutating costs).
-            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            // Resolve cost up front so the deferred-mode stage can
+            // freeze it into the ChoiceAction.
             let c = cost.resolve(ctx, cs).max(0);
+            if try_stage_interactive_choice(
+                cs, ctx, *from, selector,
+                crate::combat::ChoiceAction::SetCost { cost: c, scope: *scope },
+            ) { return; }
+            let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
+            let c = c;
             if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
                 let Some(pile) = pile_mut(ps, *from) else {
                     return;
@@ -10282,6 +10305,45 @@ fn apply_choice_action(
                             if card.upgrade_level < max {
                                 card.upgrade_level += 1;
                             }
+                        }
+                    }
+                }
+            }
+        }
+        CA::SetCost { cost, scope } => {
+            // TouchOfInsanity / Modded / Enlightenment+: write the
+            // resolved cost into the appropriate override slot. The
+            // scope determines which slot.
+            if let Some(ps) = player_state_mut(cs, player_idx) {
+                if let Some(p) = pile_mut(ps, pile) {
+                    for idx in sorted {
+                        if let Some(card) = p.cards.get_mut(idx) {
+                            let c = (*cost).max(0);
+                            match scope {
+                                CostScope::ThisTurn => {
+                                    card.cost_override_this_turn = Some(c);
+                                }
+                                CostScope::ThisCombat => {
+                                    card.cost_override_this_combat = Some(c);
+                                }
+                                CostScope::UntilPlayed => {
+                                    card.cost_override_until_played = Some(c);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        CA::IncrementCounter { key, delta } => {
+            // HiddenGem-style: bump state[key] by delta on each picked
+            // card. delta resolved at stage-time.
+            if let Some(ps) = player_state_mut(cs, player_idx) {
+                if let Some(p) = pile_mut(ps, pile) {
+                    for idx in sorted {
+                        if let Some(card) = p.cards.get_mut(idx) {
+                            let cur = card.state.get(key.as_str()).copied().unwrap_or(0);
+                            card.state.insert(key.clone(), cur + *delta);
                         }
                     }
                 }

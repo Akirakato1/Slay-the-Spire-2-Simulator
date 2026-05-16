@@ -865,15 +865,19 @@ fn render_choice_overlay(ctx: &egui::Context, ac: &mut ActiveCombat) {
     let mut cancel = false;
     let (pile, n_min, n_max, source, action_label) = {
         let pc = ac.cs.pending_choice.as_ref().unwrap();
-        let action_label = match pc.action {
-            sts2_sim::combat::ChoiceAction::Discard => "Discard",
-            sts2_sim::combat::ChoiceAction::Exhaust => "Exhaust",
-            sts2_sim::combat::ChoiceAction::Move { .. } => "Move",
-            sts2_sim::combat::ChoiceAction::Upgrade => "Upgrade",
+        let action_label = match &pc.action {
+            sts2_sim::combat::ChoiceAction::Discard => "Discard".to_string(),
+            sts2_sim::combat::ChoiceAction::Exhaust => "Exhaust".to_string(),
+            sts2_sim::combat::ChoiceAction::Move { .. } => "Move".to_string(),
+            sts2_sim::combat::ChoiceAction::Upgrade => "Upgrade".to_string(),
+            sts2_sim::combat::ChoiceAction::SetCost { cost, .. } => format!("Set cost to {}", cost),
+            sts2_sim::combat::ChoiceAction::IncrementCounter { key, delta } => {
+                format!("Bump {} by {}", key, delta)
+            }
         };
         (pc.pile, pc.n_min, pc.n_max, pc.source_card_id.clone(), action_label)
     };
-    egui::Window::new(format!("{} {} card(s) from {:?}", action_label, n_max, pile))
+    egui::Window::new(format!("{} — pick from {:?} (up to {})", action_label, pile, n_max))
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

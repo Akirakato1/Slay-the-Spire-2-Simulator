@@ -516,6 +516,14 @@ pub enum ChoiceAction {
     Discard,
     /// Upgrade the picked cards in place.
     Upgrade,
+    /// Set the picked cards' cost to `cost` for the given scope.
+    /// TouchOfInsanity uses ThisCombat. Cost is resolved at offer-emit
+    /// time so the value is fixed when the agent commits.
+    SetCost { cost: i32, scope: crate::effects::CostScope },
+    /// Bump `state[key]` by `delta` on each picked card. HiddenGem
+    /// uses `replay_count += Replay`. Caller resolved `delta` to a
+    /// literal at offer-emit time.
+    IncrementCounter { key: String, delta: i32 },
 }
 
 impl CombatState {
@@ -1490,18 +1498,20 @@ impl CombatState {
     }
 
 
-    /// Strip NoDrawPower from every creature at end_turn (any side).
-    /// Mirrors C# `NoDrawPower.AfterTurnEnd`: `await PowerCmd.Remove(this)`
-    /// with no side gate. BattleTrance / BulletTime apply NoDrawPower
-    /// with StackType::Single so the player can re-draw on the next
-    /// turn. The power is on the player side in practice but we sweep
-    /// both for safety.
+    /// Strip self-removing single-stack debuffs at end_turn (any side).
+    /// Mirrors C# `NoDrawPower.AfterTurnEnd` / `NoEnergyGainPower.AfterTurnEnd`
+    /// — both call `PowerCmd.Remove(this)` with no side gate. Both are
+    /// `StackType::Single`, applied by:
+    ///   - NoDrawPower:        BattleTrance, BulletTime
+    ///   - NoEnergyGainPower:  ExpectAFight
+    /// The user can re-draw / re-gain-energy on the next turn.
     fn remove_no_draw_power_on_turn_end(&mut self) {
+        const SELF_REMOVING: &[&str] = &["NoDrawPower", "NoEnergyGainPower"];
         for ally in self.allies.iter_mut() {
-            ally.powers.retain(|p| p.id != "NoDrawPower");
+            ally.powers.retain(|p| !SELF_REMOVING.contains(&p.id.as_str()));
         }
         for enemy in self.enemies.iter_mut() {
-            enemy.powers.retain(|p| p.id != "NoDrawPower");
+            enemy.powers.retain(|p| !SELF_REMOVING.contains(&p.id.as_str()));
         }
     }
 
@@ -13314,6 +13324,52 @@ mod tests {
         let mut rng = crate::rng::Rng::new(0, 0);
         let drawn = cs.draw_cards_initial(0, 3, &mut rng);
         assert_eq!(drawn, 3, "initial-hand draw bypasses NoDrawPower");
+    }
+
+    #[test]
+    fn no_energy_gain_power_blocks_gain_energy() {
+        let mut cs = ironclad_combat();
+        cs.allies[0].player.as_mut().unwrap().energy = 0;
+        cs.apply_power(CombatSide::Player, 0, "NoEnergyGainPower", 1);
+        // Execute a GainEnergy(5) via the effect VM.
+        let body = vec![crate::effects::Effect::GainEnergy {
+            amount: crate::effects::AmountSpec::Fixed(5),
+        }];
+        let ctx = crate::effects::EffectContext::for_card(
+            0, None, "BogusSource", 0, None, 0);
+        crate::effects::execute_effects(&mut cs, &body, &ctx);
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().energy, 0,
+            "NoEnergyGain must zero out GainEnergy");
+    }
+
+    #[test]
+    fn no_energy_gain_power_self_removes_at_end_of_turn() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "NoEnergyGainPower", 1);
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "NoEnergyGainPower"),
+            0);
+    }
+
+    #[test]
+    fn single_stack_no_draw_doesnt_accumulate() {
+        // Both NoDrawPower and NoEnergyGainPower are StackType::Single
+        // in C# — repeated apply must not bump amount above 1.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "NoDrawPower", 1);
+        cs.apply_power(CombatSide::Player, 0, "NoDrawPower", 1);
+        cs.apply_power(CombatSide::Player, 0, "NoDrawPower", 1);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "NoDrawPower"),
+            1);
+        cs.apply_power(CombatSide::Player, 0, "NoEnergyGainPower", 1);
+        cs.apply_power(CombatSide::Player, 0, "NoEnergyGainPower", 1);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "NoEnergyGainPower"),
+            1);
     }
 
     #[test]
