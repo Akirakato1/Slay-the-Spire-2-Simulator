@@ -32,6 +32,32 @@ use crate::run_state::RunState;
 /// if no candidate matches or the cursor isn't on a combat node.
 /// The selection uses the run's `up_front` RNG stream so it stays
 /// deterministic for a given seed.
+pub use crate::unknown_room::UnknownResolution;
+
+/// Resolve a `?` map node. C# `UnknownMapPointOdds.Roll` weights:
+/// Monster 10% / Treasure 2% / Shop 3% / Event ~85% baseline; unrolled
+/// types bump after every pick. Consumes one `up_front` RNG float.
+/// Returns `None` if the cursor isn't on an `?` node.
+pub fn resolve_current_unknown_room(rs: &mut RunState) -> Option<UnknownResolution> {
+    if rs.current_room_type()? != MapPointType::Unknown {
+        return None;
+    }
+    // Borrow checker: can't `rs.unknown_odds.roll(&mut rs.rng_set...)`
+    // because both routes go through `rs`. `unknown_odds_and_rng`
+    // returns a `(&mut UnknownMapPointOdds, &mut RunRngSet)` split-
+    // borrow tuple so both can be mutated in one call.
+    let (odds, rng_set) = rs.unknown_odds_and_rng();
+    Some(odds.roll(&mut rng_set.up_front))
+}
+
+/// Pick the next event id from the act's pre-shuffled event pool,
+/// skipping events already visited this run. Bumps the visit counter
+/// and adds the picked event to `visited_event_ids`. Returns `None`
+/// if no `RoomSet` exists (pre-`enter_act` state).
+pub fn next_event_from_pool(rs: &mut RunState) -> Option<String> {
+    rs.room_set.as_mut().and_then(|s| s.next_event())
+}
+
 pub fn pick_encounter_for_current_node(rs: &mut RunState) -> Option<&'static EncounterData> {
     let pt = rs.current_room_type()?;
     // Consult the pre-generated RoomSet for this act. Mirrors C#

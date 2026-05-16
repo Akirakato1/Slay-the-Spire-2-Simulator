@@ -140,6 +140,10 @@ pub struct RunState {
     /// `pick_encounter_for_current_node` / event resolution. `None`
     /// before any `enter_act` call.
     pub room_set: Option<crate::room_set::RoomSet>,
+    /// Per-run `?`-resolution odds state. Mutated each time a `?`
+    /// node fires — the picked type resets, the rest bump up,
+    /// implementing the "forced variety" mechanism.
+    pub unknown_odds: crate::unknown_room::UnknownMapPointOdds,
     /// Side-channel for multi-page event transitions. The
     /// `Effect::SetEventChoices` handler stashes the new choices
     /// here; `resolve_event_choice` consumes the value at the end of
@@ -260,6 +264,7 @@ impl RunState {
             pending_event: None,
             next_event_choices: None,
             room_set: None,
+            unknown_odds: crate::unknown_room::UnknownMapPointOdds::new(),
         }
     }
 
@@ -386,6 +391,15 @@ impl RunState {
     pub fn seed_string(&self) -> &str { &self.seed_string }
     pub fn rng_set(&self) -> &RunRngSet { &self.rng_set }
     pub fn rng_set_mut(&mut self) -> &mut RunRngSet { &mut self.rng_set }
+    /// Split-borrow accessor: returns `(unknown_odds, rng_set)` so
+    /// callers can mutate both at once without fighting the borrow
+    /// checker. Used by `?`-resolution which reads from `rng_set`
+    /// while mutating `unknown_odds` in the same call.
+    pub fn unknown_odds_and_rng(
+        &mut self,
+    ) -> (&mut crate::unknown_room::UnknownMapPointOdds, &mut RunRngSet) {
+        (&mut self.unknown_odds, &mut self.rng_set)
+    }
     pub fn ascension(&self) -> i32 { self.ascension }
     pub fn acts(&self) -> &[ActId] { &self.acts }
     pub fn players(&self) -> &[PlayerState] { &self.players }

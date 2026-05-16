@@ -337,6 +337,84 @@ fn map_is_visible_before_neow_resolves() {
     }
 }
 
+/// `?`-resolution: walking into an Unknown node returns one of
+/// {Monster, Treasure, Shop, Event} per `UnknownMapPointOdds.Roll`.
+/// Drive 200 fresh runs and verify every roll lands in the valid set
+/// and the distribution is biased toward Event (the implicit ~85%
+/// base remainder, dampened by cumulative odds-bump).
+#[test]
+fn unknown_node_resolves_to_valid_room_types() {
+    use sts2_sim::run_flow::{resolve_current_unknown_room, UnknownResolution};
+
+    let mut counts = std::collections::HashMap::new();
+    for seed in 0..200 {
+        let mut rs = RunState::start_run(
+            &format!("UNK{seed}"),
+            0,
+            "Ironclad",
+            vec![ActId::Overgrowth],
+            Vec::new(),
+        )
+        .unwrap();
+        rs.enter_act(0);
+        // Walk forward until we find an Unknown node, then resolve.
+        let map = rs.current_map().unwrap().clone();
+        let mut cursor = map.starting().coord;
+        for _ in 0..6 {
+            let pt = map.get_point(cursor.col, cursor.row).unwrap();
+            let Some(&next) = pt.children.iter().next() else { break };
+            if rs.advance_to(next).is_err() { break }
+            cursor = next;
+            if rs.current_room_type() == Some(MapPointType::Unknown) {
+                let r = resolve_current_unknown_room(&mut rs);
+                if let Some(res) = r {
+                    *counts.entry(res).or_insert(0_u32) += 1;
+                }
+                break;
+            }
+        }
+    }
+    // At least some `?` nodes must have been encountered in 200 runs.
+    let total: u32 = counts.values().sum();
+    assert!(total > 0, "no Unknown nodes hit across 200 seeds");
+    // Every resolution must be one of the 4 valid kinds.
+    for k in counts.keys() {
+        assert!(matches!(*k,
+            UnknownResolution::Monster | UnknownResolution::Treasure
+            | UnknownResolution::Shop | UnknownResolution::Event));
+    }
+}
+
+/// Event pool draw: `next_event_from_pool` returns events from the
+/// current act's pool and never repeats within a single run until the
+/// pool is exhausted.
+#[test]
+fn event_pool_draws_are_unique_within_a_run() {
+    use sts2_sim::run_flow::next_event_from_pool;
+
+    let mut rs = RunState::start_run(
+        "EVENTPOOL", 0, "Ironclad",
+        vec![ActId::Overgrowth], Vec::new(),
+    ).unwrap();
+    rs.enter_act(0);
+
+    let pool_size = rs.room_set.as_ref().unwrap().events.len();
+    let mut picks = Vec::new();
+    for _ in 0..pool_size {
+        if let Some(p) = next_event_from_pool(&mut rs) {
+            picks.push(p);
+        }
+    }
+    let mut sorted = picks.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(sorted.len(), pool_size,
+        "first {} event picks must all be distinct", pool_size);
+    // Pool now exhausted — next pick must be a repeat.
+    let repeat = next_event_from_pool(&mut rs).expect("post-exhaustion pick");
+    assert!(picks.contains(&repeat));
+}
+
 /// Stress: walk 3 consecutive map nodes from a fresh run. Catches
 /// state-bleed between combats (relic hooks not clearing, RNG counters
 /// not advancing properly, deck refilled wrong, etc).

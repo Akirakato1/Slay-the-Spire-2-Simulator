@@ -35,6 +35,7 @@ pub mod rng_set;
 pub mod room_set;
 pub mod run_log;
 pub mod run_state;
+pub mod unknown_room;
 pub mod shop;
 pub mod shuffle;
 pub mod standard_act_map;
