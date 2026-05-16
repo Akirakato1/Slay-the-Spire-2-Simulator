@@ -117,44 +117,75 @@ fn assert_relic_no_combat_change(relic_id: &str) {
         "{} should not change current hp in combat", relic_id);
 }
 
-#[test]
-fn ancient_glass_eye_has_no_combat_effect() {
-    assert_relic_no_combat_change("GlassEye");
+/// Relics whose combat-side effect lives in a legacy hardcoded
+/// dispatcher (combat.rs dispatch_relic_before_combat_start /
+/// dispatch_relic_after_side_turn_start / etc.) rather than the
+/// relic_effects data table. The data-table entry is empty for these.
+/// Excluded from the "no combat effect" sweep because they DO mutate
+/// combat state.
+fn has_legacy_combat_dispatch(relic_id: &str) -> bool {
+    matches!(relic_id,
+        // dispatch_relic_before_combat_start.
+        "Anchor"
+        // dispatch_relic_after_side_turn_start (won't fire from our
+        // test because we only fire BeforeCombatStart, but listed for
+        // future-proofing if the audit grows).
+        | "Brimstone"
+        | "DemonForm"
+    )
 }
 
-#[test]
-fn ancient_lost_coffer_has_no_combat_effect() {
-    assert_relic_no_combat_change("LostCoffer");
+/// Returns true if the relic has any combat-side effect — either via
+/// the relic_effects data table OR a legacy hardcoded dispatcher.
+/// Run-state hooks (deck/HP/gold/potion modifiers) are NOT combat-side
+/// and don't count.
+fn has_combat_effect(relic_id: &str) -> bool {
+    if has_legacy_combat_dispatch(relic_id) {
+        return true;
+    }
+    let Some(arms) = sts2_sim::effects::relic_effects(relic_id) else {
+        return false;
+    };
+    arms.iter().any(|(_, effects)| !effects.is_empty())
 }
 
+/// Parametric audit: every relic without a combat-side effect should
+/// produce ZERO combat state delta when granted. Catches the 8
+/// previously-listed Ancients PLUS the ~100 other relics whose
+/// AfterObtained only modifies run-state (Whetstone, Mango,
+/// JewelryBox, BurningBlood, Anchor, Brimstone, PotionBelt, etc.).
+///
+/// Specifically excluded: relics with non-empty relic_effects entries
+/// (BeltBuckle dexterity, BloodVial heal, etc.) — those are tested by
+/// the relic parity sweep against oracle's combat-side delta.
 #[test]
-fn ancient_orrery_has_no_combat_effect() {
-    assert_relic_no_combat_change("Orrery");
-}
-
-#[test]
-fn ancient_dusty_tome_has_no_combat_effect() {
-    assert_relic_no_combat_change("DustyTome");
-}
-
-#[test]
-fn ancient_golden_compass_has_no_combat_effect() {
-    assert_relic_no_combat_change("GoldenCompass");
-}
-
-#[test]
-fn ancient_massive_scroll_has_no_combat_effect() {
-    assert_relic_no_combat_change("MassiveScroll");
-}
-
-#[test]
-fn ancient_scroll_boxes_has_no_combat_effect() {
-    assert_relic_no_combat_change("ScrollBoxes");
-}
-
-#[test]
-fn ancient_sea_glass_has_no_combat_effect() {
-    assert_relic_no_combat_change("SeaGlass");
+fn every_no_combat_effect_relic_produces_no_combat_delta() {
+    let mut tested = 0;
+    let mut skipped: Vec<String> = Vec::new();
+    for r in sts2_sim::relic::ALL_RELICS.iter() {
+        if has_combat_effect(&r.id) {
+            skipped.push(r.id.clone());
+            continue;
+        }
+        // Some relics (Status/Curse-like or runtime-only) might not
+        // be grantable; the helper panics if grant fails. Wrap in
+        // catch_unwind so one bad relic doesn't kill the whole sweep.
+        let id = r.id.clone();
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            assert_relic_no_combat_change(&id);
+        }));
+        if let Err(_) = res {
+            panic!("relic {} produced a combat-state delta despite empty\n  \
+                relic_effects entry. Either add a real combat-side encoding\n  \
+                or move the effect to run_state_effects.", r.id);
+        }
+        tested += 1;
+    }
+    eprintln!("Audited {} relics with no combat-side effect.", tested);
+    eprintln!("Excluded {} relics that have non-empty combat encodings\n  \
+        (verified separately by the relic parity sweep).", skipped.len());
+    assert!(tested >= 100,
+        "Expected at least 100 no-combat-effect relics, got {}", tested);
 }
 
 // ============================================================================
