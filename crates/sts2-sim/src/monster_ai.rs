@@ -362,6 +362,7 @@ pub static MONSTER_AI_REGISTRY: LazyLock<HashMap<&'static str, MonsterAi>> = Laz
     register_three_move_cycles(&mut m);
     register_weighted_random_monsters(&mut m);
     register_flag_state_monsters(&mut m);
+    register_migrated_legacy(&mut m);
     m
 });
 
@@ -1725,6 +1726,164 @@ fn register_flag_state_monsters(m: &mut HashMap<&'static str, MonsterAi>) {
     );
 }
 
+/// Monsters previously implemented in the legacy hand-rolled
+/// dispatcher (monster_dispatch.rs match arms + combat.rs
+/// pick_*/execute_* fns), now expressed as data. The dispatcher
+/// auto-prefers the data-driven path when a monster appears in the
+/// registry, so adding here transparently replaces the hand-rolled
+/// version. Provides oracle-grade validation: the existing
+/// combat-side tests for these monsters must still pass.
+fn register_migrated_legacy(m: &mut HashMap<&'static str, MonsterAi>) {
+    use crate::effects::AmountSpec;
+
+    // Axebot: first-turn BOOT_UP_MOVE, then weighted
+    // {ONE_TWO:2, SHARPEN:1 (blocked-if-just-played), HAMMER_UPPERCUT:2}.
+    // No spawn payload. Damage / block / power numbers from C#
+    // Axebot.cs (A0 — DeadlyEnemies values higher).
+    // Myte: cycle Toxic → Bite → Suck → Toxic → ... with first-turn
+    // determined by slot (slot "second" starts Suck; otherwise Toxic).
+    // No spawn payload. C# Myte.cs (A0).
+    m.insert(
+        "Myte",
+        MonsterAi {
+            model_id: "Myte",
+            moves: vec![
+                MonsterMove {
+                    id: "TOXIC_MOVE",
+                    kind: IntentKind::Debuff,
+                    body: vec![
+                        Effect::AddCardToPile {
+                            card_id: "Toxic".to_string(),
+                            upgrade: 0,
+                            pile: crate::effects::Pile::Hand,
+                        },
+                        Effect::AddCardToPile {
+                            card_id: "Toxic".to_string(),
+                            upgrade: 0,
+                            pile: crate::effects::Pile::Hand,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "BITE_MOVE",
+                    kind: IntentKind::Attack { hits: 1 },
+                    body: vec![Effect::DealDamage {
+                        amount: AmountSpec::Fixed(13),
+                        target: Target::ChosenEnemy,
+                        hits: 1,
+                    }],
+                },
+                MonsterMove {
+                    id: "SUCK_MOVE",
+                    kind: IntentKind::AttackBuff { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: AmountSpec::Fixed(4),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "StrengthPower".to_string(),
+                            amount: AmountSpec::Fixed(2),
+                            target: Target::SelfActor,
+                        },
+                    ],
+                },
+            ],
+            spawn: vec![],
+            pattern: MovePattern::BySlot {
+                branches: vec![(
+                    "second",
+                    MovePattern::FirstTurnOverride {
+                        first_move: "SUCK_MOVE",
+                        then: Box::new(MovePattern::Cycle {
+                            moves: vec!["TOXIC_MOVE", "BITE_MOVE", "SUCK_MOVE"],
+                        }),
+                    },
+                )],
+                default: Box::new(MovePattern::Cycle {
+                    moves: vec!["TOXIC_MOVE", "BITE_MOVE", "SUCK_MOVE"],
+                }),
+            },
+        },
+    );
+
+    m.insert(
+        "Axebot",
+        MonsterAi {
+            model_id: "Axebot",
+            moves: vec![
+                MonsterMove {
+                    id: "BOOT_UP_MOVE",
+                    kind: IntentKind::Defend,
+                    body: vec![
+                        Effect::GainBlock {
+                            amount: AmountSpec::Fixed(10),
+                            target: Target::SelfActor,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "StrengthPower".to_string(),
+                            amount: AmountSpec::Fixed(1),
+                            target: Target::SelfActor,
+                        },
+                    ],
+                },
+                MonsterMove {
+                    id: "ONE_TWO_MOVE",
+                    kind: IntentKind::Attack { hits: 2 },
+                    body: vec![Effect::DealDamage {
+                        amount: AmountSpec::Fixed(5),
+                        target: Target::ChosenEnemy,
+                        hits: 2,
+                    }],
+                },
+                MonsterMove {
+                    id: "SHARPEN_MOVE",
+                    kind: IntentKind::Buff,
+                    body: vec![Effect::ApplyPower {
+                        power_id: "StrengthPower".to_string(),
+                        amount: AmountSpec::Fixed(4),
+                        target: Target::SelfActor,
+                    }],
+                },
+                MonsterMove {
+                    id: "HAMMER_UPPERCUT_MOVE",
+                    kind: IntentKind::AttackDebuff { hits: 1 },
+                    body: vec![
+                        Effect::DealDamage {
+                            amount: AmountSpec::Fixed(8),
+                            target: Target::ChosenEnemy,
+                            hits: 1,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "WeakPower".to_string(),
+                            amount: AmountSpec::Fixed(1),
+                            target: Target::ChosenEnemy,
+                        },
+                        Effect::ApplyPower {
+                            power_id: "FrailPower".to_string(),
+                            amount: AmountSpec::Fixed(1),
+                            target: Target::ChosenEnemy,
+                        },
+                    ],
+                },
+            ],
+            spawn: vec![],
+            pattern: MovePattern::FirstTurnOverride {
+                first_move: "BOOT_UP_MOVE",
+                then: Box::new(MovePattern::WeightedRandom {
+                    weights: vec![
+                        ("ONE_TWO_MOVE", 2),
+                        ("SHARPEN_MOVE", 1),
+                        ("HAMMER_UPPERCUT_MOVE", 2),
+                    ],
+                    no_repeat: vec!["SHARPEN_MOVE"],
+                }),
+            },
+        },
+    );
+}
+
 // ---------------------------------------------------------------- Tests
 
 #[cfg(test)]
@@ -1830,7 +1989,8 @@ mod tests {
     #[test]
     fn ai_registry_covers_new_monsters() {
         // 5 RubyRaiders + 2 test + 3 gremlins + 7 single + 3 two-move
-        // + 4 three-move + 4 weighted + 4 flag-state = 32 monsters.
+        // + 4 three-move + 4 weighted + 4 flag-state
+        // + 2 migrated legacy (Axebot, Myte) = 34 monsters.
         let expected = [
             "AxeRubyRaider", "CrossbowRubyRaider", "BruteRubyRaider",
             "AssassinRubyRaider", "TrackerRubyRaider",
@@ -1842,6 +2002,7 @@ mod tests {
             "VineShambler", "KinFollower", "KinPriest", "PunchConstruct",
             "FossilStalker", "HunterKiller", "Flyconid", "Inklet",
             "GasBomb", "Mawler", "FrogKnight", "Fogmog",
+            "Axebot", "Myte",
         ];
         for id in expected {
             assert!(ai_for(id).is_some(), "Missing AI for {}", id);
