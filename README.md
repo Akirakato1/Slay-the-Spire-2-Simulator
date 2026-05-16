@@ -64,10 +64,10 @@ reflectively.
 | MadScience 9-variant (TinkerTimeType × Rider) | 9 | ✅ 9/9 |
 | Choice vs RNG semantics | 6 | ✅ |
 | Audit: no-combat-effect relics (158 relics) + loose comparisons | 44 | ✅ |
-| Enchantment audit incl. duplication + play-count + AfterCardDrawn | 17 | ✅ |
+| Enchantment audit (all 22 non-deprecated wired) | 24 | ✅ |
 | Potion audit (incl. SoldiersStew replay-count) | 9 | ✅ |
 | Composition-architecture audit | 10 | ✅ |
-| **Total** | **1184** | **100% PASS** |
+| **Total** | **1191** | **100% PASS** |
 
 **RNG, map, shuffle, acts** — bit-exact vs C# DLL via oracle (~36 tests).
 
@@ -77,10 +77,11 @@ audit suite locks in expected behavior for every loose-compared item, so
 the relaxation can't hide a real regression.
 
 **Data-table coverage**: 529 cards, 286 relics (combat-side), 56 relics
-(run-state-side), 63 potions, 189 monster intents, 23 enchantments
-(17 effectively wired — adds EnchantPlayCount loop for Glam/Spiral,
-per-instance state for Momentum/Goopy, AfterCardDrawn for Slither),
-30+ powers wired in modifier pipelines + Power VM.
+(run-state-side), 63 potions, 189 monster intents, **22/23 enchantments
+wired** (all non-deprecated — modifier pipeline + OnPlay + EnchantPlayCount
+loop + per-instance state + AfterCardDrawn + BeforeFlush +
+BeforePlayPhaseStart + ModifyShuffleOrder hooks), 30+ powers wired in
+modifier pipelines + Power VM.
 
 ### Choice infrastructure (RL-relevant)
 
@@ -157,36 +158,49 @@ print(json.loads(env.observation()))
 
 ## What's next
 
-Primitives the remaining gaps need (ordered by leverage):
+**Combat side is feature-complete for cards / relics / enchantments /
+potions** (modulo deprecated entries). What remains is out-of-combat:
 
-1. **Remaining enchantment lifecycle hooks** (`BeforeFlush`,
-   `BeforePlayPhaseStart`, `ModifyShuffleOrder`) — unblocks
-   SlumberingEssence, Imbued, PerfectFit.
-2. **Modifier-hook layer** (`ModifyHandDraw` chain, `ModifyMaxEnergy`,
-   `ModifyDamage*`, `TryModifyRewards*`, `TryModifyRestSiteOptions`) —
-   threads relic-driven value modifications into the existing pipelines
-   beyond the round-1 hand-draw special case already landed.
-3. **Hook dispatcher (#70)** — needs IL re-decompile of
-   `IterateHookListeners.MoveNext` (compiler-generated state machine
-   stripped from current decompile).
-4. **Power VM expansion** — port hardcoded power behavior (Strength /
-   Dex / Weak / Vulnerable / Frail / Poison / DemonForm / Ritual /
-   Barricade) to `power_effects` data table.
-5. **Forge runtime** — primitives exist (`Effect::Forge`); resolving
-   `pending_forge` into a card-upgrade choice surface is pending.
+1. **Reward-offer primitives** (`Effect::OfferCardReward` /
+   `OfferRelicReward` / `OfferPotionReward`) — foundation for treasure
+   rooms, post-combat rewards, and event branches.
+2. **Forge runtime resolution** — `Effect::Forge` writes `pending_forge`
+   today; the campfire-Smith / event-upgrade flow that consumes it
+   is the post-combat consumer.
+3. **Map / route choice / shop / event-branch** primitives — all
+   reuse the same `AwaitPlayerChoice` shape (variants for `EventChoice`,
+   `ShopPurchase`, `RoomEntry`).
+4. **Power-VM expansion** (refactor, not correctness): hardcoded
+   power behavior — Strength / Dex / Weak / Vulnerable / Frail /
+   Poison / DemonForm / Ritual / Barricade / VoidForm — all currently
+   correct in the modifier pipelines but should migrate to
+   `power_effects` data table.
+5. **Modifier-hook layer** (refactor): generalize `ModifyHandDraw`,
+   `ModifyMaxEnergy`, `ModifyDamage*` chains beyond the round-1
+   special case.
+6. **Hook dispatcher (#70)** (correctness-adjacent): canonical
+   iteration order from C# `IterateHookListeners.MoveNext` —
+   compiler-stripped from current decompile; current order works in
+   practice but isn't formally validated.
 
 **Recently landed** (see `enchantment_audit.rs` / `potion_audit.rs`):
-- `EnchantPlayCount` loop (Glam +N once-per-combat, Spiral +N always).
-- AfterCardPlayed enchantment self-state (Goopy `StackCount++` on each
-  play of host card).
-- AfterCardDrawn enchantment hook (Slither sets cost-until-played to 0).
+- All 22 non-deprecated enchantments wired: modifier pipeline (Sharp,
+  Corrupted, Instinct, Nimble, Vigorous), OnPlay (Sown, Swift, Adroit,
+  Inky), EnchantPlayCount (Glam, Spiral), per-instance state (Momentum,
+  Goopy), AfterCardDrawn (Slither), BeforeFlush (SlumberingEssence),
+  BeforePlayPhaseStart (Imbued), ModifyShuffleOrder (PerfectFit),
+  no-op marker (Clone), keyword-only (Steady, TezcatarasEmber,
+  SoulsPower, RoyallyApproved).
+- VoidFormPower zero-cost first N cards/turn; X-cost takeover bypasses
+  VoidForm zeroing but still ticks the counter; SneckoOil → VoidForm
+  composition order locked in by test.
+- Void status card drains 1 energy per copy at end of turn.
+- IceCream relic carries unused energy into the next turn.
 - Choice continuation (`AwaitPlayerChoice.follow_up` +
   `AmountSpec::LastChoicePickCount`) — GamblersBrew's "draw what you
-  discarded" now works in both auto-resolve and RL-deferred paths.
+  discarded" works in both auto-resolve and RL-deferred paths.
 - `BumpCardStateOnAllPiles` primitive + `BaseReplayCount` consumption
   in `play_card` — SoldiersStew bumps `replay_count` on every
   Strike-tagged card; HiddenGem's bump now actually fires per-replay.
-- Potion canonical resolver (verified wired; cleaned up two stale
-  hardcoded-literal potions).
 
 See `tools/coverage_audit.txt` for per-id gap status.
