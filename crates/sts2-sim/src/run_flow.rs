@@ -134,7 +134,12 @@ pub fn build_combat_state(
         relics: player_state.relics.iter().map(|r| r.id.clone()).collect(),
     };
     let modifiers = rs.modifiers().to_vec();
-    Some(CombatState::start(encounter, vec![setup], modifiers))
+    Some(CombatState::start_with_ascension(
+        encounter,
+        vec![setup],
+        modifiers,
+        rs.ascension(),
+    ))
 }
 
 /// Outcome of a finished combat that the run-flow layer cares about.

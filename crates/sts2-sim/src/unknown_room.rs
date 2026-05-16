@@ -22,6 +22,86 @@
 
 use crate::rng::Rng;
 
+#[cfg(test)]
+mod ascension_smoke_tests {
+    use crate::act::ActId;
+    use crate::combat::CombatState;
+    use crate::run_state::RunState;
+    use crate::run_log::{CardRef, PotionEntry, RelicEntry};
+    use crate::run_state::PlayerState;
+
+    fn player(character_id: &str) -> PlayerState {
+        let cd = crate::character::by_id(character_id).unwrap();
+        let deck: Vec<CardRef> = cd.starting_deck.iter().map(|id| CardRef {
+            id: id.clone(), floor_added_to_deck: Some(0),
+            current_upgrade_level: Some(0), enchantment: None,
+        }).collect();
+        let relics: Vec<RelicEntry> = cd.starting_relics.iter().map(|id| RelicEntry {
+            id: id.clone(), floor_added_to_deck: 0, props: None,
+        }).collect();
+        PlayerState {
+            character_id: character_id.to_string(), id: 1,
+            hp: cd.starting_hp.unwrap_or(80),
+            max_hp: cd.starting_hp.unwrap_or(80),
+            gold: cd.starting_gold.unwrap_or(99),
+            deck, relics, potions: Vec::<PotionEntry>::new(),
+            max_potion_slot_count: 3,
+        }
+    }
+
+    /// At ascension >= 1, `Creature::from_monster_spawn_at` reads
+    /// `max_hp_ascended` from `monsters.json`. Axebot: base 40-44,
+    /// ascended 42-46.
+    #[test]
+    fn ascended_monsters_spawn_with_ascended_hp() {
+        let base = crate::combat::Creature::from_monster_spawn_at("Axebot", "front", 0);
+        let asc = crate::combat::Creature::from_monster_spawn_at("Axebot", "front", 1);
+        assert_eq!(base.max_hp, 44, "base Axebot HP");
+        assert_eq!(asc.max_hp, 46, "ascended Axebot HP (A1+ ToughEnemies)");
+    }
+
+    /// CombatState built via run_flow propagates RunState.ascension
+    /// all the way to spawned enemies.
+    #[test]
+    fn ascension_pipes_through_to_combat_state() {
+        let mut rs = RunState::new(
+            "ASC", 10, vec![player("Ironclad")],
+            vec![ActId::Overgrowth], Vec::new(),
+        );
+        rs.enter_act(0);
+        let enc = crate::encounter::by_id("AxebotsNormal").unwrap();
+        let cs = crate::run_flow::build_combat_state(&rs, enc, 0).unwrap();
+        assert_eq!(cs.ascension, 10);
+        // Axebot ascended HP must apply.
+        assert_eq!(cs.enemies[0].max_hp, 46,
+            "A10 should spawn ascended Axebot (46 max HP), got {}",
+            cs.enemies[0].max_hp);
+    }
+
+    /// `AmountSpec::AscensionScaled` resolves to `ascended` when
+    /// `cs.ascension >= threshold`, else `base`. Uses the
+    /// `for_card` builder for a minimal valid EffectContext.
+    #[test]
+    fn ascension_scaled_amount_resolves_correctly() {
+        use crate::effects::{AmountSpec, EffectContext};
+        use crate::combat::CombatSide;
+
+        let spec = AmountSpec::AscensionScaled {
+            base: 5, ascended: 6, threshold: 2,
+        };
+        let ctx = EffectContext::for_card(
+            0, Some((CombatSide::Enemy, 0)), "TestCard", 0, None, 0,
+        );
+
+        let mut cs = CombatState::empty();
+        for (asc, want) in [(0, 5), (1, 5), (2, 6), (10, 6)] {
+            cs.ascension = asc;
+            assert_eq!(spec.resolve(&ctx, &cs), want,
+                "ascension {} should resolve to {}", asc, want);
+        }
+    }
+}
+
 /// What a `?` map node resolved to. Local enum because `MapPointType`
 /// (the on-map type) doesn't have an Event variant — Events live as
 /// transient state on `RunState.pending_event` rather than as a

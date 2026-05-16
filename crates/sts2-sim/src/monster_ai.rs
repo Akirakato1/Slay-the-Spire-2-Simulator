@@ -63,6 +63,31 @@ impl MonsterMove {
         }
     }
 
+    /// Ascension-scaled single attack. Mirrors C# pattern
+    /// `GetValueIfAscension(DeadlyEnemies, ascended, base)` on damage
+    /// per move. Threshold = 2 (DeadlyEnemies) by default — the common
+    /// case in STS2 monster classes.
+    pub fn attack_a(
+        id: &'static str,
+        base_damage: i32,
+        ascended_damage: i32,
+        hits: i32,
+    ) -> Self {
+        Self {
+            id,
+            kind: IntentKind::Attack { hits },
+            body: vec![Effect::DealDamage {
+                amount: crate::effects::AmountSpec::AscensionScaled {
+                    base: base_damage,
+                    ascended: ascended_damage,
+                    threshold: 2,
+                },
+                target: Target::ChosenEnemy,
+                hits,
+            }],
+        }
+    }
+
     /// Pure block gain on self. No damage.
     pub fn defend(id: &'static str, block: i32) -> Self {
         Self {

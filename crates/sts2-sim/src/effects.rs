@@ -114,6 +114,14 @@ fn potion_canonical_int_value(potion_id: &str, var_kind: &str) -> i32 {
 pub enum AmountSpec {
     /// Hard-coded literal.
     Fixed(i32),
+    /// Ascension-scaled literal. Mirrors C#
+    /// `AscensionHelper.GetValueIfAscension(threshold, ascended, base)`:
+    /// returns `ascended` when `cs.ascension >= threshold`, else `base`.
+    /// Common thresholds: 1 = ToughEnemies (HP bump), 2 = DeadlyEnemies
+    /// (attack damage bump). Currently the resolver only checks
+    /// `cs.ascension` — the threshold is the only knob the caller
+    /// controls.
+    AscensionScaled { base: i32, ascended: i32, threshold: i32 },
     /// `CanonicalVars[name].BaseValue + upgrade_deltas[name] * upgrade_level`.
     /// The universal data-driven amount source.
     Canonical(String),
@@ -1430,6 +1438,9 @@ impl AmountSpec {
     pub fn resolve(&self, ctx: &EffectContext, cs: &CombatState) -> i32 {
         match self {
             AmountSpec::Fixed(n) => *n,
+            AmountSpec::AscensionScaled { base, ascended, threshold } => {
+                if cs.ascension >= *threshold { *ascended } else { *base }
+            }
             AmountSpec::Canonical(var_kind) => {
                 if let Some(card_id) = ctx.source_card_id {
                     if let Some(card) = card_by_id(card_id) {

@@ -428,6 +428,11 @@ pub struct CombatState {
     /// Modifier ids active in this run; copied in at start so combat doesn't
     /// reach back to RunState every lookup.
     pub modifier_ids: Vec<String>,
+    /// Ascension level (0..=10). Piped in from `RunState.ascension` at
+    /// combat start so monster spawn HP, attack damages, and reward
+    /// roll modifiers can read it without reaching back to RunState.
+    /// Drives `AmountSpec::AscensionScaled` resolution.
+    pub ascension: i32,
     /// Player creatures and their summons.
     pub allies: Vec<Creature>,
     /// Enemy creatures from the encounter spawn.
@@ -535,6 +540,7 @@ impl CombatState {
             round_number: 1,
             current_side: CombatSide::Player,
             modifier_ids: Vec::new(),
+            ascension: 0,
             allies: Vec::new(),
             enemies: Vec::new(),
             escaped: Vec::new(),
@@ -569,6 +575,18 @@ impl CombatState {
         players: Vec<PlayerSetup>,
         modifier_ids: Vec<String>,
     ) -> Self {
+        Self::start_with_ascension(encounter, players, modifier_ids, 0)
+    }
+
+    /// Ascension-aware constructor. Used by `run_flow::build_combat_state`
+    /// to pipe `RunState.ascension` through. Monsters spawn with their
+    /// `*_ascended` HP at ascension >= 1 (ToughEnemies threshold).
+    pub fn start_with_ascension(
+        encounter: &EncounterData,
+        players: Vec<PlayerSetup>,
+        modifier_ids: Vec<String>,
+        ascension: i32,
+    ) -> Self {
         let allies: Vec<Creature> = players
             .into_iter()
             .map(Creature::from_player_setup)
@@ -576,13 +594,14 @@ impl CombatState {
         let enemies: Vec<Creature> = encounter
             .canonical_monsters
             .iter()
-            .map(|spawn| Creature::from_monster_spawn(&spawn.monster, &spawn.slot))
+            .map(|spawn| Creature::from_monster_spawn_at(&spawn.monster, &spawn.slot, ascension))
             .collect();
         Self {
             encounter_id: Some(encounter.id.clone()),
             round_number: 1,
             current_side: CombatSide::Player,
             modifier_ids,
+            ascension,
             allies,
             enemies,
             escaped: Vec::new(),
@@ -12713,13 +12732,34 @@ impl Creature {
     }
 
     pub fn from_monster_spawn(monster_id: &str, slot: &str) -> Self {
+        // Default to ascension 0. Hot path for legacy callers (UI sandbox,
+        // direct unit tests). `run_flow::build_combat_state` and the
+        // CombatState::start_with_ascension constructor use the ascension-
+        // aware variant below.
+        Self::from_monster_spawn_at(monster_id, slot, 0)
+    }
+
+    /// Ascension-aware spawn. `min_hp_ascended` / `max_hp_ascended` apply
+    /// when `ascension >= 1` (the C# `AscensionLevel.ToughEnemies`
+    /// threshold). Falls back to base HP at A0 or when the data table
+    /// lacks an ascended override.
+    pub fn from_monster_spawn_at(monster_id: &str, slot: &str, ascension: i32) -> Self {
         let data = crate::monster::by_id(monster_id);
-        let (min_hp, max_hp) = data
-            .map(|m| (m.min_hp_base.unwrap_or(1), m.max_hp_base.unwrap_or(1)))
+        let use_ascended = ascension >= 1;
+        let (_min_hp, max_hp) = data
+            .map(|m| {
+                if use_ascended {
+                    (
+                        m.min_hp_ascended.or(m.min_hp_base).unwrap_or(1),
+                        m.max_hp_ascended.or(m.max_hp_base).unwrap_or(1),
+                    )
+                } else {
+                    (m.min_hp_base.unwrap_or(1), m.max_hp_base.unwrap_or(1))
+                }
+            })
             .unwrap_or((1, 1));
         // Use the max HP as the starting roll. The behavior port will route
         // the per-encounter HP roll through the run's monster-HP RNG stream.
-        let _ = min_hp;
         Self {
             kind: CreatureKind::Monster,
             model_id: monster_id.to_string(),
