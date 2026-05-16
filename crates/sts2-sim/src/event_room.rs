@@ -343,7 +343,7 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
         }),
 
         // AromaOfChaos: LetGo (transform 1 random card) vs MaintainControl
-        // (upgrade 1 card — needs pick).
+        // (pick 1 card to upgrade).
         "AromaOfChaos" => Some(EventModel {
             id: "AromaOfChaos".to_string(),
             choices: vec![
@@ -357,11 +357,12 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "MAINTAIN_CONTROL".to_string(),
-                    body: vec![Effect::UpgradeDeckCards {
-                        filter: crate::effects::CardFilter::Any,
-                        // TODO: should be "upgrade 1 (picked)" not "upgrade all".
-                        // Approximation acceptable for MVP — most decks have at
-                        // most a few upgradable cards at the point this event fires.
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Upgrade,
+                        filter: crate::effects::CardFilter::Upgradable,
+                        n_min: 1,
+                        n_max: 1,
+                        source: "AromaOfChaos.MAINTAIN_CONTROL".to_string(),
                     }],
                 },
             ],
@@ -380,7 +381,13 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "DARK".to_string(),
-                    body: vec![], // TODO: pick 1 card from deck for removal
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Remove,
+                        filter: crate::effects::CardFilter::Any,
+                        n_min: 1,
+                        n_max: 1,
+                        source: "DoorsOfLightAndDark.DARK".to_string(),
+                    }],
                 },
             ],
         }),
@@ -422,8 +429,16 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
                 },
                 EventChoice {
                     label: "REJECTION".to_string(),
-                    body: vec![Effect::LoseRunStateHp { amount: AmountSpec::Fixed(10) }],
-                    // TODO: + upgrade-1-picked-card (deck-action staging)
+                    body: vec![
+                        Effect::LoseRunStateHp { amount: AmountSpec::Fixed(10) },
+                        Effect::StageDeckPick {
+                            kind: crate::run_state::DeckActionKind::Upgrade,
+                            filter: crate::effects::CardFilter::Upgradable,
+                            n_min: 1,
+                            n_max: 1,
+                            source: "SpiritGrafter.REJECTION".to_string(),
+                        },
+                    ],
                 },
             ],
         }),
@@ -612,7 +627,16 @@ pub fn event_choices(id: &str) -> Option<EventModel> {
             choices: vec![
                 EventChoice {
                     label: "OBSERVE_THE_SPIRAL".to_string(),
-                    body: vec![], // TODO: interactive enchant
+                    body: vec![Effect::StageDeckPick {
+                        kind: crate::run_state::DeckActionKind::Enchant {
+                            enchantment_id: "Spiral".to_string(),
+                            amount: 0,
+                        },
+                        filter: crate::effects::CardFilter::Any,
+                        n_min: 1,
+                        n_max: 1,
+                        source: "SpiralingWhirlpool.OBSERVE_THE_SPIRAL".to_string(),
+                    }],
                 },
                 EventChoice {
                     label: "DRINK".to_string(),
@@ -1387,6 +1411,60 @@ mod tests {
         // 90 / 3 = 30 heal → 30 + 30 = 60.
         assert_eq!(rs.players()[0].hp, 60);
         assert_eq!(rs.players()[0].max_hp, 90);
+    }
+
+    #[test]
+    fn aroma_of_chaos_maintain_control_auto_upgrades_first_upgradable() {
+        let mut rs = fresh_rs();
+        // auto_resolve_offers = true (default).
+        rs.add_card(0, "StrikeIronclad", 0); // upgradable, level 0
+        rs.add_card(0, "AscendersBane", 0);  // not upgradable (curse)
+        enter_event(&mut rs, 0, "AromaOfChaos");
+        // Default first choice would be LET_GO (transform). Disable
+        // auto-resolve to address MAINTAIN_CONTROL explicitly.
+        // First clear the auto-applied LET_GO by re-creating rs.
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.add_card(0, "StrikeIronclad", 0);
+        rs.add_card(0, "AscendersBane", 0);
+        enter_event(&mut rs, 0, "AromaOfChaos");
+        // MAINTAIN_CONTROL is index 1.
+        resolve_event_choice(&mut rs, 1).expect("maintain control");
+        // The StageDeckPick should park a pending deck action.
+        assert!(rs.pending_deck_action.is_some(),
+            "MAINTAIN_CONTROL must stage a deck-pick for RL agent");
+        let pending = rs.pending_deck_action.as_ref().unwrap();
+        // Only StrikeIronclad is eligible (upgradable).
+        assert_eq!(pending.eligible_indices.len(), 1);
+    }
+
+    #[test]
+    fn stage_deck_pick_auto_resolves_first_eligible() {
+        let mut rs = fresh_rs();
+        // auto_resolve_offers = true (default).
+        rs.add_card(0, "StrikeIronclad", 0);
+        rs.add_card(0, "DefendIronclad", 0);
+        enter_event(&mut rs, 0, "AromaOfChaos");
+        // First choice (LET_GO) was auto-applied: 1 card transformed.
+        // No pending action since auto-resolve.
+        assert!(rs.pending_deck_action.is_none());
+    }
+
+    #[test]
+    fn doors_of_light_and_dark_dark_stages_remove_pick() {
+        let mut rs = fresh_rs();
+        rs.auto_resolve_offers = false;
+        rs.add_card(0, "StrikeIronclad", 0);
+        rs.add_card(0, "DefendIronclad", 0);
+        rs.add_card(0, "AscendersBane", 0); // curse — should be filtered out for remove? No, CardFilter::Any allows it
+        enter_event(&mut rs, 0, "DoorsOfLightAndDark");
+        // DARK is index 1.
+        resolve_event_choice(&mut rs, 1).expect("dark");
+        let pending = rs.pending_deck_action.as_ref()
+            .expect("DARK must stage a deck-pick");
+        assert_eq!(pending.action, crate::run_state::DeckActionKind::Remove);
+        // CardFilter::Any allows all 3.
+        assert_eq!(pending.eligible_indices.len(), 3);
     }
 
     #[test]

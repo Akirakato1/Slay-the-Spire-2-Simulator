@@ -92,17 +92,38 @@ fn stage_deck_action(
     eligible: Vec<usize>,
     source: &str,
 ) {
+    stage_deck_action_for_event(rs, player_idx, action, eligible, source, 1, 1);
+}
+
+/// Variable-pick version of `stage_deck_action`. Events occasionally
+/// stage `n_min != 1` or `n_max != 1` (pick up-to-N for some upgrades,
+/// pick-exactly-N for transforms). Auto-resolve takes the first
+/// `n_max.min(eligible.len())` picks; deferred mode parks the
+/// pending action for the agent.
+pub fn stage_deck_action_for_event(
+    rs: &mut RunState,
+    player_idx: usize,
+    action: DeckActionKind,
+    eligible: Vec<usize>,
+    source: &str,
+    n_min: i32,
+    n_max: i32,
+) {
     if rs.auto_resolve_offers {
-        // Auto-pick first eligible index.
-        let pick = eligible[0];
-        apply_deck_action(rs, player_idx, &action, pick);
+        let take = (n_max as usize).min(eligible.len()).max(n_min.max(0) as usize);
+        // Apply picks in descending order to keep indices stable.
+        let mut to_apply: Vec<usize> = eligible.iter().take(take).copied().collect();
+        to_apply.sort_by(|a, b| b.cmp(a));
+        for di in to_apply {
+            apply_deck_action(rs, player_idx, &action, di);
+        }
     } else {
         rs.pending_deck_action = Some(PendingDeckAction {
             action,
             player_idx,
             eligible_indices: eligible,
-            n_min: 1,
-            n_max: 1,
+            n_min,
+            n_max,
             source: Some(source.to_string()),
         });
     }
@@ -114,6 +135,56 @@ fn apply_deck_action(
     action: &DeckActionKind,
     deck_idx: usize,
 ) {
+    // Transform's random pool draw needs the RNG before the per-player
+    // borrow, so resolve it up front.
+    let transform_pool_pick: Option<String> = match action {
+        DeckActionKind::Transform { pool } => {
+            // Pool here is a CardPoolRef variant *name* (e.g.
+            // "CharacterAny", "Colorless"). We resolve "CharacterAny"
+            // to the active character's `card_pool` field; explicit
+            // pools (Colorless, CharacterAttack, etc.) match the
+            // CardData.pool field on each card.
+            let char_id = rs
+                .players()
+                .get(player_idx)
+                .map(|p| p.character_id.clone())
+                .unwrap_or_default();
+            let target_pool = if pool == "CharacterAny"
+                || pool == "CharacterAttack"
+                || pool == "CharacterSkill"
+                || pool == "CharacterPower"
+            {
+                crate::character::by_id(&char_id)
+                    .and_then(|cd| cd.card_pool.clone())
+                    .unwrap_or_default()
+            } else {
+                pool.clone()
+            };
+            // Filter by type for {Attack,Skill,Power} variants.
+            let type_filter: Option<crate::card::CardType> = match pool.as_str() {
+                "CharacterAttack" => Some(crate::card::CardType::Attack),
+                "CharacterSkill" => Some(crate::card::CardType::Skill),
+                "CharacterPower" => Some(crate::card::CardType::Power),
+                _ => None,
+            };
+            let candidates: Vec<&'static str> = crate::card::ALL_CARDS
+                .iter()
+                .filter(|c| c.pool == target_pool)
+                .filter(|c| {
+                    type_filter.map_or(true, |t| c.card_type == t)
+                })
+                .map(|c| c.id.as_str())
+                .collect();
+            if candidates.is_empty() {
+                None
+            } else {
+                let rng = &mut rs.rng_set_mut().up_front;
+                let pick = rng.next_int_range(0, candidates.len() as i32) as usize;
+                Some(candidates[pick].to_string())
+            }
+        }
+        _ => None,
+    };
     let Some(ps) = rs.player_state_mut(player_idx) else { return };
     if deck_idx >= ps.deck.len() {
         return;
@@ -124,8 +195,34 @@ fn apply_deck_action(
             let cur = card.current_upgrade_level.unwrap_or(0);
             card.current_upgrade_level = Some(cur + 1);
         }
+        DeckActionKind::Downgrade => {
+            let card = &mut ps.deck[deck_idx];
+            let cur = card.current_upgrade_level.unwrap_or(0);
+            card.current_upgrade_level = Some((cur - 1).max(0));
+        }
         DeckActionKind::Remove => {
             ps.deck.remove(deck_idx);
+        }
+        DeckActionKind::Transform { .. } => {
+            if let Some(new_id) = transform_pool_pick {
+                let card = &mut ps.deck[deck_idx];
+                card.id = new_id;
+                card.current_upgrade_level = None;
+                card.enchantment = None;
+            }
+        }
+        DeckActionKind::TransformTo { card_id } => {
+            let card = &mut ps.deck[deck_idx];
+            card.id = card_id.clone();
+            card.current_upgrade_level = None;
+            card.enchantment = None;
+        }
+        DeckActionKind::Enchant { enchantment_id, amount } => {
+            let card = &mut ps.deck[deck_idx];
+            card.enchantment = Some(crate::run_log::EnchantmentRef {
+                id: enchantment_id.clone(),
+                amount: *amount,
+            });
         }
     }
 }

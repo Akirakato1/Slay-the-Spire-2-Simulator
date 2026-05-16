@@ -1046,6 +1046,23 @@ pub enum Effect {
     /// WarHistorianRepy strips all LanternKey quest cards. Generic
     /// over card_id so future events that need "purge X" work.
     RemoveAllCardsOfType { card_id: String },
+    /// Stage an interactive deck-pick. Auto-resolve mode picks the
+    /// first eligible card; deferred mode parks a `PendingDeckAction`
+    /// on the run-state for the RL agent to resolve. The `kind`
+    /// carries the action to apply post-pick (Upgrade/Downgrade/
+    /// Remove/Transform/TransformTo/Enchant). `filter` narrows
+    /// eligibility (any / upgradable / curse-only / matches-id).
+    /// Used by events like AromaOfChaos MaintainControl, SpiritGrafter
+    /// Rejection, SpiralingWhirlpool ObserveSpiral, DoorsOfLightAndDark
+    /// Dark. Mirrors C# `EventOption` choices that invoke
+    /// `DeckPickerCmd.Show(filter, callback)`.
+    StageDeckPick {
+        kind: crate::run_state::DeckActionKind,
+        filter: CardFilter,
+        n_min: i32,
+        n_max: i32,
+        source: String,
+    },
     /// Lose max HP outside combat. DistinguishedCape, LeafyPoultice
     /// (`CreatureCmd.LoseMaxHp(N)`).
     LoseRunStateMaxHp { amount: AmountSpec },
@@ -3524,6 +3541,51 @@ fn execute_run_state_effect(
             if let Some(ps) = rs.player_state_mut(player_idx) {
                 ps.deck.retain(|c| &c.id != card_id);
             }
+        }
+        Effect::StageDeckPick { kind, filter, n_min, n_max, source } => {
+            // Compute eligible deck indices from the filter.
+            let eligible: Vec<usize> = rs
+                .players()
+                .get(player_idx)
+                .map(|ps| {
+                    ps.deck
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, c)| {
+                            // For Upgrade, additionally require the
+                            // card is upgradable AND not yet at max.
+                            // The standalone Upgradable filter handles
+                            // the data-side check; we layer the cur<max
+                            // gate here mirroring `smith`.
+                            if !card_ref_matches_filter(c, filter) {
+                                return false;
+                            }
+                            if matches!(kind, crate::run_state::DeckActionKind::Upgrade) {
+                                if let Some(d) = crate::card::by_id(&c.id) {
+                                    let cur = c.current_upgrade_level.unwrap_or(0);
+                                    return d.max_upgrade_level > 0
+                                        && cur < d.max_upgrade_level;
+                                }
+                                return false;
+                            }
+                            true
+                        })
+                        .map(|(i, _)| i)
+                        .collect()
+                })
+                .unwrap_or_default();
+            if eligible.is_empty() {
+                return;
+            }
+            crate::campfire::stage_deck_action_for_event(
+                rs,
+                player_idx,
+                kind.clone(),
+                eligible,
+                source.as_str(),
+                *n_min,
+                *n_max,
+            );
         }
         Effect::LoseRunStateHp { amount } => {
             let amt = run_state_resolve_amount(rs, player_idx, amount, relic_id).max(0);
@@ -9747,7 +9809,8 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
         | Effect::UpgradeRandomDeckCards { .. }
         | Effect::DowngradeRandomDeckCards { .. }
         | Effect::CloneDeck
-        | Effect::RemoveAllCardsOfType { .. } => {
+        | Effect::RemoveAllCardsOfType { .. }
+        | Effect::StageDeckPick { .. } => {
             // STUB: see Pile::Deck rationale. Mutates RunState; combat
             // VM has no handle. Routes through run_state_effects path.
         }

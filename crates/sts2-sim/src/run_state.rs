@@ -168,7 +168,7 @@ pub struct PendingDeckAction {
     pub source: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DeckActionKind {
     /// Increment `current_upgrade_level` by 1. Smith at campfire,
     /// AfterRoomEntered upgrades from events. C# `CardCmd.Upgrade`.
@@ -177,6 +177,23 @@ pub enum DeckActionKind {
     /// "remove a card" event branches, shop card-remove. C#
     /// `CardCmd.RemoveFromDeck`.
     Remove,
+    /// Decrement `current_upgrade_level` by 1 (clamped at 0). Event
+    /// branches that downgrade a picked card. Mirrors C# `CardCmd.
+    /// Downgrade` — sets level to max(0, level-1).
+    Downgrade,
+    /// Replace the card with a random card from the player's
+    /// character pool. Event branches like AromaOfChaos / Forge.
+    /// `pool` selects the donor pool ("CharacterAny", "Colorless",
+    /// "CharacterAttack", etc.). Resolves via `up_front` RNG.
+    Transform { pool: String },
+    /// Replace the card with a specific named card. Event-time
+    /// "transform into Forge" semantics. Upgrade + enchantment are
+    /// reset.
+    TransformTo { card_id: String },
+    /// Apply an enchantment to the picked card. `amount` carries the
+    /// enchant magnitude when relevant (Spiral, Mox, etc.). Mirrors
+    /// C# `CardCmd.Enchant`.
+    Enchant { enchantment_id: String, amount: i32 },
 }
 
 /// One in-flight reward offer. Mirrors `CombatState.PendingChoice`
