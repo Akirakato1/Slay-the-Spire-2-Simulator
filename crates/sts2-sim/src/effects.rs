@@ -1816,8 +1816,22 @@ fn card_filter_matches_id(filter: &CardFilter, card_id: &str) -> bool {
 /// Walk an effect list and execute each step against `cs`. Effects are
 /// applied in order; no implicit batching or reordering.
 pub fn execute_effects(cs: &mut CombatState, effects: &[Effect], ctx: &EffectContext) {
-    for eff in effects {
+    for (i, eff) in effects.iter().enumerate() {
         execute_effect(cs, eff, ctx);
+        // If the just-executed effect staged a pending_choice (because
+        // it hit a PlayerInteractive selector in deferred mode), queue
+        // every remaining effect after this one onto the choice so
+        // they resume on resolve. Mirrors the AwaitPlayerChoice
+        // `follow_up` mechanism but for inline interactive selectors.
+        if cs.pending_choice.is_some() {
+            let queued: Vec<Effect> = effects[i + 1..].to_vec();
+            if !queued.is_empty() {
+                if let Some(pc) = cs.pending_choice.as_mut() {
+                    pc.queued_effects.extend(queued);
+                }
+            }
+            break;
+        }
     }
 }
 
@@ -9294,6 +9308,13 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             }
         }
         Effect::MoveCard { from, to, selector } => {
+            if try_stage_interactive_choice(
+                cs, ctx, *from, selector,
+                crate::combat::ChoiceAction::Move {
+                    to_pile: to.as_pile_type(),
+                    position: crate::effects::PilePosition::Top,
+                },
+            ) { return; }
             let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             // Iterate high-to-low to keep indices valid as we remove.
             let mut sorted = picks;
@@ -9305,6 +9326,10 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             }
         }
         Effect::ExhaustCards { from, selector } => {
+            if try_stage_interactive_choice(
+                cs, ctx, *from, selector,
+                crate::combat::ChoiceAction::Exhaust,
+            ) { return; }
             let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             let mut sorted = picks;
             sorted.sort_unstable_by(|a, b| b.cmp(a));
@@ -9329,6 +9354,10 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             }
         }
         Effect::DiscardCards { from, selector } => {
+            if try_stage_interactive_choice(
+                cs, ctx, *from, selector,
+                crate::combat::ChoiceAction::Discard,
+            ) { return; }
             let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             let mut sorted = picks;
             sorted.sort_unstable_by(|a, b| b.cmp(a));
@@ -9352,6 +9381,10 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
             }
         }
         Effect::UpgradeCards { from, selector } => {
+            if try_stage_interactive_choice(
+                cs, ctx, *from, selector,
+                crate::combat::ChoiceAction::Upgrade,
+            ) { return; }
             let picks = select_card_indices(cs, ctx.player_idx, *from, selector);
             if let Some(ps) = player_state_mut(cs, ctx.player_idx) {
                 let Some(cards) = pile_mut(ps, *from) else {
@@ -9919,6 +9952,53 @@ fn push_card_to_pile(
 /// Resolve a Selector to the list of card indices in the named pile.
 /// Indices are returned in pile order; callers that mutate the pile
 /// (Exhaust / Discard / MoveCard) sort descending before removing.
+/// Detect whether `selector` is an interactive PlayerInteractive
+/// variant AND the combat state is in deferred mode
+/// (`auto_resolve_choices == false`). If both, stage a
+/// `pending_choice` carrying the action to apply on resolve, and
+/// return true so the caller bails out of its normal action path.
+/// The outer `execute_effects` loop sees `pending_choice.is_some()`
+/// and queues any remaining effects.
+///
+/// Returns false (no choice staged) when:
+/// - The selector isn't PlayerInteractive / PlayerInteractiveFiltered.
+/// - Auto-resolve mode is on (replay / parity-sweep / scripted-test).
+/// - There's already a pending_choice (don't clobber).
+fn try_stage_interactive_choice(
+    cs: &mut CombatState,
+    ctx: &EffectContext,
+    pile: Pile,
+    selector: &Selector,
+    action: crate::combat::ChoiceAction,
+) -> bool {
+    if cs.auto_resolve_choices {
+        return false;
+    }
+    if cs.pending_choice.is_some() {
+        return false;
+    }
+    let (n, filter) = match selector {
+        Selector::PlayerInteractive { n } => (*n, None),
+        Selector::PlayerInteractiveFiltered { n, filter } => (*n, Some(filter.clone())),
+        _ => return false,
+    };
+    let resume_card_id = ctx.source_card_id.unwrap_or("").to_string();
+    cs.pending_choice = Some(crate::combat::PendingChoice {
+        source_card_id: resume_card_id,
+        player_idx: ctx.player_idx,
+        pile: pile.as_pile_type(),
+        n_min: 0,
+        n_max: n.max(0),
+        filter,
+        action,
+        queued_effects: Vec::new(),
+        resume_target: ctx.target,
+        resume_upgrade_level: ctx.upgrade_level,
+        resume_x_value: ctx.x_value,
+    });
+    true
+}
+
 fn select_card_indices(
     cs: &mut CombatState,
     player_idx: usize,

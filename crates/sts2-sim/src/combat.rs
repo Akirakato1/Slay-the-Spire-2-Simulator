@@ -1287,6 +1287,12 @@ impl CombatState {
         // duration debuffs, etc.) will fold in here as they port.
         let ended_side = side;
         crate::effects::fire_power_hooks_after_turn_end(self, ended_side);
+        // NoDrawPower.AfterTurnEnd self-removes regardless of side.
+        // BattleTrance / BulletTime apply this with StackType::Single,
+        // so it lasts until any end_turn fires (typically the same
+        // player turn where it was applied; the next Player begin_turn
+        // sees a clean slate).
+        self.remove_no_draw_power_on_turn_end();
         // AfterPlayerTurnEnd relic hooks — fire at end of player-side
         // turn only. Data-driven via relic_effects table.
         if ended_side == CombatSide::Player {
@@ -1483,6 +1489,21 @@ impl CombatState {
         }
     }
 
+
+    /// Strip NoDrawPower from every creature at end_turn (any side).
+    /// Mirrors C# `NoDrawPower.AfterTurnEnd`: `await PowerCmd.Remove(this)`
+    /// with no side gate. BattleTrance / BulletTime apply NoDrawPower
+    /// with StackType::Single so the player can re-draw on the next
+    /// turn. The power is on the player side in practice but we sweep
+    /// both for safety.
+    fn remove_no_draw_power_on_turn_end(&mut self) {
+        for ally in self.allies.iter_mut() {
+            ally.powers.retain(|p| p.id != "NoDrawPower");
+        }
+        for enemy in self.enemies.iter_mut() {
+            enemy.powers.retain(|p| p.id != "NoDrawPower");
+        }
+    }
 
     fn tick_doom_powers(&mut self, side: CombatSide) {
         let list = match side {
@@ -1921,6 +1942,40 @@ impl CombatState {
     /// are empty. Uses `rng.shuffle()` (== C# `Rng.Shuffle` Fisher-Yates),
     /// matching `RunState.Rng.Shuffle` semantics. Returns the number drawn.
     pub fn draw_cards(&mut self, player_idx: usize, n: i32, rng: &mut Rng) -> i32 {
+        self.draw_cards_inner(player_idx, n, rng, /*from_hand_draw=*/false)
+    }
+
+    /// Variant of `draw_cards` for the turn-start hand-draw path.
+    /// Bypasses `NoDrawPower` (per C# `NoDrawPower.ShouldDraw(player,
+    /// fromHandDraw=true) → return true`). Use this when emulating
+    /// the C# CombatManager's per-turn opening draw; use plain
+    /// `draw_cards` for in-turn Effect-driven draws (Acrobatics,
+    /// BattleTrance's body, etc.) which should respect NoDraw.
+    pub fn draw_cards_initial(&mut self, player_idx: usize, n: i32, rng: &mut Rng) -> i32 {
+        self.draw_cards_inner(player_idx, n, rng, /*from_hand_draw=*/true)
+    }
+
+    fn draw_cards_inner(
+        &mut self,
+        player_idx: usize,
+        n: i32,
+        rng: &mut Rng,
+        from_hand_draw: bool,
+    ) -> i32 {
+        // NoDrawPower gate. C# NoDrawPower.ShouldDraw: returns false
+        // (blocks the draw) only when fromHandDraw == false AND the
+        // player owns the power. The turn-start hand draw is always
+        // allowed; mid-turn Effect-driven draws are blocked once the
+        // player has any NoDrawPower stack. BattleTrance / BulletTime
+        // apply this; it self-removes at end of any turn.
+        if !from_hand_draw {
+            let has_no_draw = self
+                .get_power_amount(CombatSide::Player, player_idx, "NoDrawPower")
+                > 0;
+            if has_no_draw {
+                return 0;
+            }
+        }
         // BeforeHandDraw relic hook fires before the draw kicks off
         // (BlessedAntler / JeweledMask / NinjaScroll / WhisperingEarring).
         crate::effects::fire_relic_hooks(
@@ -13223,6 +13278,58 @@ mod tests {
         assert_eq!(
             cs.get_power_amount(CombatSide::Enemy, 0, "DoubleDamagePower"),
             1);
+    }
+
+    #[test]
+    fn no_draw_power_blocks_mid_turn_draws() {
+        // BattleTrance / BulletTime apply NoDrawPower(1). Mid-turn
+        // Effect-driven draws should be blocked while it's active.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "NoDrawPower", 1);
+        // Seed the draw pile so the draw COULD succeed if not blocked.
+        let strike = crate::card::by_id("StrikeIronclad").unwrap();
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        for _ in 0..5 {
+            ps.draw.cards.push(CardInstance::from_card(strike, 0));
+        }
+        let hand_before = ps.hand.cards.len();
+        let mut rng = crate::rng::Rng::new(0, 0);
+        let drawn = cs.draw_cards(0, 3, &mut rng);
+        assert_eq!(drawn, 0, "NoDrawPower must block mid-turn draws");
+        let hand_after = cs.allies[0].player.as_ref().unwrap().hand.cards.len();
+        assert_eq!(hand_after, hand_before, "hand unchanged");
+    }
+
+    #[test]
+    fn no_draw_power_allows_initial_hand_draw() {
+        // C# ShouldDraw(fromHandDraw=true) → always allow. So a
+        // turn-start hand draw goes through even with NoDrawPower set.
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "NoDrawPower", 1);
+        let strike = crate::card::by_id("StrikeIronclad").unwrap();
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        for _ in 0..5 {
+            ps.draw.cards.push(CardInstance::from_card(strike, 0));
+        }
+        let mut rng = crate::rng::Rng::new(0, 0);
+        let drawn = cs.draw_cards_initial(0, 3, &mut rng);
+        assert_eq!(drawn, 3, "initial-hand draw bypasses NoDrawPower");
+    }
+
+    #[test]
+    fn no_draw_power_self_removes_at_end_of_turn() {
+        let mut cs = ironclad_combat();
+        cs.apply_power(CombatSide::Player, 0, "NoDrawPower", 1);
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "NoDrawPower"),
+            1);
+        cs.current_side = CombatSide::Player;
+        cs.end_turn();
+        // After Player end_turn, the power must be gone (so the next
+        // Player turn re-allows mid-turn draws).
+        assert_eq!(
+            cs.get_power_amount(CombatSide::Player, 0, "NoDrawPower"),
+            0);
     }
 
     #[test]

@@ -119,6 +119,11 @@ struct ActiveCombat {
     last_enemy_hp: [i32; 2],
     last_player_hp: i32,
     last_player_block: i32,
+    /// While a `pending_choice` is open, this holds the agent's
+    /// in-progress pick set (indices into the choice's pile). Cleared
+    /// on resolve. RL training would pass this directly to
+    /// resolve_pending_choice; the UI manages it via the choice overlay.
+    pending_picks: Vec<usize>,
 }
 
 // ----------------------------------------------------------------------
@@ -551,10 +556,17 @@ fn start_combat(b: Builder) -> Phase {
         let _ = ps;
     }
 
-    // Initial: shuffle innate to hand + draw 5.
+    // RL/UI mode: any PlayerInteractive / AwaitPlayerChoice surface
+    // pauses combat and surfaces a `pending_choice` instead of
+    // auto-picking the bottom-N. The UI renders the prompt and the
+    // user confirms picks. Without this flip, Acrobatics's "discard
+    // 1" auto-discarded the bottom card with no UI feedback.
+    cs.auto_resolve_choices = false;
+    // Initial: shuffle innate to hand + draw 5. Turn-start hand draw
+    // bypasses NoDrawPower (per C# ShouldDraw(fromHandDraw=true)).
     cs.move_innate_cards_to_hand(0);
     let mut rng = sts2_sim::rng::Rng::new(0xC0FFEE, 0);
-    cs.draw_cards(0, 5, &mut rng);
+    cs.draw_cards_initial(0, 5, &mut rng);
     // begin_turn for energy refresh + AfterPlayerTurnStart hooks.
     cs.begin_turn(CombatSide::Player);
 
@@ -568,6 +580,7 @@ fn start_combat(b: Builder) -> Phase {
         last_enemy_hp: snapshot_enemy,
         last_player_hp: snapshot_hp,
         last_player_block: snapshot_block,
+        pending_picks: Vec::new(),
     };
     Phase::Combat(b, active)
 }
@@ -617,6 +630,14 @@ fn render_combat(
         ui.separator();
         render_player(ui, ac, b);
     });
+
+    // Modal-style choice overlay. When a card with a player-choice
+    // selector plays (Acrobatics discard / Brand exhaust / etc.),
+    // the simulator stages `pending_choice` and pauses. The UI
+    // blocks other inputs until resolved.
+    if ac.cs.pending_choice.is_some() {
+        render_choice_overlay(ctx, ac);
+    }
 
     if back_to_setup {
         return Some(Phase::Setup(b.clone_for_combat()));
@@ -733,7 +754,9 @@ fn render_player(ui: &mut egui::Ui, ac: &mut ActiveCombat, b: &Builder) {
 
 fn render_hand(ui: &mut egui::Ui, ac: &mut ActiveCombat) {
     let n = ac.cs.allies[0].player.as_ref().map(|p| p.hand.cards.len()).unwrap_or(0);
-    ui.heading(format!("Hand ({} cards)", n));
+    let pending = ac.cs.pending_choice.is_some();
+    ui.heading(format!("Hand ({} cards){}",
+        n, if pending { " — waiting on choice" } else { "" }));
     let mut to_play: Option<usize> = None;
     egui::ScrollArea::horizontal().show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -760,7 +783,7 @@ fn render_hand(ui: &mut egui::Ui, ac: &mut ActiveCombat) {
                         _ => egui::Color32::GRAY,
                     };
                     let unplayable = data.map(|d| d.keywords.iter().any(|k| k == "Unplayable")).unwrap_or(false);
-                    let can_play = energy >= cost && !unplayable;
+                    let can_play = energy >= cost && !unplayable && !pending;
                     (label, color, can_play)
                 };
                 let btn = egui::Button::new(egui::RichText::new(label).color(color))
@@ -837,6 +860,109 @@ fn render_log(ui: &mut egui::Ui, ac: &mut ActiveCombat) {
         });
 }
 
+fn render_choice_overlay(ctx: &egui::Context, ac: &mut ActiveCombat) {
+    let mut confirm = false;
+    let mut cancel = false;
+    let (pile, n_min, n_max, source, action_label) = {
+        let pc = ac.cs.pending_choice.as_ref().unwrap();
+        let action_label = match pc.action {
+            sts2_sim::combat::ChoiceAction::Discard => "Discard",
+            sts2_sim::combat::ChoiceAction::Exhaust => "Exhaust",
+            sts2_sim::combat::ChoiceAction::Move { .. } => "Move",
+            sts2_sim::combat::ChoiceAction::Upgrade => "Upgrade",
+        };
+        (pc.pile, pc.n_min, pc.n_max, pc.source_card_id.clone(), action_label)
+    };
+    egui::Window::new(format!("{} {} card(s) from {:?}", action_label, n_max, pile))
+        .collapsible(false)
+        .resizable(false)
+        .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+        .default_width(540.0)
+        .show(ctx, |ui| {
+            ui.label(format!(
+                "Source: {} · pick {}–{} card(s)",
+                source, n_min, n_max));
+            ui.separator();
+            // Pile candidates with click-to-toggle selection.
+            let cards: Vec<(String, i32)> = {
+                let player = ac.cs.allies[0].player.as_ref().unwrap();
+                let pile_ref = match pile {
+                    PileType::Hand => &player.hand,
+                    PileType::Draw => &player.draw,
+                    PileType::Discard => &player.discard,
+                    PileType::Exhaust => &player.exhaust,
+                    _ => return,
+                };
+                pile_ref.cards.iter()
+                    .map(|c| (c.id.clone(), c.upgrade_level))
+                    .collect()
+            };
+            ui.horizontal_wrapped(|ui| {
+                for (i, (id, up)) in cards.iter().enumerate() {
+                    let picked = ac.pending_picks.contains(&i);
+                    let label = format!("{}{}", id, if *up > 0 { "+" } else { "" });
+                    let bg = if picked {
+                        egui::Color32::from_rgb(80, 140, 80)
+                    } else {
+                        egui::Color32::from_rgb(50, 50, 50)
+                    };
+                    let resp = ui.add(egui::Button::new(
+                        egui::RichText::new(label).color(egui::Color32::WHITE))
+                        .fill(bg)
+                        .min_size([150.0, 40.0].into()));
+                    if resp.clicked() {
+                        if picked {
+                            ac.pending_picks.retain(|&x| x != i);
+                        } else if (ac.pending_picks.len() as i32) < n_max {
+                            ac.pending_picks.push(i);
+                        }
+                    }
+                }
+            });
+            ui.separator();
+            let count = ac.pending_picks.len() as i32;
+            let count_ok = count >= n_min && count <= n_max;
+            ui.label(format!("Selected: {} (need {}–{})", count, n_min, n_max));
+            ui.horizontal(|ui| {
+                let confirm_resp = ui.add_enabled(count_ok,
+                    egui::Button::new(egui::RichText::new("✓ Confirm")
+                        .color(egui::Color32::from_rgb(140, 220, 140))));
+                if confirm_resp.clicked() { confirm = true; }
+                if n_min == 0 {
+                    let skip_resp = ui.add(egui::Button::new("Skip (0)"));
+                    if skip_resp.clicked() {
+                        ac.pending_picks.clear();
+                        confirm = true;
+                    }
+                }
+                let cancel_resp = ui.add(egui::Button::new(
+                    egui::RichText::new("✕ Cancel")
+                        .color(egui::Color32::from_rgb(220, 140, 140))));
+                if cancel_resp.clicked() { cancel = true; }
+            });
+        });
+    if confirm {
+        let picks = std::mem::take(&mut ac.pending_picks);
+        match sts2_sim::effects::resolve_pending_choice(&mut ac.cs, &picks) {
+            Ok(()) => {
+                ac.log.push(format!("Choice resolved: {} pick(s)", picks.len()));
+                summarize_diff(ac);
+            }
+            Err(e) => {
+                ac.log.push(format!("Choice error: {}", e));
+                // Restore picks so user can retry.
+                ac.pending_picks = picks;
+            }
+        }
+    }
+    if cancel {
+        // Clear the pending choice; abandons the half-resolved card.
+        ac.cs.pending_choice = None;
+        ac.pending_picks.clear();
+        ac.log.push("Choice cancelled.".to_string());
+    }
+}
+
 fn tick_end_turn(ac: &mut ActiveCombat) {
     // Full turn cycle so all the tick_* hooks fire on the right
     // boundaries. The C# turn loop is:
@@ -857,7 +983,7 @@ fn tick_end_turn(ac: &mut ActiveCombat) {
     ac.cs.end_turn();
     ac.cs.begin_turn(CombatSide::Player);
     let mut rng = sts2_sim::rng::Rng::new(0xC0FFEE, ac.cs.round_number);
-    ac.cs.draw_cards(0, 5, &mut rng);
+    ac.cs.draw_cards_initial(0, 5, &mut rng);
     ac.log.push(format!("End turn → round {}", ac.cs.round_number));
     summarize_diff(ac);
 }
