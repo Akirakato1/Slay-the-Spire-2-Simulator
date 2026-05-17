@@ -100,6 +100,11 @@ pub struct PlayerState {
     /// of `AllCards`). Routed out to discard / exhaust / consumed
     /// after dispatch.
     pub play_pile: Vec<CardInstance>,
+    /// Attack-type cards the owner has played this turn. Reset on
+    /// the owner's begin_turn. Read by `play_card` to lower Stomp's
+    /// effective cost dynamically (Stomp.cs:96 `BeforeCardPlayed`
+    /// reduces self-cost by 1 per Attack played).
+    pub attacks_played_this_turn: i32,
     /// Count of unblocked-damage events the owner has taken this
     /// combat (i.e. how many distinct hits punched through block).
     /// Bumped in the damage path when `hp_lost > 0` and the target is
@@ -876,6 +881,14 @@ impl CombatState {
         // RampartPower fires on Player-side start regardless of owner.
         // Walks enemies and grants block to their TurretOperator allies.
         if side == CombatSide::Player {
+            // Reset per-turn play counters (used by Stomp's dynamic
+            // cost-reduction). VoidForm's own `cards_played_this_turn`
+            // state is reset separately on its own begin-turn path.
+            for ally in self.allies.iter_mut() {
+                if let Some(ps) = ally.player.as_mut() {
+                    ps.attacks_played_this_turn = 0;
+                }
+            }
             self.tick_rampart_powers();
             self.tick_aggression_powers();
             self.tick_exhaust_pile_auto_replays();
@@ -4149,6 +4162,14 @@ impl CombatState {
                 energy_cost = card.effective_energy_cost();
                 x_value = 0;
             }
+            // Stomp dynamic cost: BeforeCardPlayed in C# subtracts 1
+            // per Attack played this turn. We collapse to a play-time
+            // computation: `effective_cost - attacks_played_this_turn`.
+            // Mirrors Stomp.cs:81-94 + AfterCardEnteredCombat draw-time
+            // reduction (both fold into the per-turn counter).
+            if card.id == "Stomp" {
+                energy_cost = (energy_cost - ps.attacks_played_this_turn).max(0);
+            }
             // VoidFormPower cost modifier: if the player owns
             // VoidFormPower and hasn't burned through its
             // `cards_played_this_turn < Amount` quota yet, the card costs 0.
@@ -4336,6 +4357,14 @@ impl CombatState {
         crate::effects::fire_power_hooks_after_card_played(
             self, CombatSide::Player, player_idx, card_data.card_type,
         );
+        // Per-turn attack-played counter. Stomp's effective cost reads
+        // this. Reset on Player begin_turn. Bumped on every Attack
+        // resolution. Mirrors C# Stomp.BeforeCardPlayed gate.
+        if matches!(card_data.card_type, CardType::Attack) {
+            if let Some(ps) = self.allies.get_mut(player_idx).and_then(|c| c.player.as_mut()) {
+                ps.attacks_played_this_turn += 1;
+            }
+        }
 
         // 5a. VoidFormPower bookkeeping — bump
         //     `cards_played_this_turn` once per top-level play. Mirrors
@@ -12892,6 +12921,7 @@ impl Creature {
                 discard: CardPile::new(PileType::Discard),
                 exhaust: CardPile::new(PileType::Exhaust),
                 play_pile: Vec::new(),
+                attacks_played_this_turn: 0,
                 unblocked_damage_events_received: 0,
                 potions_added_this_combat: Vec::new(),
                 energy: DEFAULT_TURN_ENERGY,
@@ -13076,6 +13106,40 @@ mod tests {
         };
         let cs = CombatState::start(encounter, vec![setup], Vec::new());
         assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 5);
+    }
+
+    /// Stomp's effective cost lowers by 1 per Attack played this
+    /// turn (C# `Stomp.BeforeCardPlayed` + `AfterCardEnteredCombat`).
+    /// After 3 attacks → Stomp costs 0.
+    #[test]
+    fn stomp_cost_drops_with_attacks_played_this_turn() {
+        let mut cs = build_ironclad_combat();
+        let strike = CardInstance::from_card(crate::card::by_id("StrikeIronclad").unwrap(), 0);
+        let stomp = CardInstance::from_card(crate::card::by_id("Stomp").unwrap(), 0);
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.hand.cards = vec![strike.clone(), strike.clone(), strike.clone(), stomp];
+        ps.energy = 5;
+        ps.attacks_played_this_turn = 0;
+        // Play 3 Strikes (each is an Attack, bumps counter).
+        for _ in 0..3 {
+            let r = cs.play_card(0, 0, Some((CombatSide::Enemy, 0)));
+            assert!(matches!(r, PlayResult::Ok | PlayResult::Unhandled),
+                "Strike should play, got {:?}", r);
+        }
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().attacks_played_this_turn,
+            3, "counter bumps per Attack play",
+        );
+        // After 3 attacks, Stomp (base cost 3) should cost 0.
+        let stomp_idx = cs.allies[0].player.as_ref().unwrap()
+            .hand.cards.iter().position(|c| c.id == "Stomp")
+            .expect("Stomp still in hand");
+        let energy_before = cs.allies[0].player.as_ref().unwrap().energy;
+        let r = cs.play_card(0, stomp_idx, Some((CombatSide::Enemy, 0)));
+        assert!(matches!(r, PlayResult::Ok | PlayResult::Unhandled),
+            "Stomp should play at 0 cost after 3 Attacks, got {:?}", r);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, energy_before,
+            "Stomp should consume 0 energy after 3 Attacks");
     }
 
     /// HowlFromBeyond in Exhaust pile auto-replays at the start of
