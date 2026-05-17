@@ -13010,6 +13010,64 @@ mod tests {
         assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 5);
     }
 
+    /// Wave-3 Ironclad fixes — per-power-instance state + AfterPlayerTurnStart.
+
+    /// CrimsonMantle: applying the card bumps the CrimsonMantlePower
+    /// instance's "SelfDamage" state field by 1. AfterSideTurnStart
+    /// (player side) then deals SelfDamage to self (Unpowered+Unblockable)
+    /// and grants Amount block.
+    #[test]
+    fn crimson_mantle_self_damage_grows_per_play_and_fires_at_turn_start() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+
+        let mut cs = build_ironclad_combat();
+        let effects = card_effects("CrimsonMantle").expect("CrimsonMantle exists");
+        let ctx = EffectContext::for_card(0, None, "CrimsonMantle", 0, None, 0);
+
+        // Play 3 times: SelfDamage = 3, power amount = 8 (the block-grant).
+        for _ in 0..3 {
+            execute_effects(&mut cs, &effects, &ctx);
+        }
+        let power = cs.allies[0].powers.iter()
+            .find(|p| p.id == "CrimsonMantlePower")
+            .expect("CrimsonMantlePower applied");
+        assert_eq!(power.amount, 8 * 3, "amount stacks across 3 plays");
+        assert_eq!(power.state.get("SelfDamage").copied(), Some(3),
+            "SelfDamage = 3 after 3 plays");
+
+        // Snapshot pre-turn-start.
+        let hp_before = cs.allies[0].current_hp;
+        let block_before = cs.allies[0].block;
+        // Fire AfterPlayerTurnStart via begin_turn(Player).
+        cs.current_side = CombatSide::Enemy;  // so begin_turn(Player) crosses
+        cs.begin_turn(CombatSide::Player);
+        // -3 HP, +24 block.
+        assert_eq!(cs.allies[0].current_hp, hp_before - 3,
+            "CrimsonMantle self-damage 3 fires at turn start");
+        assert!(cs.allies[0].block >= block_before + 24,
+            "CrimsonMantle block grant fires at turn start");
+    }
+
+    /// InfernoPower: self-damage at turn start + AoE-on-self-hit hook.
+    /// Plays bump SelfDamage; turn start deals SelfDamage to self;
+    /// when self takes unblocked damage on own turn, all enemies hit
+    /// for Amount.
+    #[test]
+    fn inferno_bumps_self_damage_per_play() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+        let mut cs = build_ironclad_combat();
+        let effects = card_effects("Inferno").unwrap();
+        let ctx = EffectContext::for_card(0, None, "Inferno", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        execute_effects(&mut cs, &effects, &ctx);
+        let power = cs.allies[0].powers.iter()
+            .find(|p| p.id == "InfernoPower")
+            .expect("InfernoPower applied");
+        assert_eq!(power.amount, 12, "InfernoPower stacks 6+6=12");
+        assert_eq!(power.state.get("SelfDamage").copied(), Some(2),
+            "SelfDamage += 1 per play");
+    }
+
     /// Wave-2 Ironclad fixes — power runtime hooks.
 
     /// JuggernautPower: when owner gains block, deal `amount` damage

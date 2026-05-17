@@ -74,6 +74,46 @@ pub fn roll_card_rarity(rs: &mut RunState, kind: CardRewardKind) -> CardRarity {
     }
 }
 
+/// Cards whose C# `MultiplayerConstraint` overrides to
+/// `MultiplayerOnly`. The simulator targets single-player runs, so
+/// these MUST be excluded from every card-generation pool (post-
+/// combat rewards, shop, events, transforms). Hardcoded list to
+/// avoid the cost of a per-card extractor pass for ~10 cards across
+/// all character pools; entries below are confirmed by grepping
+/// `CardMultiplayerConstraint.MultiplayerOnly` in the C# source.
+pub fn is_multiplayer_only(card_id: &str) -> bool {
+    matches!(card_id,
+        // Ironclad
+        "Tank" | "DemonicShield"
+        // Silent / Defect / Regent / Necrobinder: confirm via
+        // extractor pass; add ids here as they surface.
+    )
+}
+
+#[cfg(test)]
+mod multiplayer_filter_tests {
+    use super::*;
+
+    /// Multiplayer-only cards must NOT appear in 1000 Normal-tier
+    /// card-reward rolls across either character pool.
+    #[test]
+    fn multiplayer_only_cards_never_in_reward_pool() {
+        let mut rs = crate::run_state::RunState::start_run(
+            "MP", 0, "Ironclad",
+            vec![crate::act::ActId::Overgrowth], Vec::new(),
+        ).unwrap();
+        for _ in 0..1000 {
+            let opts = build_card_reward_options(
+                &mut rs, 0, CardRewardKind::Normal, 3,
+            );
+            for id in &opts {
+                assert!(!is_multiplayer_only(id),
+                    "{id} (multiplayer-only) leaked into reward pool");
+            }
+        }
+    }
+}
+
 /// Pick a single card of the given rarity from the player's pool.
 /// Pool = (player's character pool ∪ "Colorless") with playable
 /// rarities only. Excludes any id already in `exclude` (so the 3 card
@@ -101,6 +141,9 @@ fn pick_card_of_rarity(
         // approximate by excluding Quest cards (which all override
         // CanBeGenerated*=false) and the deprecated stub card.
         .filter(|c| c.id != "DeprecatedCard")
+        // Multiplayer-only cards are excluded entirely — this sim
+        // targets single-player runs.
+        .filter(|c| !is_multiplayer_only(&c.id))
         .map(|c| c.id.as_str())
         .collect();
     if candidates.is_empty() {
@@ -207,6 +250,7 @@ fn pick_card_of_rarity_from_pool(
         .filter(|c| type_filter.map_or(true, |t| c.card_type == t))
         .filter(|c| !exclude.contains(&c.id))
         .filter(|c| c.id != "DeprecatedCard")
+        .filter(|c| !is_multiplayer_only(&c.id))
         .map(|c| c.id.as_str())
         .collect();
     if candidates.is_empty() {

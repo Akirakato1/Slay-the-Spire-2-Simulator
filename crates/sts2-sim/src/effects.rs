@@ -114,6 +114,11 @@ fn potion_canonical_int_value(potion_id: &str, var_kind: &str) -> i32 {
 pub enum AmountSpec {
     /// Hard-coded literal.
     Fixed(i32),
+    /// Actor's per-power-instance state field. Pair to
+    /// `Effect::BumpPowerStateField` / `SetPowerStateField`. Used by
+    /// CrimsonMantle / Inferno / Juggling whose AfterTurnStart hook
+    /// reads a value that grows over the combat as the card is replayed.
+    OwnerPowerStateField { power_id: String, field: String },
     /// Ascension-scaled literal. Mirrors C#
     /// `AscensionHelper.GetValueIfAscension(threshold, ascended, base)`:
     /// returns `ascended` when `cs.ascension >= threshold`, else `base`.
@@ -740,6 +745,17 @@ pub enum Effect {
         power_id: String,
         field: String,
         value: AmountSpec,
+        target: Target,
+    },
+    /// Add `delta` to a per-power-instance state field, creating it
+    /// at 0 if absent. CrimsonMantle / Inferno call this on each play
+    /// to bump the power's SelfDamage tally; the hook reads it via
+    /// `AmountSpec::OwnerPowerStateField`. Mirrors C#
+    /// `power.IncrementSelfDamage` style methods.
+    BumpPowerStateField {
+        power_id: String,
+        field: String,
+        delta: AmountSpec,
         target: Target,
     },
     /// Discard the top N cards of the draw pile straight into discard.
@@ -1474,6 +1490,18 @@ impl AmountSpec {
             AmountSpec::Multiplied { base, factor } => base.resolve(ctx, cs) * factor,
             AmountSpec::Mul { left, right } => left.resolve(ctx, cs) * right.resolve(ctx, cs),
             AmountSpec::OwnerPowerAmount(_) => ctx.actor_amount,
+            AmountSpec::OwnerPowerStateField { power_id, field } => {
+                let (side, idx) = ctx.actor;
+                let creature = match side {
+                    CombatSide::Player => cs.allies.get(idx),
+                    CombatSide::Enemy => cs.enemies.get(idx),
+                    CombatSide::None => None,
+                };
+                creature
+                    .and_then(|c| c.powers.iter().find(|p| p.id == *power_id))
+                    .and_then(|p| p.state.get(field).copied())
+                    .unwrap_or(0)
+            }
             AmountSpec::SelfBlock => {
                 // Mirrors C# `Owner.Creature.Block`. Reads actor's block;
                 // for cards this is the player, for monster moves the
@@ -2371,6 +2399,55 @@ pub fn power_effects(power_id: &str) -> Vec<PowerHook> {
                 target: Target::SelfActor,
             }],
         }],
+
+        // CrimsonMantlePower: at start of owner's turn — deal accumulated
+        // SelfDamage to self (unblockable + unpowered) then gain
+        // Amount block (unpowered). SelfDamage starts at 0 and bumps
+        // by 1 each time CrimsonMantle card is played. Mirrors C#
+        // CrimsonMantlePower.AfterPlayerTurnStart.
+        "CrimsonMantlePower" => vec![PowerHook::AfterSideTurnStart {
+            filter: HookSideFilter::OwnerSide,
+            body: vec![
+                Effect::LoseHp {
+                    amount: AmountSpec::OwnerPowerStateField {
+                        power_id: "CrimsonMantlePower".to_string(),
+                        field: "SelfDamage".to_string(),
+                    },
+                    target: Target::SelfActor,
+                },
+                Effect::GainBlock {
+                    amount: AmountSpec::OwnerPowerAmount(
+                        "CrimsonMantlePower".to_string()),
+                    target: Target::SelfActor,
+                },
+            ],
+        }],
+
+        // InfernoPower: AfterPlayerTurnStart deals SelfDamage to self
+        // (unblockable + unpowered). AfterDamageReceived (unblocked,
+        // owner side): deal Amount damage to all enemies.
+        "InfernoPower" => vec![
+            PowerHook::AfterSideTurnStart {
+                filter: HookSideFilter::OwnerSide,
+                body: vec![Effect::LoseHp {
+                    amount: AmountSpec::OwnerPowerStateField {
+                        power_id: "InfernoPower".to_string(),
+                        field: "SelfDamage".to_string(),
+                    },
+                    target: Target::SelfActor,
+                }],
+            },
+            PowerHook::AfterDamageReceived {
+                filter: HookSideFilter::OwnerSide,
+                unblocked_only: true,
+                body: vec![Effect::DealDamage {
+                    amount: AmountSpec::OwnerPowerAmount(
+                        "InfernoPower".to_string()),
+                    target: Target::AllEnemies,
+                    hits: 1,
+                }],
+            },
+        ],
         // TODO Strength/Dex/Weak/Vulnerable/Frail/Intangible:
         // These are damage/block VALUE-FLOW modifier hooks
         // (ModifyDamageAdditive / ModifyDamageMultiplicative / etc.),
@@ -7760,7 +7837,22 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "Impatience" => Some(vec![Effect::DrawCards { amount: AmountSpec::Canonical("Cards".to_string()) }]),
         "Impervious" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }]),
         "Infection" => Some(vec![]),
-        "Inferno" => Some(vec![Effect::ApplyPower { power_id: "InfernoPower".to_string(), amount: AmountSpec::Canonical("InfernoPower".to_string()), target: Target::SelfPlayer }]),
+        "Inferno" => Some(vec![
+            // Apply InfernoPower(amount = AoE damage on self-hit, 6
+            // base / 9 upgraded). Then bump its internal "SelfDamage"
+            // state by 1 — that's the self-damage dealt each turn start.
+            Effect::ApplyPower {
+                power_id: "InfernoPower".to_string(),
+                amount: AmountSpec::Canonical("InfernoPower".to_string()),
+                target: Target::SelfPlayer,
+            },
+            Effect::BumpPowerStateField {
+                power_id: "InfernoPower".to_string(),
+                field: "SelfDamage".to_string(),
+                delta: AmountSpec::Fixed(1),
+                target: Target::SelfPlayer,
+            },
+        ]),
         "InfiniteBlades" => Some(vec![Effect::ApplyPower { power_id: "InfiniteBladesPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "Injury" => Some(vec![]),
         "Intercept" => Some(vec![
@@ -9240,8 +9332,22 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ],
         }]),
         "CrimsonMantle" => Some(vec![
-        Effect::ApplyPower { power_id: "CrimsonMantlePower".to_string(), amount: AmountSpec::Canonical("CrimsonMantlePower".to_string()), target: Target::SelfPlayer },
-        Effect::IncrementSourceCardCounter { key: "self_damage".to_string(), delta: AmountSpec::Fixed(1) },
+            // Apply CrimsonMantlePower (block-grant amount stored on
+            // the power's `amount`). Then bump the power's per-instance
+            // "SelfDamage" state field by 1. AfterPlayerTurnStart hook
+            // (in power_effects) reads SelfDamage and deals that to
+            // the owner, then gains block = power.amount.
+            Effect::ApplyPower {
+                power_id: "CrimsonMantlePower".to_string(),
+                amount: AmountSpec::Canonical("CrimsonMantlePower".to_string()),
+                target: Target::SelfPlayer,
+            },
+            Effect::BumpPowerStateField {
+                power_id: "CrimsonMantlePower".to_string(),
+                field: "SelfDamage".to_string(),
+                delta: AmountSpec::Fixed(1),
+                target: Target::SelfPlayer,
+            },
         ]),
         "GeneticAlgorithm" => Some(vec![
         Effect::GainBlock {
@@ -9968,6 +10074,27 @@ fn execute_effect(cs: &mut CombatState, eff: &Effect, ctx: &EffectContext) {
                 if let Some(powers) = powers {
                     if let Some(p) = powers.iter_mut().find(|p| p.id == *power_id) {
                         p.state.insert(field.clone(), amt);
+                    }
+                }
+            });
+        }
+        Effect::BumpPowerStateField {
+            power_id,
+            field,
+            delta,
+            target,
+        } => {
+            let bump = delta.resolve(ctx, cs);
+            for_each_target_idx(cs, ctx, *target, |cs, side, idx| {
+                let powers = match side {
+                    CombatSide::Player => cs.allies.get_mut(idx).map(|c| &mut c.powers),
+                    CombatSide::Enemy => cs.enemies.get_mut(idx).map(|c| &mut c.powers),
+                    CombatSide::None => None,
+                };
+                if let Some(powers) = powers {
+                    if let Some(p) = powers.iter_mut().find(|p| p.id == *power_id) {
+                        let v = p.state.entry(field.clone()).or_insert(0);
+                        *v += bump;
                     }
                 }
             });

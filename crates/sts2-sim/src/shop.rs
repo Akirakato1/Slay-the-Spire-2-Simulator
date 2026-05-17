@@ -164,6 +164,7 @@ fn pick_shop_card(
             Some(t) => format!("{:?}", c.card_type).eq_ignore_ascii_case(t),
         })
         .filter(|c| c.id != "DeprecatedCard")
+        .filter(|c| !crate::card_reward::is_multiplayer_only(&c.id))
         .map(|c| c.id.as_str())
         .collect();
     if candidates.is_empty() { return None; }
