@@ -878,6 +878,7 @@ impl CombatState {
         if side == CombatSide::Player {
             self.tick_rampart_powers();
             self.tick_aggression_powers();
+            self.tick_exhaust_pile_auto_replays();
             // HardenedShellPower.BeforeSideTurnStart (Player only):
             // reset `damageReceivedThisTurn` to 0 for any monster
             // holding HardenedShell. The counter tracks across the
@@ -891,6 +892,53 @@ impl CombatState {
                     if let Some(ms) = enemy.monster.as_mut() {
                         ms.set_counter("hardened_shell_taken", 0);
                     }
+                }
+            }
+        }
+    }
+
+    /// Walk each player's Exhaust pile and auto-replay any cards
+    /// that have a `BeforeHandDraw` exhaust-pile hook (HowlFromBeyond).
+    /// Fired at the start of the Player's turn before the per-turn
+    /// hand draw. Mirrors C# `CardModel.BeforeHandDraw` overrides
+    /// that gate on `Pile.Type == PileType.Exhaust`.
+    ///
+    /// Currently only HowlFromBeyond uses this; if more cards
+    /// surface, a per-card table similar to `card_effects` keyed by
+    /// a `BeforeHandDrawHook` would scale better.
+    fn tick_exhaust_pile_auto_replays(&mut self) {
+        for player_idx in 0..self.allies.len() {
+            // Snapshot copies of HowlFromBeyond instances in exhaust
+            // so we can re-fire them without holding a borrow into
+            // the pile during damage resolution.
+            let howl_payloads: Vec<i32> = self.allies[player_idx]
+                .player
+                .as_ref()
+                .map(|ps| {
+                    ps.exhaust.cards.iter()
+                        .filter(|c| c.id == "HowlFromBeyond")
+                        .map(|c| {
+                            // Damage = 16 base + 5 per upgrade.
+                            crate::card::by_id("HowlFromBeyond")
+                                .map(|d| canonical_int_value(
+                                    d, "Damage", c.upgrade_level))
+                                .unwrap_or(0)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            for damage in howl_payloads {
+                if damage <= 0 { continue; }
+                // C# AutoPlay → DealDamage(AllEnemies, Damage). Card
+                // stays in Exhaust (Exhaust-keyword routing).
+                let n = self.enemies.len();
+                for enemy_idx in 0..n {
+                    if self.enemies[enemy_idx].current_hp <= 0 { continue; }
+                    self.deal_damage(
+                        (CombatSide::Player, player_idx),
+                        (CombatSide::Enemy, enemy_idx),
+                        damage, ValueProp::MOVE,
+                    );
                 }
             }
         }
@@ -13028,6 +13076,34 @@ mod tests {
         };
         let cs = CombatState::start(encounter, vec![setup], Vec::new());
         assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 5);
+    }
+
+    /// HowlFromBeyond in Exhaust pile auto-replays at the start of
+    /// each Player turn — deals AOE damage to all enemies. Card
+    /// remains in Exhaust (Exhaust-keyword routing).
+    #[test]
+    fn howl_from_beyond_auto_replays_from_exhaust_each_turn() {
+        let mut cs = build_ironclad_combat();
+        // Seed Exhaust pile with one HowlFromBeyond.
+        let howl = CardInstance::from_card(
+            crate::card::by_id("HowlFromBeyond").unwrap(), 0);
+        cs.allies[0].player.as_mut().unwrap()
+            .exhaust.cards.push(howl);
+        // Snapshot enemies' HP before turn-start.
+        let enemy_hp_before: Vec<i32> = cs.enemies.iter()
+            .map(|e| e.current_hp).collect();
+        // begin_turn(Player) fires tick_exhaust_pile_auto_replays.
+        cs.current_side = CombatSide::Enemy;
+        cs.begin_turn(CombatSide::Player);
+        // All enemies should have taken 16 damage (HowlFromBeyond base).
+        for (i, e) in cs.enemies.iter().enumerate() {
+            assert_eq!(enemy_hp_before[i] - e.current_hp, 16,
+                "enemy {i}: HowlFromBeyond auto-replay should deal 16");
+        }
+        // Card still in Exhaust pile.
+        let exhaust_cards = &cs.allies[0].player.as_ref().unwrap().exhaust.cards;
+        assert!(exhaust_cards.iter().any(|c| c.id == "HowlFromBeyond"),
+            "HowlFromBeyond should remain in Exhaust after auto-replay");
     }
 
     /// TearAsunder hit count scales with the player's tally of
