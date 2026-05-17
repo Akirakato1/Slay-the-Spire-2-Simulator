@@ -2662,6 +2662,12 @@ impl CombatState {
                 amount: actual,
             });
         }
+        // AfterBlockGained power hooks (JuggernautPower deals damage
+        // to random enemy when owner gains block). Fires only on
+        // non-zero gain. Mirrors C# Hook.AfterBlockGained.
+        if actual > 0 {
+            crate::effects::fire_power_hooks_after_block_gained(self, side, target_idx);
+        }
         actual
     }
 
@@ -3254,6 +3260,12 @@ impl CombatState {
         let outcome = self.apply_damage(target.0, target.1, modified);
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
         self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
+        // Generic AfterDamageReceived power hooks (FlameBarrier
+        // reflection, Rupture self-damage Strength gain). Mirrors C#
+        // Hook.AfterDamageReceived.
+        crate::effects::fire_power_hooks_after_damage_received(
+            self, target.0, target.1, outcome.hp_lost, Some(dealer),
+        );
         self.fire_thorns_hook(dealer, target, props);
         // AfterDeath relic hook — fires on transition to 0 HP, but only
         // when the dying creature is on the opposite side of the relic
@@ -3742,6 +3754,9 @@ impl CombatState {
         let outcome = self.apply_damage_with_hp_modifiers(target.0, target.1, modified, props, dctx);
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
         self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
+        crate::effects::fire_power_hooks_after_damage_received(
+            self, target.0, target.1, outcome.hp_lost, Some(dealer),
+        );
         self.fire_thorns_hook(dealer, target, props);
         outcome
     }
@@ -4247,6 +4262,13 @@ impl CombatState {
         crate::effects::fire_after_modifying_card_play_count(
             self, player_idx, card_data.card_type,
         );
+        // Generic AfterCardPlayed power hooks — HellraiserPower /
+        // StampedePower / DrumOfBattlePower / ViciousPower /
+        // CrueltyPower all subscribe with CardTypeFilter::Attack.
+        // Mirrors C# Hook.AfterCardPlayed.
+        crate::effects::fire_power_hooks_after_card_played(
+            self, CombatSide::Player, player_idx, card_data.card_type,
+        );
 
         // 5a. VoidFormPower bookkeeping — bump
         //     `cards_played_this_turn` once per top-level play. Mirrors
@@ -4326,6 +4348,7 @@ impl CombatState {
         let ps = self.allies[player_idx].player.as_mut().unwrap();
         // The card is no longer in PlayPile after routing.
         ps.play_pile.clear();
+        let routed_to_exhaust = matches!(dest_opt, Some(PileType::Exhaust));
         match dest_opt {
             Some(PileType::Discard) => ps.discard.cards.push(played_card),
             Some(PileType::Exhaust) => ps.exhaust.cards.push(played_card),
@@ -4334,6 +4357,14 @@ impl CombatState {
             Some(PileType::Draw) => ps.draw.cards.insert(0, played_card),
             None => { /* Power: consumed */ }
             _ => ps.discard.cards.push(played_card),
+        }
+        // Generic AfterCardExhausted power hooks — DarkEmbracePower
+        // draws + FeelNoPainPower gains block when the owner's card
+        // routes to Exhaust. Fires once per card routed to exhaust.
+        if routed_to_exhaust {
+            crate::effects::fire_power_hooks_after_card_exhausted(
+                self, CombatSide::Player, player_idx,
+            );
         }
         // History emission for the routing.
         let round = self.round_number;
@@ -12977,6 +13008,179 @@ mod tests {
         };
         let cs = CombatState::start(encounter, vec![setup], Vec::new());
         assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 5);
+    }
+
+    /// Wave-2 Ironclad fixes — power runtime hooks.
+
+    /// JuggernautPower: when owner gains block, deal `amount` damage
+    /// to a random enemy.
+    #[test]
+    fn juggernaut_power_damages_enemy_on_block_gain() {
+        let mut cs = build_ironclad_combat();
+        cs.allies[0].powers.push(PowerInstance {
+            id: "JuggernautPower".to_string(), amount: 5,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        let enemy_hp_before = cs.enemies[0].current_hp;
+        cs.gain_block_with_props(CombatSide::Player, 0, 10, ValueProp::MOVE);
+        // 5 damage to a random enemy. Both Axebot enemies — total HP
+        // delta = 5 (one enemy hit).
+        let enemy_damage: i32 = cs.enemies.iter()
+            .map(|e| e.max_hp - e.current_hp)
+            .sum();
+        assert_eq!(enemy_damage, 5,
+            "Juggernaut(5) on block gain → 5 damage to random enemy");
+        let _ = enemy_hp_before;
+    }
+
+    /// FeelNoPainPower: when an owned card exhausts, gain `amount`
+    /// block. End-to-end via play_card path is hard without an
+    /// exhausting card in hand; test the hook dispatcher directly.
+    #[test]
+    fn feel_no_pain_grants_block_on_card_exhaust() {
+        use crate::effects::fire_power_hooks_after_card_exhausted;
+        let mut cs = build_ironclad_combat();
+        cs.allies[0].powers.push(PowerInstance {
+            id: "FeelNoPainPower".to_string(), amount: 3,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        let block_before = cs.allies[0].block;
+        fire_power_hooks_after_card_exhausted(&mut cs, CombatSide::Player, 0);
+        assert_eq!(cs.allies[0].block, block_before + 3,
+            "FeelNoPain(3) on exhaust → +3 block");
+    }
+
+    /// DarkEmbracePower: draw `amount` cards on each owned card exhaust.
+    #[test]
+    fn dark_embrace_draws_on_card_exhaust() {
+        use crate::effects::fire_power_hooks_after_card_exhausted;
+        let mut cs = build_ironclad_combat();
+        cs.allies[0].powers.push(PowerInstance {
+            id: "DarkEmbracePower".to_string(), amount: 1,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        // Seed draw pile + empty hand so the draw lands somewhere.
+        let strike = CardInstance::from_card(crate::card::by_id("StrikeIronclad").unwrap(), 0);
+        let ps = cs.allies[0].player.as_mut().unwrap();
+        ps.hand.cards.clear();
+        ps.draw.cards = vec![strike.clone(), strike];
+        fire_power_hooks_after_card_exhausted(&mut cs, CombatSide::Player, 0);
+        let hand_size = cs.allies[0].player.as_ref().unwrap().hand.cards.len();
+        assert_eq!(hand_size, 1, "DarkEmbrace(1) on exhaust → +1 draw");
+    }
+
+    /// HellraiserPower: deal damage to random enemy when owner plays
+    /// an Attack card.
+    #[test]
+    fn hellraiser_damages_random_enemy_after_attack() {
+        use crate::effects::fire_power_hooks_after_card_played;
+        let mut cs = build_ironclad_combat();
+        cs.allies[0].powers.push(PowerInstance {
+            id: "HellraiserPower".to_string(), amount: 7,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        fire_power_hooks_after_card_played(
+            &mut cs, CombatSide::Player, 0, crate::card::CardType::Attack,
+        );
+        let damage: i32 = cs.enemies.iter()
+            .map(|e| e.max_hp - e.current_hp)
+            .sum();
+        assert_eq!(damage, 7, "Hellraiser(7) on Attack → 7 dmg to random enemy");
+    }
+
+    /// DrumOfBattlePower: gain Strength on each Attack played.
+    #[test]
+    fn drum_of_battle_grants_strength_after_attack() {
+        use crate::effects::fire_power_hooks_after_card_played;
+        let mut cs = build_ironclad_combat();
+        cs.allies[0].powers.push(PowerInstance {
+            id: "DrumOfBattlePower".to_string(), amount: 2,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        fire_power_hooks_after_card_played(
+            &mut cs, CombatSide::Player, 0, crate::card::CardType::Attack,
+        );
+        let str = cs.allies[0].powers.iter()
+            .find(|p| p.id == "StrengthPower")
+            .map(|p| p.amount).unwrap_or(0);
+        assert_eq!(str, 2, "DrumOfBattle(2) on Attack → +2 Strength");
+    }
+
+    /// CardTypeFilter::Attack gates the body. Non-Attack cards shouldn't
+    /// trigger Hellraiser etc.
+    #[test]
+    fn after_card_played_attack_filter_skips_skills() {
+        use crate::effects::fire_power_hooks_after_card_played;
+        let mut cs = build_ironclad_combat();
+        cs.allies[0].powers.push(PowerInstance {
+            id: "HellraiserPower".to_string(), amount: 7,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        fire_power_hooks_after_card_played(
+            &mut cs, CombatSide::Player, 0, crate::card::CardType::Skill,
+        );
+        let damage: i32 = cs.enemies.iter()
+            .map(|e| e.max_hp - e.current_hp)
+            .sum();
+        assert_eq!(damage, 0, "Hellraiser shouldn't trigger on Skill plays");
+    }
+
+    /// FlameBarrierPower: reflect damage when owner is attacked.
+    /// RupturePower: gain Strength when owner takes unblockable HP loss.
+    #[test]
+    fn after_damage_received_fires_flame_barrier_and_rupture() {
+        use crate::effects::fire_power_hooks_after_damage_received;
+        let mut cs = build_ironclad_combat();
+        cs.allies[0].powers.push(PowerInstance {
+            id: "FlameBarrierPower".to_string(), amount: 4,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        cs.allies[0].powers.push(PowerInstance {
+            id: "RupturePower".to_string(), amount: 2,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        let attacker_hp_before = cs.enemies[0].current_hp;
+        // Simulate the player took 5 unblocked damage from enemy 0.
+        fire_power_hooks_after_damage_received(
+            &mut cs, CombatSide::Player, 0, 5,
+            Some((CombatSide::Enemy, 0)),
+        );
+        // FlameBarrier(4) → attacker takes 4 dmg.
+        assert!(cs.enemies[0].current_hp < attacker_hp_before,
+            "FlameBarrier should reflect damage to attacker");
+        // Rupture(2) → player gains 2 Strength.
+        let str = cs.allies[0].powers.iter()
+            .find(|p| p.id == "StrengthPower")
+            .map(|p| p.amount).unwrap_or(0);
+        assert_eq!(str, 2,
+            "Rupture(2) on unblocked damage → +2 Strength");
+    }
+
+    /// PyrePower: at start of owner's turn, gain Amount energy.
+    #[test]
+    fn pyre_power_grants_energy_at_turn_start() {
+        let mut cs = build_ironclad_combat();
+        cs.allies[0].powers.push(PowerInstance {
+            id: "PyrePower".to_string(), amount: 3,
+            skip_next_duration_tick: false,
+            state: std::collections::HashMap::new(),
+        });
+        // Drain energy so the gain is observable.
+        cs.allies[0].player.as_mut().unwrap().energy = 0;
+        cs.allies[0].player.as_mut().unwrap().turn_energy = 3;
+        // begin_turn(Player) refreshes turn_energy → 3 AND fires
+        // AfterSideTurnStart hooks → +3 from Pyre = 6 energy total.
+        cs.begin_turn(CombatSide::Player);
+        assert_eq!(cs.allies[0].player.as_ref().unwrap().energy, 6,
+            "PyrePower(3) + base turn_energy(3) = 6 energy at turn start");
     }
 
     /// Wave-1 Ironclad fixes — pure data/effect-list bugs (not power

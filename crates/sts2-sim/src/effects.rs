@@ -2072,11 +2072,60 @@ pub enum PowerHook {
     /// creature the power is being applied to (NOT the applier — i.e.
     /// the new owner of the power).
     BeforeApplied { body: Vec<Effect> },
+    /// C# `AfterBlockGained(amount, target)`. Fires after a creature
+    /// gains block. `body` runs from the perspective of the power's
+    /// owner — `Target::SelfActor` resolves to the owner. The triggering
+    /// gainer's index is the actor. Subscribers: JuggernautPower
+    /// (deal Amount damage to a random enemy on own block gain).
+    AfterBlockGained {
+        filter: HookSideFilter,
+        body: Vec<Effect>,
+    },
+    /// C# `AfterCardExhausted(card)`. Fires when a card is sent to
+    /// the owner's Exhaust pile. Subscribers: DarkEmbracePower
+    /// (draw Amount cards), FeelNoPainPower (gain Amount block).
+    AfterCardExhausted {
+        filter: HookSideFilter,
+        body: Vec<Effect>,
+    },
+    /// C# `AfterCardPlayed(card)`. Fires after a card resolves on the
+    /// owner's side. Subscribers: HellraiserPower / DrumOfBattlePower
+    /// / StampedePower / ViciousPower / CrueltyPower (Attack-only
+    /// reactions). `card_filter` restricts to specific card types.
+    AfterCardPlayed {
+        filter: HookSideFilter,
+        card_filter: CardTypeFilter,
+        body: Vec<Effect>,
+    },
+    /// C# `AfterDamageReceived(...)`. Fires after the owner takes
+    /// damage (block subtracted, residual HP loss applied). The
+    /// `unblocked_only` flag mirrors C#'s common gating pattern
+    /// "only if damage punched through block." Subscribers:
+    /// RupturePower (gain Strength on unblockable self-damage),
+    /// FlameBarrierPower (reflect DamageBack to attacker).
+    AfterDamageReceived {
+        filter: HookSideFilter,
+        unblocked_only: bool,
+        body: Vec<Effect>,
+    },
     // TODO (audit §2): BeforeSideTurnStart, BeforeTurnEnd,
     // AfterApplied, AfterRemoved, BeforeAttack, AfterAttack,
-    // AfterDamageGiven, BeforeDamageReceived, AfterDamageReceived,
-    // AfterCardPlayed, BeforeCardPlayed, AfterDeath, OnHostDeath,
+    // AfterDamageGiven, BeforeCardPlayed, AfterDeath, OnHostDeath,
     // ShouldClearBlock, ShouldDie, ...
+}
+
+/// Filter for `PowerHook::AfterCardPlayed`. Matches the C# pattern of
+/// gating "if (card.Type == CardType.X)" inside `AfterCardPlayed`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CardTypeFilter {
+    /// Any card type triggers the body.
+    Any,
+    /// Only Attack cards trigger.
+    Attack,
+    /// Only Skill cards trigger.
+    Skill,
+    /// Only Power cards trigger.
+    Power,
 }
 
 /// Discriminant for hook side-filtering. Mirrors the C#
@@ -2195,6 +2244,133 @@ pub fn power_effects(power_id: &str) -> Vec<PowerHook> {
                 target: Target::SelfActor,
             }],
         }],
+        // PyrePower: at start of owner's turn, gain Amount energy.
+        // Mirrors C# `PyrePower.AfterSideTurnStart` (Cards/Models/
+        // Powers/PyrePower.cs). One of the buffs that scale with stack.
+        "PyrePower" => vec![PowerHook::AfterSideTurnStart {
+            filter: HookSideFilter::OwnerSide,
+            body: vec![Effect::GainEnergy {
+                amount: AmountSpec::OwnerPowerAmount("PyrePower".to_string()),
+            }],
+        }],
+
+        // JuggernautPower: deal Amount damage to a random enemy when
+        // owner gains block. Mirrors C# JuggernautPower.AfterBlockGained.
+        "JuggernautPower" => vec![PowerHook::AfterBlockGained {
+            filter: HookSideFilter::OwnerSide,
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::OwnerPowerAmount("JuggernautPower".to_string()),
+                target: Target::RandomEnemy,
+                hits: 1,
+            }],
+        }],
+
+        // DarkEmbracePower: draw Amount cards whenever an owned card is
+        // exhausted. Mirrors C# DarkEmbracePower.AfterCardExhausted.
+        "DarkEmbracePower" => vec![PowerHook::AfterCardExhausted {
+            filter: HookSideFilter::OwnerSide,
+            body: vec![Effect::DrawCards {
+                amount: AmountSpec::OwnerPowerAmount("DarkEmbracePower".to_string()),
+            }],
+        }],
+
+        // FeelNoPainPower: gain Amount block (unpowered) on each owned
+        // card exhausted. Mirrors C# FeelNoPainPower.AfterCardExhausted.
+        "FeelNoPainPower" => vec![PowerHook::AfterCardExhausted {
+            filter: HookSideFilter::OwnerSide,
+            body: vec![Effect::GainBlock {
+                amount: AmountSpec::OwnerPowerAmount("FeelNoPainPower".to_string()),
+                target: Target::SelfActor,
+            }],
+        }],
+
+        // HellraiserPower: damage a random enemy = Amount when owner
+        // plays an Attack. Mirrors C# HellraiserPower.AfterCardPlayed.
+        "HellraiserPower" => vec![PowerHook::AfterCardPlayed {
+            filter: HookSideFilter::OwnerSide,
+            card_filter: CardTypeFilter::Attack,
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::OwnerPowerAmount("HellraiserPower".to_string()),
+                target: Target::RandomEnemy,
+                hits: 1,
+            }],
+        }],
+
+        // StampedePower: damage a random enemy = Amount when owner
+        // plays an Attack. Same hook surface as Hellraiser.
+        "StampedePower" => vec![PowerHook::AfterCardPlayed {
+            filter: HookSideFilter::OwnerSide,
+            card_filter: CardTypeFilter::Attack,
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::OwnerPowerAmount("StampedePower".to_string()),
+                target: Target::RandomEnemy,
+                hits: 1,
+            }],
+        }],
+
+        // DrumOfBattlePower: gain Amount Strength after playing an
+        // Attack. Mirrors C# DrumOfBattlePower.AfterCardPlayed.
+        "DrumOfBattlePower" => vec![PowerHook::AfterCardPlayed {
+            filter: HookSideFilter::OwnerSide,
+            card_filter: CardTypeFilter::Attack,
+            body: vec![Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::OwnerPowerAmount("DrumOfBattlePower".to_string()),
+                target: Target::SelfActor,
+            }],
+        }],
+
+        // ViciousPower: apply Vulnerable = Amount to all enemies when
+        // owner plays an Attack. Mirrors C# ViciousPower.AfterCardPlayed.
+        "ViciousPower" => vec![PowerHook::AfterCardPlayed {
+            filter: HookSideFilter::OwnerSide,
+            card_filter: CardTypeFilter::Attack,
+            body: vec![Effect::ApplyPower {
+                power_id: "VulnerablePower".to_string(),
+                amount: AmountSpec::OwnerPowerAmount("ViciousPower".to_string()),
+                target: Target::AllEnemies,
+            }],
+        }],
+
+        // CrueltyPower: gain Amount Strength after playing an Attack.
+        // (STS2 C# CrueltyPower follows the StS1 "Strength after
+        // attack" buff pattern — mirror DrumOfBattle behavior.)
+        "CrueltyPower" => vec![PowerHook::AfterCardPlayed {
+            filter: HookSideFilter::OwnerSide,
+            card_filter: CardTypeFilter::Attack,
+            body: vec![Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::OwnerPowerAmount("CrueltyPower".to_string()),
+                target: Target::SelfActor,
+            }],
+        }],
+
+        // FlameBarrierPower: when owner is attacked, deal DamageBack
+        // (= Amount) unblockable damage to the attacker. Mirrors C#
+        // FlameBarrierPower.AfterDamageReceived. We use the unblocked-
+        // only gate to align with C#'s "actually took a hit" path.
+        "FlameBarrierPower" => vec![PowerHook::AfterDamageReceived {
+            filter: HookSideFilter::OwnerSide,
+            unblocked_only: false,
+            body: vec![Effect::DealDamage {
+                amount: AmountSpec::OwnerPowerAmount("FlameBarrierPower".to_string()),
+                target: Target::ChosenEnemy,
+                hits: 1,
+            }],
+        }],
+
+        // RupturePower: gain Amount Strength when owner takes
+        // unblockable HP damage. Mirrors C# RupturePower.AfterDamageReceived
+        // (Unblockable + non-zero damage gate).
+        "RupturePower" => vec![PowerHook::AfterDamageReceived {
+            filter: HookSideFilter::OwnerSide,
+            unblocked_only: true,
+            body: vec![Effect::ApplyPower {
+                power_id: "StrengthPower".to_string(),
+                amount: AmountSpec::OwnerPowerAmount("RupturePower".to_string()),
+                target: Target::SelfActor,
+            }],
+        }],
         // TODO Strength/Dex/Weak/Vulnerable/Frail/Intangible:
         // These are damage/block VALUE-FLOW modifier hooks
         // (ModifyDamageAdditive / ModifyDamageMultiplicative / etc.),
@@ -2222,6 +2398,190 @@ pub fn fire_power_hooks_after_side_turn_start(
         PowerHook::AfterSideTurnStart { filter, body } => Some((*filter, body.as_slice())),
         _ => None,
     });
+}
+
+/// Walk every creature's powers and execute any `AfterBlockGained`
+/// hooks. The triggering creature is `(gainer_side, gainer_idx)`;
+/// hooks fire when their owner matches that creature (OwnerSide
+/// semantics) or on every gain (Any semantics).
+pub fn fire_power_hooks_after_block_gained(
+    cs: &mut CombatState,
+    gainer_side: CombatSide,
+    gainer_idx: usize,
+) {
+    let triggers = collect_after_block_gained_triggers(cs, gainer_side, gainer_idx);
+    run_triggered_power_bodies(cs, &triggers);
+}
+
+fn collect_after_block_gained_triggers(
+    cs: &CombatState,
+    gainer_side: CombatSide,
+    gainer_idx: usize,
+) -> Vec<(CombatSide, usize, i32, Vec<Effect>)> {
+    let mut out = Vec::new();
+    let collect = |side: CombatSide, idx: usize, c: &crate::combat::Creature, out: &mut Vec<_>| {
+        for p in &c.powers {
+            if p.amount <= 0 { continue }
+            for hook in power_effects(&p.id) {
+                if let PowerHook::AfterBlockGained { filter, body } = hook {
+                    let owner_matches = side == gainer_side && idx == gainer_idx;
+                    let pass = match filter {
+                        HookSideFilter::OwnerSide => owner_matches,
+                        HookSideFilter::Any => true,
+                    };
+                    if pass {
+                        out.push((side, idx, p.amount, body));
+                    }
+                }
+            }
+        }
+    };
+    for (i, c) in cs.allies.iter().enumerate() {
+        collect(CombatSide::Player, i, c, &mut out);
+    }
+    for (i, c) in cs.enemies.iter().enumerate() {
+        collect(CombatSide::Enemy, i, c, &mut out);
+    }
+    out
+}
+
+/// Walk every creature's powers and execute any `AfterCardExhausted`
+/// hooks. The owner of the exhausting card is `(exhauster_side, idx)`.
+pub fn fire_power_hooks_after_card_exhausted(
+    cs: &mut CombatState,
+    exhauster_side: CombatSide,
+    exhauster_idx: usize,
+) {
+    let triggers = collect_filtered_triggers(cs, exhauster_side, exhauster_idx, |hook| match hook {
+        PowerHook::AfterCardExhausted { filter, body } => Some((*filter, body.clone())),
+        _ => None,
+    });
+    run_triggered_power_bodies(cs, &triggers);
+}
+
+/// Walk every creature's powers and execute any `AfterCardPlayed`
+/// hooks matching the card type. Called from `play_card` after the
+/// card resolves.
+pub fn fire_power_hooks_after_card_played(
+    cs: &mut CombatState,
+    player_side: CombatSide,
+    player_idx: usize,
+    card_type: crate::card::CardType,
+) {
+    let triggers = collect_filtered_triggers(cs, player_side, player_idx, |hook| match hook {
+        PowerHook::AfterCardPlayed { filter, card_filter, body } => {
+            let type_ok = match card_filter {
+                CardTypeFilter::Any => true,
+                CardTypeFilter::Attack => matches!(card_type, crate::card::CardType::Attack),
+                CardTypeFilter::Skill => matches!(card_type, crate::card::CardType::Skill),
+                CardTypeFilter::Power => matches!(card_type, crate::card::CardType::Power),
+            };
+            if type_ok { Some((*filter, body.clone())) } else { None }
+        }
+        _ => None,
+    });
+    run_triggered_power_bodies(cs, &triggers);
+}
+
+/// Walk every creature's powers and execute any `AfterDamageReceived`
+/// hooks. `damage_taken` is the residual HP loss; `unblocked_only`
+/// hooks only fire when `damage_taken > 0`.
+pub fn fire_power_hooks_after_damage_received(
+    cs: &mut CombatState,
+    receiver_side: CombatSide,
+    receiver_idx: usize,
+    damage_taken: i32,
+    attacker: Option<(CombatSide, usize)>,
+) {
+    let triggers: Vec<(CombatSide, usize, i32, Vec<Effect>)> = {
+        let mut out = Vec::new();
+        let collect = |side: CombatSide, idx: usize, c: &crate::combat::Creature, out: &mut Vec<_>| {
+            for p in &c.powers {
+                if p.amount <= 0 { continue }
+                for hook in power_effects(&p.id) {
+                    if let PowerHook::AfterDamageReceived { filter, unblocked_only, body } = hook {
+                        let owner_matches =
+                            side == receiver_side && idx == receiver_idx;
+                        let pass = match filter {
+                            HookSideFilter::OwnerSide => owner_matches,
+                            HookSideFilter::Any => true,
+                        };
+                        if !pass { continue; }
+                        if unblocked_only && damage_taken <= 0 { continue; }
+                        out.push((side, idx, p.amount, body));
+                    }
+                }
+            }
+        };
+        for (i, c) in cs.allies.iter().enumerate() {
+            collect(CombatSide::Player, i, c, &mut out);
+        }
+        for (i, c) in cs.enemies.iter().enumerate() {
+            collect(CombatSide::Enemy, i, c, &mut out);
+        }
+        out
+    };
+    // For AfterDamageReceived hooks, the ChosenEnemy target should
+    // resolve to the attacker. Set ctx.target accordingly.
+    for (owner_side, owner_idx, host_amount, body) in triggers {
+        let mut ctx = EffectContext::for_power_hook(
+            (owner_side, owner_idx), host_amount,
+        );
+        ctx.target = attacker;
+        execute_effects(cs, &body, &ctx);
+    }
+}
+
+/// Shared collector: walk all creatures, extract hook bodies via
+/// `f` that match the actor's `(side, idx)`. Each trigger carries
+/// the FIRING power's amount so `OwnerPowerAmount` resolves to that
+/// specific power's stack (not max-of-all-powers).
+fn collect_filtered_triggers<F>(
+    cs: &CombatState,
+    actor_side: CombatSide,
+    actor_idx: usize,
+    extract: F,
+) -> Vec<(CombatSide, usize, i32, Vec<Effect>)>
+where
+    F: Fn(&PowerHook) -> Option<(HookSideFilter, Vec<Effect>)>,
+{
+    let mut out = Vec::new();
+    let collect = |side: CombatSide, idx: usize, c: &crate::combat::Creature, out: &mut Vec<_>| {
+        for p in &c.powers {
+            if p.amount <= 0 { continue }
+            for hook in power_effects(&p.id) {
+                if let Some((filter, body)) = extract(&hook) {
+                    let owner_matches = side == actor_side && idx == actor_idx;
+                    let pass = match filter {
+                        HookSideFilter::OwnerSide => owner_matches,
+                        HookSideFilter::Any => true,
+                    };
+                    if pass {
+                        out.push((side, idx, p.amount, body));
+                    }
+                }
+            }
+        }
+    };
+    for (i, c) in cs.allies.iter().enumerate() {
+        collect(CombatSide::Player, i, c, &mut out);
+    }
+    for (i, c) in cs.enemies.iter().enumerate() {
+        collect(CombatSide::Enemy, i, c, &mut out);
+    }
+    out
+}
+
+fn run_triggered_power_bodies(
+    cs: &mut CombatState,
+    triggers: &[(CombatSide, usize, i32, Vec<Effect>)],
+) {
+    for (owner_side, owner_idx, host_amount, body) in triggers {
+        let ctx = EffectContext::for_power_hook(
+            (*owner_side, *owner_idx), *host_amount,
+        );
+        execute_effects(cs, body, &ctx);
+    }
 }
 
 /// Fire any registered `BeforeApplied` body for `power_id` on the
