@@ -7521,7 +7521,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
 
 // are not yet ported. See `// SKIP` comments for reasons.
         "Abrasive" => Some(vec![Effect::ApplyPower { power_id: "DexterityPower".to_string(), amount: AmountSpec::Canonical("DexterityPower".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "ThornsPower".to_string(), amount: AmountSpec::Canonical("ThornsPower".to_string()), target: Target::SelfPlayer }]),
-        "Accelerant" => Some(vec![Effect::ApplyPower { power_id: "AccelerantPower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
+        "Accelerant" => Some(vec![Effect::ApplyPower { power_id: "AccelerantPower".to_string(), amount: AmountSpec::Canonical("Accelerant".to_string()), target: Target::SelfPlayer }]),
         "Accuracy" => Some(vec![Effect::ApplyPower { power_id: "AccuracyPower".to_string(), amount: AmountSpec::Canonical("AccuracyPower".to_string()), target: Target::SelfPlayer }]),
         "Afterimage" => Some(vec![Effect::ApplyPower { power_id: "AfterimagePower".to_string(), amount: AmountSpec::Canonical("AfterimagePower".to_string()), target: Target::SelfPlayer }]),
         "Aggression" => Some(vec![Effect::ApplyPower { power_id: "AggressionPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
@@ -8084,7 +8084,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "NeutronAegis" => Some(vec![Effect::ApplyPower { power_id: "PlatingPower".to_string(), amount: AmountSpec::Canonical("PlatingPower".to_string()), target: Target::SelfPlayer }]),
         "Normality" => Some(vec![]),
         "Nostalgia" => Some(vec![Effect::ApplyPower { power_id: "NostalgiaPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
-        "NoxiousFumes" => Some(vec![Effect::ApplyPower { power_id: "NoxiousFumesPower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
+        "NoxiousFumes" => Some(vec![Effect::ApplyPower { power_id: "NoxiousFumesPower".to_string(), amount: AmountSpec::Canonical("PoisonPerTurn".to_string()), target: Target::SelfPlayer }]),
         "Null" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }, Effect::ApplyPower { power_id: "WeakPower".to_string(), amount: AmountSpec::Canonical("WeakPower".to_string()), target: Target::ChosenEnemy }]),
         "Oblivion" => Some(vec![Effect::ApplyPower { power_id: "OblivionPower".to_string(), amount: AmountSpec::Canonical("Doom".to_string()), target: Target::ChosenEnemy }]),
         "Orbit" => Some(vec![Effect::ApplyPower { power_id: "OrbitPower".to_string(), amount: AmountSpec::Canonical("Energy".to_string()), target: Target::SelfPlayer }]),
@@ -8424,7 +8424,7 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         "VoidForm" => Some(vec![Effect::ApplyPower { power_id: "VoidFormPower".to_string(), amount: AmountSpec::Canonical("VoidFormPower".to_string()), target: Target::SelfPlayer }]),
         "Volley" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::RandomEnemy, hits: 1 }]),
         "WasteAway" => Some(vec![]),
-        "WellLaidPlans" => Some(vec![Effect::ApplyPower { power_id: "WellLaidPlansPower".to_string(), amount: AmountSpec::Canonical("Dynamic".to_string()), target: Target::SelfPlayer }]),
+        "WellLaidPlans" => Some(vec![Effect::ApplyPower { power_id: "WellLaidPlansPower".to_string(), amount: AmountSpec::Canonical("RetainAmount".to_string()), target: Target::SelfPlayer }]),
         "Whistle" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "Wisp" => Some(vec![Effect::GainEnergy { amount: AmountSpec::Canonical("Energy".to_string()) }]),
         "Wound" => Some(vec![]),

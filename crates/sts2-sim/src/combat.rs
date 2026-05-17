@@ -13108,6 +13108,76 @@ mod tests {
         assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 5);
     }
 
+    /// Silent wave-1: canonical-var key fixes. Each card applied
+    /// the right Power but with amount = 0 because the rust body
+    /// looked up `Canonical("Dynamic")` instead of the actual key.
+
+    #[test]
+    fn accelerant_applies_correct_stack_count() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+        let silent = character::by_id("Silent").unwrap();
+        let setup = PlayerSetup {
+            character: silent, current_hp: 70, max_hp: 70,
+            deck: deck_from_ids(&silent.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(
+            encounter::by_id("AxebotsNormal").unwrap(),
+            vec![setup], Vec::new(),
+        );
+        let effects = card_effects("Accelerant").expect("Accelerant exists");
+        let ctx = EffectContext::for_card(0, None, "Accelerant", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let stacks = cs.allies[0].powers.iter()
+            .find(|p| p.id == "AccelerantPower")
+            .map(|p| p.amount).unwrap_or(0);
+        assert_eq!(stacks, 1, "AccelerantPower base = 1 stack");
+    }
+
+    #[test]
+    fn noxious_fumes_applies_correct_stack_count() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+        let silent = character::by_id("Silent").unwrap();
+        let setup = PlayerSetup {
+            character: silent, current_hp: 70, max_hp: 70,
+            deck: deck_from_ids(&silent.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(
+            encounter::by_id("AxebotsNormal").unwrap(),
+            vec![setup], Vec::new(),
+        );
+        let effects = card_effects("NoxiousFumes").unwrap();
+        let ctx = EffectContext::for_card(0, None, "NoxiousFumes", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let stacks = cs.allies[0].powers.iter()
+            .find(|p| p.id == "NoxiousFumesPower")
+            .map(|p| p.amount).unwrap_or(0);
+        assert_eq!(stacks, 2, "NoxiousFumesPower base = 2 (PoisonPerTurn)");
+    }
+
+    #[test]
+    fn well_laid_plans_applies_correct_stack_count() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+        let silent = character::by_id("Silent").unwrap();
+        let setup = PlayerSetup {
+            character: silent, current_hp: 70, max_hp: 70,
+            deck: deck_from_ids(&silent.starting_deck),
+            relics: Vec::new(),
+        };
+        let mut cs = CombatState::start(
+            encounter::by_id("AxebotsNormal").unwrap(),
+            vec![setup], Vec::new(),
+        );
+        let effects = card_effects("WellLaidPlans").unwrap();
+        let ctx = EffectContext::for_card(0, None, "WellLaidPlans", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let stacks = cs.allies[0].powers.iter()
+            .find(|p| p.id == "WellLaidPlansPower")
+            .map(|p| p.amount).unwrap_or(0);
+        assert_eq!(stacks, 1, "WellLaidPlansPower base = 1 (RetainAmount)");
+    }
+
     /// Stomp's effective cost lowers by 1 per Attack played this
     /// turn (C# `Stomp.BeforeCardPlayed` + `AfterCardEnteredCombat`).
     /// After 3 attacks → Stomp costs 0.

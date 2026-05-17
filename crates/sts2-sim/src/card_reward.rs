@@ -84,9 +84,11 @@ pub fn roll_card_rarity(rs: &mut RunState, kind: CardRewardKind) -> CardRarity {
 pub fn is_multiplayer_only(card_id: &str) -> bool {
     matches!(card_id,
         // Ironclad
-        "Tank" | "DemonicShield"
-        // Silent / Defect / Regent / Necrobinder: confirm via
-        // extractor pass; add ids here as they surface.
+        | "Tank" | "DemonicShield"
+        // Silent
+        | "Flanking" | "Sneaky"
+        // Defect / Regent / Necrobinder: confirm via extractor pass;
+        // add ids here as they surface.
     )
 }
 
