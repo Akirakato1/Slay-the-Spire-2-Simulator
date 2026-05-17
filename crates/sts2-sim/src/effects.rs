@@ -119,6 +119,13 @@ pub enum AmountSpec {
     /// CrimsonMantle / Inferno / Juggling whose AfterTurnStart hook
     /// reads a value that grows over the combat as the card is replayed.
     OwnerPowerStateField { power_id: String, field: String },
+    /// Count of distinct unblocked-damage events the active player
+    /// has taken this combat (each hit that punched through block
+    /// bumps the counter once). Mirrors C# `History.Entries
+    /// .OfType<DamageReceivedEntry>().Count(e => e.Receiver == owner
+    /// && e.Result.UnblockedDamage > 0)`. TearAsunder uses this to
+    /// scale its hit count: `hits = 1 + UnblockedDamageEventsThisCombat`.
+    OwnerUnblockedDamageEventsThisCombat,
     /// Ascension-scaled literal. Mirrors C#
     /// `AscensionHelper.GetValueIfAscension(threshold, ascended, base)`:
     /// returns `ascended` when `cs.ascension >= threshold`, else `base`.
@@ -1500,6 +1507,12 @@ impl AmountSpec {
                 creature
                     .and_then(|c| c.powers.iter().find(|p| p.id == *power_id))
                     .and_then(|p| p.state.get(field).copied())
+                    .unwrap_or(0)
+            }
+            AmountSpec::OwnerUnblockedDamageEventsThisCombat => {
+                cs.allies.get(ctx.player_idx)
+                    .and_then(|c| c.player.as_ref())
+                    .map(|ps| ps.unblocked_damage_events_received)
                     .unwrap_or(0)
             }
             AmountSpec::SelfBlock => {
@@ -8328,7 +8341,24 @@ pub fn card_effects(card_id: &str) -> Option<Vec<Effect>> {
         ]),
         "Tank" => Some(vec![Effect::ApplyPower { power_id: "TankPower".to_string(), amount: AmountSpec::Fixed(1), target: Target::SelfPlayer }]),
         "Taunt" => Some(vec![Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer }, Effect::ApplyPower { power_id: "VulnerablePower".to_string(), amount: AmountSpec::Canonical("VulnerablePower".to_string()), target: Target::ChosenEnemy }]),
-        "TearAsunder" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
+        "TearAsunder" => Some(vec![
+            // C# TearAsunder.cs:48 — WithHitCount =
+            //   1 + count of unblocked DamageReceivedEntries
+            // for the owner this combat. Each hit deals Damage (5 base,
+            // +2 upgraded). Encoded as Repeat over single-hit DealDamage
+            // since DealDamage.hits is i32 (not AmountSpec).
+            Effect::Repeat {
+                count: AmountSpec::Add {
+                    left: Box::new(AmountSpec::Fixed(1)),
+                    right: Box::new(AmountSpec::OwnerUnblockedDamageEventsThisCombat),
+                },
+                body: vec![Effect::DealDamage {
+                    amount: AmountSpec::Canonical("Damage".to_string()),
+                    target: Target::ChosenEnemy,
+                    hits: 1,
+                }],
+            },
+        ]),
         "TeslaCoil" => Some(vec![Effect::DealDamage { amount: AmountSpec::Canonical("Damage".to_string()), target: Target::ChosenEnemy, hits: 1 }]),
         "TheGambit" => Some(vec![
             Effect::GainBlock { amount: AmountSpec::Canonical("Block".to_string()), target: Target::SelfPlayer },

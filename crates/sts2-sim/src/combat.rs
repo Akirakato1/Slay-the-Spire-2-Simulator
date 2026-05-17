@@ -100,6 +100,12 @@ pub struct PlayerState {
     /// of `AllCards`). Routed out to discard / exhaust / consumed
     /// after dispatch.
     pub play_pile: Vec<CardInstance>,
+    /// Count of unblocked-damage events the owner has taken this
+    /// combat (i.e. how many distinct hits punched through block).
+    /// Bumped in the damage path when `hp_lost > 0` and the target is
+    /// this player. Read by `AmountSpec::OwnerUnblockedDamageEventsThisCombat`
+    /// (TearAsunder scales hit count by this counter).
+    pub unblocked_damage_events_received: i32,
     /// Potion ids rolled by `Effect::GenerateRandomPotion` /
     /// `Effect::FillPotionSlots` during this combat. The strategic
     /// layer (RunState fold via `apply_combat_outcome`) pushes these
@@ -3258,6 +3264,14 @@ impl CombatState {
         }
         let modified = self.modify_damage(dealer, target, raw, props);
         let outcome = self.apply_damage(target.0, target.1, modified);
+        // Bump per-player unblocked-damage event counter. Read by
+        // `AmountSpec::OwnerUnblockedDamageEventsThisCombat` (TearAsunder
+        // scales its hit count by this counter).
+        if outcome.hp_lost > 0 && target.0 == CombatSide::Player {
+            if let Some(ps) = self.allies.get_mut(target.1).and_then(|c| c.player.as_mut()) {
+                ps.unblocked_damage_events_received += 1;
+            }
+        }
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
         self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
         // Generic AfterDamageReceived power hooks (FlameBarrier
@@ -3752,6 +3766,11 @@ impl CombatState {
         }
         let modified = self.modify_damage_full(dealer, target, raw, props, enchantment, dctx);
         let outcome = self.apply_damage_with_hp_modifiers(target.0, target.1, modified, props, dctx);
+        if outcome.hp_lost > 0 && target.0 == CombatSide::Player {
+            if let Some(ps) = self.allies.get_mut(target.1).and_then(|c| c.player.as_mut()) {
+                ps.unblocked_damage_events_received += 1;
+            }
+        }
         self.fire_after_damage_given_hooks(dealer, target, &outcome, props);
         self.fire_after_damage_received_hooks(dealer, target, &outcome, props);
         crate::effects::fire_power_hooks_after_damage_received(
@@ -12825,6 +12844,7 @@ impl Creature {
                 discard: CardPile::new(PileType::Discard),
                 exhaust: CardPile::new(PileType::Exhaust),
                 play_pile: Vec::new(),
+                unblocked_damage_events_received: 0,
                 potions_added_this_combat: Vec::new(),
                 energy: DEFAULT_TURN_ENERGY,
                 turn_energy: DEFAULT_TURN_ENERGY,
@@ -13008,6 +13028,39 @@ mod tests {
         };
         let cs = CombatState::start(encounter, vec![setup], Vec::new());
         assert_eq!(fire_modify_hand_draw_hooks(&cs, 0, 5), 5);
+    }
+
+    /// TearAsunder hit count scales with the player's tally of
+    /// unblocked-damage events this combat. Start: 1 hit. After
+    /// taking unblocked damage twice → 3 hits.
+    #[test]
+    fn tear_asunder_scales_hits_with_unblocked_damage_history() {
+        use crate::effects::{EffectContext, execute_effects, card_effects};
+
+        // Setup A: fresh combat, no damage taken yet → 1 hit, 5 damage.
+        let mut cs = build_ironclad_combat();
+        let effects = card_effects("TearAsunder").expect("TearAsunder exists");
+        let target = (CombatSide::Enemy, 0);
+        let hp_before = cs.enemies[0].current_hp;
+        let ctx = EffectContext::for_card(0, Some(target), "TearAsunder", 0, None, 0);
+        execute_effects(&mut cs, &effects, &ctx);
+        let damage_a = hp_before - cs.enemies[0].current_hp;
+        assert_eq!(damage_a, 5, "TearAsunder base = 1 hit × 5 damage");
+
+        // Setup B: player takes 2 unblocked hits first → 3 hits, 15.
+        let mut cs = build_ironclad_combat();
+        let player_target = (CombatSide::Player, 0);
+        cs.deal_damage((CombatSide::Enemy, 0), player_target, 5, ValueProp::MOVE);
+        cs.deal_damage((CombatSide::Enemy, 0), player_target, 5, ValueProp::MOVE);
+        assert_eq!(
+            cs.allies[0].player.as_ref().unwrap().unblocked_damage_events_received,
+            2,
+        );
+        let hp_before = cs.enemies[0].current_hp;
+        execute_effects(&mut cs, &effects, &ctx);
+        let damage_b = hp_before - cs.enemies[0].current_hp;
+        assert_eq!(damage_b, 15,
+            "After 2 unblocked hits, TearAsunder = 3 hits × 5 = 15");
     }
 
     /// Wave-3 Ironclad fixes — per-power-instance state + AfterPlayerTurnStart.
